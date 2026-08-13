@@ -1,0 +1,54 @@
+---
+description: Reglas de producto, UI y frontend de Nocta (dark, Bootstrap, responsive)
+alwaysApply: true
+---
+
+# Nocta — reglas del proyecto
+
+App de citas acotada a salidas nocturnas. Perfil oculto hasta publicarse en un local. MVP: `user` | `admin` (sin owners).
+
+## Responsive (obligatorio — 3 breakpoints)
+
+La UI **debe** existir y verse bien en **mobile, tablet y desktop**. Mobile-first; mobile es la base para la futura app nativa.
+
+| Breakpoint | Ancho (Bootstrap) | Prioridad | Patrón |
+|------------|-------------------|-----------|--------|
+| **Mobile** | `< 768px` | Alta (base app) | Tab bar inferior, full-bleed, listas densas, swipe tipo Tinder |
+| **Tablet** | `≥ 768px` | Media | Top nav + contenido más ancho; grids 2 cols; discover centrado |
+| **Desktop** | `≥ 992px` | Media | Top nav, canvas amplio, grids 3 cols, discover centrado sin forzar “marco de teléfono” |
+
+- **No** limitar desktop/tablet a un frame de ~430px.
+- En mobile sí: jerarquía y gestos de dating app (referencia Tinder).
+- Poco anidamiento / pocas cajas; texto e imagen sobre el canvas; sin huecos vacíos grandes.
+
+## Anti-patrones
+
+```tsx
+// ❌ BAD — solo móvil / marco fijo en todos los tamaños
+<div style={{ maxWidth: 430, margin: "0 auto" }}>…
+
+// ❌ BAD — cards anidadas
+<div className="card"><div className="card-body"><div className="alert">…
+
+// ✅ GOOD — mobile-first + utilidades responsive
+<nav className="tab-bar d-md-none">…</nav>
+<nav className="d-none d-md-flex">…</nav>
+<div className="row row-cols-1 row-cols-md-2 row-cols-lg-3">…
+```
+
+## Frontend
+
+- Bootstrap 5 + Bootstrap Icons (iconos solo en botones/menús/tabs, nunca en títulos).
+- Docs: https://getbootstrap.com/docs/5.3/ · https://icons.getbootstrap.com/
+- Variables CSS dark OK.
+
+## Stack MVP
+
+- `apps/web`, `apps/api`, `packages/shared`
+- Una presencia activa; deck por `venueId`
+
+## Documentación
+
+- Hay **un solo** `README.md` en la raíz del monorepo.
+- Al cambiar APIs, pantallas, env, seed o convenciones, **actualizar la sección Backend o Frontend** (o ambas si es transversal).
+- No crear READMEs paralelos en `apps/api` o `apps/web` salvo pedido explícito.

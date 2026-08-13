@@ -1,0 +1,21 @@
+{
+  "name": "nocta",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build -w @nocta/shared",
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev -w @nocta/api",
+    "dev:web": "npm run dev -w @nocta/web",
+    "build": "npm run build -w @nocta/shared && npm run build -w @nocta/api --if-present && npm run build -w @nocta/web --if-present",
+    "build:shared": "npm run build -w @nocta/shared",
+    "seed": "npm run seed -w @nocta/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
