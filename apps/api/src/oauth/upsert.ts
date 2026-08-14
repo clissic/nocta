@@ -36,6 +36,7 @@ export async function upsertOAuthUser(
       });
     }
     user.authProvider = profile.provider;
+    user.emailVerified = true;
     await user.save();
     return user;
   }
@@ -45,6 +46,7 @@ export async function upsertOAuthUser(
     role: "user",
     profileComplete: false,
     profile: null,
+    emailVerified: true,
     authProvider: profile.provider,
     oauthAccounts: [
       {

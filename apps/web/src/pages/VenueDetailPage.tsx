@@ -8,12 +8,17 @@ import {
   type Venue,
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
+import { VenueMap } from "../components/VenueMap";
+
+const FALLBACK_PHOTO =
+  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=1200";
 
 export function VenueDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [venue, setVenue] = useState<Venue | null>(null);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [presence, setPresence] = useState<Presence | null>(null);
   const [hours, setHours] = useState<number | null>(24);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,12 +28,14 @@ export function VenueDetailPage() {
     let alive = true;
     (async () => {
       try {
-        const data = await api<{ venue: Venue; promotions: Promotion[] }>(
-          `/api/venues/${id}`
-        );
+        const [data, presenceResponse] = await Promise.all([
+          api<{ venue: Venue; promotions: Promotion[] }>(`/api/venues/${id}`),
+          api<{ presence: Presence | null }>("/api/presence/me"),
+        ]);
         if (!alive) return;
         setVenue(data.venue);
         setPromotions(data.promotions);
+        setPresence(presenceResponse.presence);
       } catch {
         if (alive) setError("Local no encontrado");
       } finally {
@@ -62,79 +69,136 @@ export function VenueDetailPage() {
     return <div className="app-screen text-danger">{error || "Local no encontrado"}</div>;
   }
 
+  const isPublishedHere = presence?.venueId === venue.id;
+  const hero = venue.photos.filter(Boolean)[0] ?? FALLBACK_PHOTO;
+
   return (
-    <div className="app-screen flush fade-in">
-      <div className="position-relative">
-        <img
-          className="bleed-cover"
-          src={
-            venue.photos[0] ??
-            "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=1000"
-          }
-          alt={venue.name}
-        />
-        <button
-          type="button"
-          className="btn btn-dark btn-sm position-absolute top-0 start-0 m-2 m-md-3 rounded-circle"
-          style={{ width: 36, height: 36 }}
-          aria-label="Volver"
-          onClick={() => navigate("/")}
-        >
-          <i className="bi bi-arrow-left" aria-hidden="true"></i>
-        </button>
-      </div>
-
-      <div className="px-3 px-md-0 pt-3 pb-4" style={{ maxWidth: 640 }}>
-        <p className="text-secondary small mb-1">{VENUE_TYPE_LABELS[venue.type]}</p>
-        <h1 className="app-title h3 mb-1">{venue.name}</h1>
-        <p className="text-secondary small mb-2">{venue.address}</p>
-        {venue.description && <p className="mb-3">{venue.description}</p>}
-
-        {!!promotions.length && (
-          <section className="mb-3">
-            <h2 className="h6 text-secondary text-uppercase mb-2" style={{ letterSpacing: "0.06em" }}>
-              Promos
-            </h2>
-            {promotions.map((p) => (
-              <div key={p.id} className="py-2 border-bottom border-secondary">
-                <strong>{p.title}</strong>
-                <p className="text-secondary small mb-0">{p.description}</p>
-              </div>
-            ))}
-          </section>
-        )}
-
-        <h2 className="h6 mb-2">Publicarme aquí</h2>
-        <p className="text-secondary small mb-2">
-          Visible solo para quienes también se publicaron en este local.
-        </p>
-        <div className="d-flex flex-wrap gap-2 mb-3">
-          {PRESENCE_PRESETS.map((preset) => (
+    <div className="app-screen flush venue-detail-page fade-in">
+      <div className="venue-detail-layout">
+        <div className="venue-detail-media">
+          <div className="venue-detail-hero">
+            <img src={hero} alt={venue.name} />
+            <div className="venue-detail-hero-fade" />
             <button
-              key={preset.label}
               type="button"
-              className={`btn btn-sm btn-outline-secondary rounded-pill choice-btn ${
-                hours === preset.hours ? "active" : ""
-              }`}
-              onClick={() => setHours(preset.hours)}
+              className="venue-detail-back"
+              aria-label="Volver"
+              onClick={() => navigate("/")}
             >
-              {preset.label}
+              <i className="bi bi-arrow-left" aria-hidden="true" />
             </button>
-          ))}
+            <div className="venue-detail-hero-caption d-md-none">
+              <span className="venue-detail-type">
+                {VENUE_TYPE_LABELS[venue.type]}
+              </span>
+              <h1 className="app-title h3 mb-1 text-white">{venue.name}</h1>
+              <p className="mb-0 small text-white-50">{venue.address}</p>
+            </div>
+          </div>
         </div>
-        {error && <p className="text-danger small">{error}</p>}
-        <button
-          className="btn btn-primary w-100"
-          type="button"
-          disabled={busy}
-          onClick={publish}
-        >
-          <i className="bi bi-broadcast-pin me-1" aria-hidden="true"></i>
-          {busy ? "Publicando…" : "Publicar perfil"}
-        </button>
-        <Link to="/discover" className="btn btn-link link-secondary w-100 mt-1">
-          Ir al Discover
-        </Link>
+
+        <div className="venue-detail-info">
+          <div className="venue-detail-body">
+            <header className="venue-detail-head d-none d-md-block">
+              <span className="venue-detail-type">
+                {VENUE_TYPE_LABELS[venue.type]}
+              </span>
+              <h1 className="app-title h3 mb-1">{venue.name}</h1>
+              <p className="text-secondary small mb-0">{venue.address}</p>
+            </header>
+
+            {venue.description && (
+              <section className="venue-detail-section">
+                <h2 className="venue-detail-label">Sobre el lugar</h2>
+                <p className="mb-0 venue-detail-desc">{venue.description}</p>
+              </section>
+            )}
+
+            {!!promotions.length && (
+              <section className="venue-detail-section">
+                <h2 className="venue-detail-label">Promos</h2>
+                <div className="venue-detail-promos">
+                  {promotions.map((promotion) => (
+                    <div key={promotion.id} className="venue-detail-promo">
+                      <strong>{promotion.title}</strong>
+                      <p className="text-secondary small mb-0">
+                        {promotion.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          <section className="venue-detail-action">
+            {isPublishedHere ? (
+              <>
+                <div className="venue-detail-status">
+                  <span className="live-dot" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <div className="text-primary small fw-semibold">
+                      Publicado aquí
+                    </div>
+                    <p className="text-secondary small mb-0">
+                      Tu perfil está visible. Seguí buscando gente en Discover.
+                    </p>
+                  </div>
+                </div>
+                {error && <p className="text-danger small mb-2">{error}</p>}
+                <Link to="/discover" className="btn btn-primary w-100">
+                  <i className="bi bi-fire me-1" aria-hidden="true" />
+                  Ir al Discover
+                </Link>
+              </>
+            ) : (
+              <>
+                <h2 className="venue-detail-label">Publicarme aquí</h2>
+                <p className="text-secondary small mb-2">
+                  Visible solo para quienes también se publicaron en este local.
+                </p>
+                <div
+                  className="venue-detail-presets"
+                  role="group"
+                  aria-label="Duración"
+                >
+                  {PRESENCE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      className={`venue-filter-chip${
+                        hours === preset.hours ? " is-active" : ""
+                      }`}
+                      onClick={() => setHours(preset.hours)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                {error && <p className="text-danger small mb-2">{error}</p>}
+                <button
+                  className="btn btn-primary w-100"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void publish()}
+                >
+                  <i
+                    className="bi bi-broadcast-pin me-1"
+                    aria-hidden="true"
+                  />
+                  {busy ? "Publicando…" : "Publicar perfil"}
+                </button>
+              </>
+            )}
+          </section>
+        </div>
+
+        <VenueMap
+          name={venue.name}
+          address={venue.address}
+          city={venue.city}
+          location={venue.location}
+        />
       </div>
     </div>
   );

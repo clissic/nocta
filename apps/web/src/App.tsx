@@ -3,6 +3,7 @@ import { useAuth } from "./auth/AuthContext";
 import { AppLayout } from "./components/AppLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { VerifyEmailPage } from "./pages/VerifyEmailPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { VenuesPage } from "./pages/VenuesPage";
@@ -17,6 +18,14 @@ function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="app-shell"><div className="app-frame"><div className="app-screen text-secondary">Cargando…</div></div></div>;
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function RequireVerified({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user && !user.emailVerified && user.role === "user") {
+    return <Navigate to="/verify-email" replace />;
+  }
   return children;
 }
 
@@ -39,13 +48,16 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
       <Route
         path="/onboarding"
         element={
           <Protected>
-            <OnboardingPage />
+            <RequireVerified>
+              <OnboardingPage />
+            </RequireVerified>
           </Protected>
         }
       />
@@ -53,9 +65,11 @@ export default function App() {
       <Route
         element={
           <Protected>
-            <RequireProfile>
-              <AppLayout />
-            </RequireProfile>
+            <RequireVerified>
+              <RequireProfile>
+                <AppLayout />
+              </RequireProfile>
+            </RequireVerified>
           </Protected>
         }
       >

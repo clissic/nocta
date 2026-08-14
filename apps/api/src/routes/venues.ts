@@ -3,15 +3,34 @@ import { z } from "zod";
 import { VENUE_TYPES, VENUES_PAGE_SIZE } from "@nocta/shared";
 import { Venue } from "../models/Venue.js";
 import { Promotion } from "../models/Promotion.js";
+import { Follow } from "../models/Follow.js";
+import { User } from "../models/User.js";
 import {
   requireAuth,
   requireAdmin,
   type AuthedRequest,
 } from "../middleware/auth.js";
-import { serializeVenue, serializePromotion } from "../utils/serialize.js";
+import { optionalAuth } from "../middleware/optionalAuth.js";
+import {
+  serializeVenue,
+  serializePromotion,
+  serializePublicUser,
+} from "../utils/serialize.js";
 import { isObjectId, paramId } from "../utils/ids.js";
+import { resolveVenueLocation } from "../utils/geocode.js";
+import {
+  followTarget,
+  isFollowing,
+  unfollowTarget,
+  venueFollowersCount,
+} from "../utils/follows.js";
 
 const router = Router();
+
+const locationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
 
 const venueSchema = z.object({
   name: z.string().min(2).max(120),
@@ -20,6 +39,7 @@ const venueSchema = z.object({
   city: z.string().min(2).default("Buenos Aires"),
   description: z.string().max(1000).optional(),
   photos: z.array(z.string().url()).default([]),
+  location: locationSchema.optional().nullable(),
   active: z.boolean().optional(),
 });
 
@@ -73,7 +93,7 @@ router.get("/", async (req, res) => {
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
 
   return res.json({
-    venues: venues.map(serializeVenue),
+    venues: venues.map((v) => serializeVenue(v)),
     pagination: {
       page,
       limit,
@@ -90,11 +110,11 @@ router.get(
   requireAdmin,
   async (_req: AuthedRequest, res) => {
     const venues = await Venue.find().sort({ createdAt: -1 });
-    return res.json({ venues: venues.map(serializeVenue) });
+    return res.json({ venues: venues.map((v) => serializeVenue(v)) });
   }
 );
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", optionalAuth, async (req: AuthedRequest, res) => {
   const id = paramId(req.params.id);
   if (!isObjectId(id)) {
     return res.status(400).json({ error: "Id inválido" });
@@ -103,16 +123,137 @@ router.get("/:id", async (req, res) => {
   if (!venue || !venue.active) {
     return res.status(404).json({ error: "Local no encontrado" });
   }
+
+  // Si el local no tiene coords, geocodificar una vez y persistir
+  if (
+    venue.location?.lat == null ||
+    venue.location?.lng == null ||
+    !Number.isFinite(venue.location.lat) ||
+    !Number.isFinite(venue.location.lng)
+  ) {
+    const resolved = await resolveVenueLocation({
+      address: venue.address,
+      city: venue.city,
+    });
+    if (resolved) {
+      venue.location = resolved;
+      await venue.save();
+    }
+  }
+
   const promotions = await Promotion.find({
     venueId: venue._id,
     active: true,
     $or: [{ validUntil: null }, { validUntil: { $gte: new Date() } }],
   });
+
+  const followersCount = await venueFollowersCount(venue._id);
+  const viewerId = req.user?._id.toString();
+  const following = viewerId
+    ? await isFollowing(viewerId, "venue", venue._id)
+    : undefined;
+
   return res.json({
-    venue: serializeVenue(venue),
+    venue: serializeVenue(venue, {
+      followersCount,
+      isFollowing: following,
+    }),
     promotions: promotions.map(serializePromotion),
   });
 });
+
+router.post("/:id/follow", requireAuth, async (req: AuthedRequest, res) => {
+  const id = paramId(req.params.id);
+  if (!isObjectId(id)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const result = await followTarget({
+    followerId: req.user!._id.toString(),
+    targetType: "venue",
+    targetId: id,
+  });
+  if ("error" in result) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  return res.json({
+    ok: true,
+    followersCount: await venueFollowersCount(id),
+    isFollowing: true,
+  });
+});
+
+router.delete("/:id/follow", requireAuth, async (req: AuthedRequest, res) => {
+  const id = paramId(req.params.id);
+  if (!isObjectId(id)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const result = await unfollowTarget({
+    followerId: req.user!._id.toString(),
+    targetType: "venue",
+    targetId: id,
+  });
+  if ("error" in result) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  return res.json({
+    ok: true,
+    followersCount: await venueFollowersCount(id),
+    isFollowing: false,
+  });
+});
+
+router.get(
+  "/:id/followers",
+  optionalAuth,
+  async (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    if (!isObjectId(id)) {
+      return res.status(400).json({ error: "Id inválido" });
+    }
+    const venue = await Venue.findOne({ _id: id, active: true });
+    if (!venue) {
+      return res.status(404).json({ error: "Local no encontrado" });
+    }
+
+    const rows = await Follow.find({
+      targetType: "venue",
+      targetId: id,
+    }).sort({ createdAt: -1 });
+    const ids = rows.map((r) => r.followerId);
+    const users = await User.find({
+      _id: { $in: ids },
+      profileComplete: true,
+    });
+    const map = new Map(users.map((u) => [u._id.toString(), u]));
+
+    const viewerId = req.user?._id.toString();
+    let followingSet = new Set<string>();
+    if (viewerId) {
+      const mine = await Follow.find({
+        followerId: viewerId,
+        targetType: "user",
+        targetId: { $in: ids },
+      });
+      followingSet = new Set(mine.map((f) => f.targetId.toString()));
+    }
+
+    const list = ids
+      .map((fid) => map.get(fid.toString()))
+      .filter(Boolean)
+      .map((u) =>
+        serializePublicUser(u!, {
+          isFollowing: viewerId
+            ? followingSet.has(u!._id.toString())
+            : undefined,
+        })
+      );
+
+    return res.json({
+      users: list,
+      followersCount: await venueFollowersCount(id),
+    });
+  }
+);
 
 router.post(
   "/",
@@ -123,7 +264,15 @@ router.post(
     if (!parsed.success) {
       return res.status(400).json({ error: "Datos inválidos", details: parsed.error.flatten() });
     }
-    const venue = await Venue.create(parsed.data);
+    const location = await resolveVenueLocation({
+      address: parsed.data.address,
+      city: parsed.data.city,
+      location: parsed.data.location,
+    });
+    const venue = await Venue.create({
+      ...parsed.data,
+      location,
+    });
     return res.status(201).json({ venue: serializeVenue(venue) });
   }
 );
@@ -133,13 +282,47 @@ router.patch(
   requireAuth,
   requireAdmin,
   async (req: AuthedRequest, res) => {
+    const id = paramId(req.params.id);
+    if (!isObjectId(id)) {
+      return res.status(400).json({ error: "Id inválido" });
+    }
     const parsed = venueSchema.partial().safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Datos inválidos" });
     }
-    const venue = await Venue.findByIdAndUpdate(req.params.id, parsed.data, {
-      new: true,
-    });
+
+    const existing = await Venue.findById(id);
+    if (!existing) return res.status(404).json({ error: "Local no encontrado" });
+
+    const nextAddress = parsed.data.address ?? existing.address;
+    const nextCity = parsed.data.city ?? existing.city;
+    const addressChanged =
+      (parsed.data.address !== undefined &&
+        parsed.data.address !== existing.address) ||
+      (parsed.data.city !== undefined && parsed.data.city !== existing.city);
+
+    let location = existing.location
+      ? { lat: existing.location.lat, lng: existing.location.lng }
+      : undefined;
+
+    if (parsed.data.location === null) {
+      location = undefined;
+    } else if (parsed.data.location) {
+      location = parsed.data.location;
+    } else if (addressChanged || !location) {
+      location = await resolveVenueLocation({
+        address: nextAddress,
+        city: nextCity,
+        location: null,
+      });
+    }
+
+    const { location: _ignored, ...rest } = parsed.data;
+    const venue = await Venue.findByIdAndUpdate(
+      id,
+      { ...rest, location },
+      { new: true }
+    );
     if (!venue) return res.status(404).json({ error: "Local no encontrado" });
     return res.json({ venue: serializeVenue(venue) });
   }

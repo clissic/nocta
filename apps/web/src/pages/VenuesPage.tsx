@@ -13,6 +13,9 @@ import { api } from "../lib/api";
 
 type TypeFilter = "all" | VenueType;
 
+const FALLBACK_PHOTO =
+  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=800";
+
 const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
   { id: "all", label: "Todos" },
   ...VENUE_TYPES.map((type) => ({
@@ -30,27 +33,6 @@ function buildVenuesUrl(page: number, typeFilter: TypeFilter, query: string) {
   const q = query.trim();
   if (q) params.set("q", q);
   return `/api/venues?${params.toString()}`;
-}
-
-function VenueThumb({ venue }: { venue: Venue }) {
-  return (
-    <>
-      <img
-        className="venue-thumb"
-        src={
-          venue.photos[0] ??
-          "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=800"
-        }
-        alt=""
-      />
-      <div className="min-w-0">
-        <div className="fw-semibold text-truncate">{venue.name}</div>
-        <div className="text-secondary small text-truncate">
-          {VENUE_TYPE_LABELS[venue.type]} · {venue.address}
-        </div>
-      </div>
-    </>
-  );
 }
 
 export function VenuesPage() {
@@ -74,11 +56,9 @@ export function VenuesPage() {
   useEffect(() => {
     loadingMoreRef.current = loadingMore;
   }, [loadingMore]);
-
   useEffect(() => {
     hasMoreRef.current = hasMore;
   }, [hasMore]);
-
   useEffect(() => {
     pageRef.current = page;
   }, [page]);
@@ -94,9 +74,7 @@ export function VenuesPage() {
       .then((res) => {
         if (alive) setPresence(res.presence);
       })
-      .catch(() => {
-        /* presencia opcional en listado */
-      });
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -115,9 +93,7 @@ export function VenuesPage() {
         const res = await api<PaginatedVenuesResponse>(
           buildVenuesUrl(nextPage, typeFilter, debouncedQuery)
         );
-        setVenues((prev) =>
-          replace ? res.venues : [...prev, ...res.venues]
-        );
+        setVenues((prev) => (replace ? res.venues : [...prev, ...res.venues]));
         setPage(res.pagination.page);
         setHasMore(res.pagination.hasMore);
         setTotal(res.pagination.total);
@@ -138,7 +114,6 @@ export function VenuesPage() {
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
@@ -148,10 +123,11 @@ export function VenuesPage() {
       },
       { root: null, rootMargin: "240px 0px", threshold: 0 }
     );
-
     observer.observe(node);
     return () => observer.disconnect();
   }, [loadPage, loading, venues.length]);
+
+  const liveVenueId = presence?.venueId ?? presence?.venue?.id;
 
   if (loading) {
     return (
@@ -160,62 +136,73 @@ export function VenuesPage() {
   }
 
   return (
-    <div className="app-screen fade-in">
-      <h1 className="app-title h3 mb-1">¿A dónde vas?</h1>
-      <p className="text-secondary small mb-2 mb-md-3">
-        Publicate en un local y descubrí quién más va.
-      </p>
-
-      <div className="venue-search input-group">
-        <span className="input-group-text bg-transparent border-secondary">
-          <i className="bi bi-search" aria-hidden="true"></i>
-        </span>
-        <input
-          type="search"
-          className="form-control bg-transparent border-secondary"
-          placeholder="Buscar por nombre, barrio…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Buscar locales"
-        />
-        {query && (
-          <button
-            type="button"
-            className="btn btn-outline-secondary"
-            aria-label="Limpiar búsqueda"
-            onClick={() => setQuery("")}
-          >
-            <i className="bi bi-x-lg" aria-hidden="true"></i>
-          </button>
+    <div className="app-screen venues-page fade-in">
+      <div className="venues-head">
+        <div>
+          <h1 className="app-title h3 mb-1">¿A dónde vas?</h1>
+          <p className="text-secondary small mb-0">
+            Publicate en un local y descubrí quién más va.
+          </p>
+        </div>
+        {total > 0 && (
+          <span className="text-secondary small d-none d-md-inline">
+            {total} local{total === 1 ? "" : "es"}
+          </span>
         )}
       </div>
 
-      <select
-        className="form-select bg-transparent border-secondary venue-type-select"
-        value={typeFilter}
-        onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
-        aria-label="Filtrar por tipo"
-      >
-        {TYPE_FILTERS.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.label}
-          </option>
-        ))}
-      </select>
+      <div className="venues-toolbar">
+        <div className="venue-search input-group">
+          <span className="input-group-text bg-transparent border-secondary">
+            <i className="bi bi-search" aria-hidden="true" />
+          </span>
+          <input
+            type="search"
+            className="form-control bg-transparent border-secondary"
+            placeholder="Buscar por nombre, barrio…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Buscar locales"
+          />
+          {query && (
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              aria-label="Limpiar búsqueda"
+              onClick={() => setQuery("")}
+            >
+              <i className="bi bi-x-lg" aria-hidden="true" />
+            </button>
+          )}
+        </div>
 
-      <div className="venue-type-filters" role="group" aria-label="Tipos de local">
-        {TYPE_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className={`btn ${
-              typeFilter === f.id ? "btn-primary" : "btn-outline-secondary"
-            }`}
-            onClick={() => setTypeFilter(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
+        <select
+          className="form-select bg-transparent border-secondary venue-type-select"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
+          aria-label="Filtrar por tipo"
+        >
+          {TYPE_FILTERS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+
+        <div className="venue-type-filters" role="group" aria-label="Tipos de local">
+          {TYPE_FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`btn venue-filter-chip ${
+                typeFilter === f.id ? "btn-primary" : "btn-outline-secondary"
+              }`}
+              onClick={() => setTypeFilter(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {presence?.venue && (
@@ -234,47 +221,50 @@ export function VenuesPage() {
               : " · permanente"}
           </span>
           <Link to="/discover" className="btn btn-sm btn-primary py-0 px-2">
-            Ir
+            Discover
           </Link>
         </div>
       )}
 
       {error && <p className="text-danger small">{error}</p>}
 
-      <div className="flat-list d-md-none">
-        {venues.map((venue, index) => (
-          <Link
-            key={venue.id}
-            to={`/venues/${venue.id}`}
-            className="fade-in-up"
-            style={{ animationDelay: `${Math.min(index % VENUES_PAGE_SIZE, 8) * 40}ms` }}
-          >
-            <VenueThumb venue={venue} />
-          </Link>
-        ))}
-      </div>
-
-      <div className="row g-3 g-lg-4 d-none d-md-flex">
-        {venues.map((venue, index) => (
-          <div
-            className="col-md-6 col-lg-4 fade-in-up"
-            key={venue.id}
-            style={{ animationDelay: `${Math.min(index % VENUES_PAGE_SIZE, 8) * 40}ms` }}
-          >
-            <Link to={`/venues/${venue.id}`} className="venue-tile">
-              <img
-                src={
-                  venue.photos[0] ??
-                  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=800"
-                }
-                alt={venue.name}
-              />
-              <div className="text-secondary small">{VENUE_TYPE_LABELS[venue.type]}</div>
-              <div className="fw-semibold">{venue.name}</div>
-              <div className="text-secondary small text-truncate">{venue.address}</div>
+      <div className="venues-grid">
+        {venues.map((venue, index) => {
+          const isLive = liveVenueId === venue.id;
+          return (
+            <Link
+              key={venue.id}
+              to={`/venues/${venue.id}`}
+              className={`venue-card fade-in-up${isLive ? " venue-live" : ""}`}
+              style={{
+                animationDelay: `${Math.min(index % VENUES_PAGE_SIZE, 8) * 40}ms`,
+              }}
+            >
+              <div className="venue-card-media">
+                <img
+                  src={venue.photos[0] ?? FALLBACK_PHOTO}
+                  alt={venue.name}
+                />
+                <div className="venue-card-fade" />
+                {isLive && (
+                  <span className="venue-card-live">
+                    <span className="live-dot" aria-hidden="true" />
+                    Ahora
+                  </span>
+                )}
+                <div className="venue-card-caption">
+                  <div className="venue-card-type">
+                    {VENUE_TYPE_LABELS[venue.type]}
+                  </div>
+                  <div className="venue-card-name">{venue.name}</div>
+                  <div className="venue-card-address text-truncate">
+                    {venue.address}
+                  </div>
+                </div>
+              </div>
             </Link>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {!venues.length && (
@@ -287,7 +277,7 @@ export function VenuesPage() {
       <div ref={sentinelRef} className="infinite-sentinel" aria-hidden="true" />
 
       {venues.length > 0 && (
-        <p className="text-secondary small text-center mt-2 mb-1 fade-in">
+        <p className="venues-footer text-secondary small text-center fade-in">
           {loadingMore
             ? "Cargando más…"
             : hasMore

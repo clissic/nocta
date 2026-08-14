@@ -10,12 +10,18 @@ import {
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
 
+type MatchFlash = {
+  matchId: string;
+  name: string;
+  photo?: string;
+};
+
 export function DiscoverPage() {
   const [cards, setCards] = useState<DiscoverCard[]>([]);
   const [presence, setPresence] = useState<Presence | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [matchFlash, setMatchFlash] = useState(false);
+  const [matchFlash, setMatchFlash] = useState<MatchFlash | null>(null);
   const [photoIdx, setPhotoIdx] = useState(0);
 
   const load = useCallback(async () => {
@@ -52,16 +58,20 @@ export function DiscoverPage() {
 
   async function swipe(direction: "like" | "pass") {
     if (!current) return;
+    const swiped = current;
     setCards((prev) => prev.slice(1));
     setPhotoIdx(0);
     try {
       const res = await api<{ match: { id: string } | null }>("/api/discover/swipe", {
         method: "POST",
-        body: JSON.stringify({ toUserId: current.userId, direction }),
+        body: JSON.stringify({ toUserId: swiped.userId, direction }),
       });
       if (res.match) {
-        setMatchFlash(true);
-        setTimeout(() => setMatchFlash(false), 1600);
+        setMatchFlash({
+          matchId: res.match.id,
+          name: swiped.profile.name,
+          photo: swiped.profile.photos[0],
+        });
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Error al swippear");
@@ -92,7 +102,10 @@ export function DiscoverPage() {
   }
 
   return (
-    <div className="app-screen flush d-flex flex-column flex-grow-1 fade-in" style={{ minHeight: 0 }}>
+    <div
+      className="app-screen flush d-flex flex-column flex-grow-1 fade-in"
+      style={{ minHeight: 0 }}
+    >
       <div className="d-flex align-items-center justify-content-between px-3 px-md-0 py-2">
         <div>
           <div className="app-title h5 mb-0">Discover</div>
@@ -108,14 +121,11 @@ export function DiscoverPage() {
             setCards([]);
           }}
         >
-          <i className="bi bi-eye-slash fs-5" aria-hidden="true"></i>
+          <i className="bi bi-eye-slash fs-5" aria-hidden="true" />
         </button>
       </div>
 
       {error && <p className="text-danger small px-3 mb-0">{error}</p>}
-      {matchFlash && (
-        <p className="text-primary text-center fw-semibold mb-0 py-1">¡Es un match!</p>
-      )}
 
       {!current ? (
         <div className="app-screen justify-content-center text-secondary">
@@ -172,17 +182,63 @@ export function DiscoverPage() {
                 className="btn btn-light"
                 type="button"
                 aria-label="Pass"
-                onClick={() => swipe("pass")}
+                onClick={() => void swipe("pass")}
               >
-                <i className="bi bi-x-lg fs-4 text-danger" aria-hidden="true"></i>
+                <i className="bi bi-x-lg fs-4 text-danger" aria-hidden="true" />
               </button>
               <button
                 className="btn btn-primary"
                 type="button"
                 aria-label="Like"
-                onClick={() => swipe("like")}
+                onClick={() => void swipe("like")}
               >
-                <i className="bi bi-heart-fill fs-4" aria-hidden="true"></i>
+                <i className="bi bi-heart-fill fs-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {matchFlash && (
+        <div className="match-overlay" role="dialog" aria-modal="true" aria-label="Match">
+          <button
+            type="button"
+            className="match-overlay-backdrop"
+            aria-label="Cerrar"
+            onClick={() => setMatchFlash(null)}
+          />
+          <div className="match-overlay-panel">
+            <div className="match-burst" aria-hidden="true">
+              <span className="match-ring match-ring-a" />
+              <span className="match-ring match-ring-b" />
+              <span className="match-ring match-ring-c" />
+              {matchFlash.photo ? (
+                <img className="match-photo" src={matchFlash.photo} alt="" />
+              ) : (
+                <span className="match-icon">
+                  <i className="bi bi-heart-fill" />
+                </span>
+              )}
+            </div>
+            <p className="match-kicker">¡Es un match!</p>
+            <h2 className="match-title">{matchFlash.name}</h2>
+            <p className="match-sub">
+              Ambos se gustaron en {presence.venue?.name ?? "el local"}.
+            </p>
+            <div className="match-actions">
+              <Link
+                className="btn btn-primary"
+                to={`/matches/${matchFlash.matchId}`}
+                onClick={() => setMatchFlash(null)}
+              >
+                Ir al chat
+              </Link>
+              <button
+                type="button"
+                className="btn btn-outline-light"
+                onClick={() => setMatchFlash(null)}
+              >
+                Seguir descubriendo
               </button>
             </div>
           </div>

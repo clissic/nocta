@@ -14,7 +14,13 @@ interface AuthState {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
-  register: (email: string, password: string) => Promise<AuthUser>;
+  register: (
+    email: string,
+    password: string,
+    extra?: { name?: string }
+  ) => Promise<AuthUser>;
+  verifyEmail: (code: string, email?: string) => Promise<AuthUser>;
+  resendVerification: (email: string) => Promise<{ expiresInMinutes?: number }>;
   logout: () => void;
   refresh: () => Promise<void>;
   setUser: (user: AuthUser | null) => void;
@@ -58,14 +64,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user;
   }, []);
 
-  const register = useCallback(async (email: string, password: string) => {
-    const data = await api<{ token: string; user: AuthUser }>("/api/auth/register", {
+  const register = useCallback(
+    async (email: string, password: string, extra?: { name?: string }) => {
+      const data = await api<{ token: string; user: AuthUser }>("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+          ...(extra?.name ? { name: extra.name.trim() } : {}),
+        }),
+      });
+      setToken(data.token);
+      setUser(data.user);
+      return data.user;
+    },
+    []
+  );
+
+  const verifyEmail = useCallback(async (code: string, email?: string) => {
+    const data = await api<{ token: string; user: AuthUser }>("/api/auth/verify-email", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ code, ...(email ? { email } : {}) }),
     });
     setToken(data.token);
     setUser(data.user);
     return data.user;
+  }, []);
+
+  const resendVerification = useCallback((email: string) => {
+    return api<{ ok: boolean; expiresInMinutes?: number }>(
+      "/api/auth/resend-verification",
+      { method: "POST", body: JSON.stringify({ email }) }
+    );
   }, []);
 
   const logout = useCallback(() => {
@@ -74,15 +104,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout, refresh, setUser }),
-    [user, loading, login, register, logout, refresh]
+    () => ({
+      user,
+      loading,
+      login,
+      register,
+      verifyEmail,
+      resendVerification,
+      logout,
+      refresh,
+      setUser,
+    }),
+    [user, loading, login, register, verifyEmail, resendVerification, logout, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth fuera de AuthProvider");
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth fuera de AuthProvider");
+  return context;
 }

@@ -15,11 +15,13 @@ function calcAge(birthDate: Date): number {
 export function serializeUser(user: UserDocument) {
   const profile = user.profile
     ? {
-        name: user.profile.name,
-        birthDate: user.profile.birthDate.toISOString(),
+        name: user.profile.name ?? "",
+        birthDate: user.profile.birthDate
+          ? user.profile.birthDate.toISOString()
+          : undefined,
         heightCm: user.profile.heightCm ?? undefined,
-        lookingFor: user.profile.lookingFor,
-        photos: user.profile.photos,
+        lookingFor: user.profile.lookingFor ?? [],
+        photos: user.profile.photos ?? [],
         bio: user.profile.bio ?? undefined,
         interests: user.profile.interests ?? [],
         workStatus: user.profile.workStatus ?? undefined,
@@ -33,11 +35,47 @@ export function serializeUser(user: UserDocument) {
     email: user.email,
     role: user.role,
     profile,
-    profileComplete: user.profileComplete,
+    profileComplete: Boolean(user.profileComplete),
+    emailVerified: Boolean(user.emailVerified),
+    followersCount: user.followersCount ?? 0,
+    followingUsersCount: user.followingUsersCount ?? 0,
+    followingVenuesCount: user.followingVenuesCount ?? 0,
   };
 }
 
-export function serializeVenue(venue: VenueDocument) {
+export function serializePublicUser(
+  user: UserDocument,
+  opts?: { isFollowing?: boolean; isFollower?: boolean }
+) {
+  if (!user.profile?.birthDate) {
+    throw new Error("Usuario sin perfil público");
+  }
+  const photos = user.profile.photos ?? [];
+  return {
+    id: user._id.toString(),
+    name: user.profile.name ?? "Usuario",
+    age: calcAge(user.profile.birthDate),
+    heightCm: user.profile.heightCm ?? undefined,
+    bio: user.profile.bio ?? undefined,
+    lookingFor: user.profile.lookingFor,
+    interests: user.profile.interests ?? [],
+    workStatus: user.profile.workStatus ?? undefined,
+    gender: user.profile.gender ?? undefined,
+    photo: photos[0],
+    photos,
+    followersCount: user.followersCount ?? 0,
+    followingUsersCount: user.followingUsersCount ?? 0,
+    followingVenuesCount: user.followingVenuesCount ?? 0,
+    isFollowing: opts?.isFollowing,
+    isFollower: opts?.isFollower,
+  };
+}
+
+export function serializeVenue(
+  venue: VenueDocument,
+  opts?: { followersCount?: number; isFollowing?: boolean }
+) {
+  const loc = venue.location;
   return {
     id: venue._id.toString(),
     name: venue.name,
@@ -46,7 +84,13 @@ export function serializeVenue(venue: VenueDocument) {
     city: venue.city,
     description: venue.description ?? undefined,
     photos: venue.photos ?? [],
+    location:
+      loc && typeof loc.lat === "number" && typeof loc.lng === "number"
+        ? { lat: loc.lat, lng: loc.lng }
+        : undefined,
     active: venue.active,
+    followersCount: opts?.followersCount,
+    isFollowing: opts?.isFollowing,
     createdAt: venue.createdAt.toISOString(),
     updatedAt: venue.updatedAt.toISOString(),
   };

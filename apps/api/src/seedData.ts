@@ -43,7 +43,7 @@ type DemoUser = {
 const DEMO_USERS: DemoUser[] = [
   {
     email: "sofia@nocta.app",
-    password: "demo1234",
+    password: "Demo1234!",
     name: "Sofía",
     birthDate: "1998-04-12",
     gender: "mujer",
@@ -57,7 +57,7 @@ const DEMO_USERS: DemoUser[] = [
   },
   {
     email: "mateo@nocta.app",
-    password: "demo1234",
+    password: "Demo1234!",
     name: "Mateo",
     birthDate: "1996-09-03",
     gender: "hombre",
@@ -71,7 +71,7 @@ const DEMO_USERS: DemoUser[] = [
   },
   {
     email: "valentina@nocta.app",
-    password: "demo1234",
+    password: "Demo1234!",
     name: "Valentina",
     birthDate: "1999-11-21",
     gender: "mujer",
@@ -94,6 +94,7 @@ export async function seedDemoData() {
       passwordHash,
       role: "admin",
       profileComplete: true,
+      emailVerified: true,
       profile: {
         name: "Admin Nocta",
         birthDate: new Date("1990-01-01"),
@@ -258,11 +259,30 @@ export async function seedDemoData() {
     },
   ];
 
+  const venueCoords: Record<string, { lat: number; lng: number }> = {
+    "Niceto Club": { lat: -34.58755, lng: -58.43085 },
+    "Frank's Bar": { lat: -34.5852, lng: -58.4336 },
+    "The Temple Bar": { lat: -34.6037, lng: -58.3915 },
+    "Patagonia Brew": { lat: -34.5889, lng: -58.4262 },
+    "Rooftop Privado Recoleta": { lat: -34.5875, lng: -58.3925 },
+    "Luna Park — Noche Live": { lat: -34.6033, lng: -58.3683 },
+    "BA Electronic Festival": { lat: -34.6167, lng: -58.3583 },
+    Crobar: { lat: -34.5717, lng: -58.4033 },
+    Bahrein: { lat: -34.6031, lng: -58.3782 },
+    "Harrison Speakeasy": { lat: -34.5881, lng: -58.4301 },
+    "The Shamrock": { lat: -34.5992, lng: -58.3931 },
+    "Antares Palermo": { lat: -34.5868, lng: -58.4322 },
+    "After Privado Belgrano": { lat: -34.5627, lng: -58.4584 },
+    "Movistar Arena — Live": { lat: -34.575, lng: -58.439 },
+    "Dock Sud Open Air": { lat: -34.655, lng: -58.345 },
+  };
+
   const venues = [];
   for (const data of venuesData) {
+    const location = venueCoords[data.name];
     const venue = await Venue.findOneAndUpdate(
       { name: data.name },
-      { ...data, active: true },
+      { ...data, location, active: true },
       { upsert: true, new: true }
     );
     venues.push(venue);
@@ -298,6 +318,7 @@ export async function seedDemoData() {
         passwordHash: hash,
         role: "user",
         profileComplete: true,
+        emailVerified: true,
         profile: {
           name: demo.name,
           birthDate: new Date(demo.birthDate),
@@ -329,6 +350,46 @@ export async function seedDemoData() {
   }
 
   console.log(
-    "Usuarios demo (password demo1234): sofia@nocta.app, mateo@nocta.app, valentina@nocta.app — publicados en Niceto Club"
+    "Usuarios demo (password Demo1234!): sofia@nocta.app, mateo@nocta.app, valentina@nocta.app — publicados en Niceto Club"
   );
+}
+
+/**
+ * En Atlas el seed completo se omite si ya hay users: esto resincroniza las
+ * cuentas demo/admin (verificación + password actual) sin tocar el resto.
+ */
+export async function ensureDemoAccounts() {
+  const targets = [
+    { email: config.adminEmail.toLowerCase(), password: config.adminPassword },
+    ...DEMO_USERS.map((d) => ({
+      email: d.email.toLowerCase(),
+      password: d.password,
+    })),
+  ];
+
+  let updated = 0;
+  for (const target of targets) {
+    const user = await User.findOne({ email: target.email });
+    if (!user) continue;
+
+    const passwordOk = user.passwordHash
+      ? await bcrypt.compare(target.password, user.passwordHash)
+      : false;
+
+    if (!passwordOk) {
+      user.passwordHash = await bcrypt.hash(target.password, 10);
+    }
+    user.emailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+
+    if (user.isModified()) {
+      await user.save();
+      updated += 1;
+    }
+  }
+
+  if (updated > 0) {
+    console.log(`Cuentas demo/admin resincronizadas: ${updated}`);
+  }
 }

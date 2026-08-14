@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import { requireVerified } from "../middleware/gates.js";
 import { Presence } from "../models/Presence.js";
 import { Swipe } from "../models/Swipe.js";
 import { Match } from "../models/Match.js";
@@ -8,8 +9,11 @@ import { User } from "../models/User.js";
 import { expireStalePresences } from "../utils/presence.js";
 import { calcAge } from "../utils/serialize.js";
 import { isObjectId, sortedUserPair } from "../utils/ids.js";
+import { blockedPeerIds } from "../models/Block.js";
 
 const router = Router();
+
+router.use(requireAuth, requireVerified);
 
 const swipeSchema = z.object({
   toUserId: z.string().min(1),
@@ -20,26 +24,31 @@ function serializeCard(
   u: InstanceType<typeof User>,
   presenceId: string
 ) {
+  const profile = u.profile!;
+  const birthDate = profile.birthDate;
+  if (!birthDate) {
+    throw new Error("Perfil incompleto en discover");
+  }
   return {
     userId: u._id.toString(),
     profile: {
-      name: u.profile!.name,
-      birthDate: u.profile!.birthDate.toISOString(),
-      heightCm: u.profile!.heightCm ?? undefined,
-      lookingFor: u.profile!.lookingFor,
-      photos: u.profile!.photos,
-      bio: u.profile!.bio ?? undefined,
-      interests: u.profile!.interests ?? [],
-      workStatus: u.profile!.workStatus ?? undefined,
-      gender: u.profile!.gender ?? undefined,
-      interestedIn: u.profile!.interestedIn ?? [],
+      name: profile.name ?? "Usuario",
+      birthDate: birthDate.toISOString(),
+      heightCm: profile.heightCm ?? undefined,
+      lookingFor: profile.lookingFor ?? [],
+      photos: profile.photos ?? [],
+      bio: profile.bio ?? undefined,
+      interests: profile.interests ?? [],
+      workStatus: profile.workStatus ?? undefined,
+      gender: profile.gender ?? undefined,
+      interestedIn: profile.interestedIn ?? [],
     },
     presenceId,
-    age: calcAge(u.profile!.birthDate),
+    age: calcAge(birthDate),
   };
 }
 
-router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
+router.get("/feed", async (req: AuthedRequest, res) => {
   const user = req.user!;
   if (!user.profileComplete || !user.profile) {
     return res.status(400).json({ error: "Completá tu perfil" });
@@ -66,7 +75,12 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
     venueId: myPresence.venueId,
   }).select("toUserId");
 
-  const excludedIds = [user._id, ...alreadySwiped.map((s) => s.toUserId)];
+  const blocked = await blockedPeerIds(user._id);
+  const excludedIds = [
+    user._id,
+    ...alreadySwiped.map((s) => s.toUserId),
+    ...blocked,
+  ];
 
   const candidates = await Presence.find({
     venueId: myPresence.venueId,
@@ -123,7 +137,7 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
   });
 });
 
-router.post("/swipe", requireAuth, async (req: AuthedRequest, res) => {
+router.post("/swipe", async (req: AuthedRequest, res) => {
   const user = req.user!;
   const parsed = swipeSchema.safeParse(req.body);
   if (!parsed.success) {

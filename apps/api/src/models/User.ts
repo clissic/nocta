@@ -2,28 +2,28 @@ import mongoose, { Schema, type HydratedDocument, type InferSchemaType } from "m
 import {
   INTERESTS,
   LOOKING_FOR,
-  MIN_PHOTOS,
+  MAX_PHOTOS,
   OAUTH_PROVIDERS,
   WORK_STATUS,
 } from "@nocta/shared";
 
 const profileSchema = new Schema(
   {
-    name: { type: String, required: true, trim: true },
-    birthDate: { type: Date, required: true },
+    name: { type: String, trim: true },
+    birthDate: { type: Date },
     heightCm: { type: Number, min: 100, max: 250 },
     lookingFor: {
       type: [String],
       enum: LOOKING_FOR,
-      required: true,
-      validate: [(v: string[]) => v.length > 0, "lookingFor required"],
+      default: [],
     },
+    /** photos[0] = avatar. Puede estar vacío hasta el upload; profileComplete exige ≥ MIN_PHOTOS. */
     photos: {
       type: [String],
-      required: true,
+      default: [],
       validate: [
-        (v: string[]) => v.length >= MIN_PHOTOS,
-        `Se requieren al menos ${MIN_PHOTOS} fotos`,
+        (v: string[]) => Array.isArray(v) && v.length <= MAX_PHOTOS,
+        `Máximo ${MAX_PHOTOS} fotos`,
       ],
     },
     bio: { type: String, maxlength: 500 },
@@ -61,12 +61,20 @@ const userSchema = new Schema(
     role: { type: String, enum: ["user", "admin"], default: "user" },
     profile: { type: profileSchema, default: null },
     profileComplete: { type: Boolean, default: false },
+    emailVerified: { type: Boolean, default: false },
+    emailVerificationToken: { type: String, index: true },
+    emailVerificationExpires: { type: Date },
+    passwordResetToken: { type: String, index: true },
+    passwordResetExpires: { type: Date },
     oauthAccounts: { type: [oauthAccountSchema], default: [] },
     authProvider: {
       type: String,
       enum: ["local", ...OAUTH_PROVIDERS],
       default: "local",
     },
+    followersCount: { type: Number, default: 0 },
+    followingUsersCount: { type: Number, default: 0 },
+    followingVenuesCount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

@@ -16,7 +16,7 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 6. [Backend](#backend) ← mantener el agente API
 7. [Frontend](#frontend) ← mantener el agente Web
 8. [Shared](#shared-noctashared)
-9. [Convenciones entre agentes](#convenciones-entre-agentes)
+9. [Convenciones](#convenciones)
 
 ---
 
@@ -24,8 +24,8 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 
 | Rol | Qué puede hacer |
 |-----|-----------------|
-| **user** | Registro / login, onboarding (≥4 fotos), publicar presencia, Discover (swipe), match, chat |
-| **admin** | Stats, CRUD locales, promos, listado usuarios (sin panel owner todavía) |
+| **user** | Registro → código email → onboarding (≥ `MIN_PHOTOS` fotos), publicar presencia, Discover, match, chat, follows |
+| **admin** | Stats, CRUD locales, promos, listado usuarios, reports |
 
 Flujo usuario:
 
@@ -86,12 +86,15 @@ Luego: `npm run seed`.
 
 | Cuenta | Email | Password |
 |--------|-------|----------|
-| Admin | `admin@nocta.app` | `admin123456` |
-| Sofía | `sofia@nocta.app` | `demo1234` |
-| Mateo | `mateo@nocta.app` | `demo1234` |
-| Valentina | `valentina@nocta.app` | `demo1234` |
+| Admin | `admin@nocta.app` | `Admin1234!` |
+| Sofía | `sofia@nocta.app` | `Demo1234!` |
+| Mateo | `mateo@nocta.app` | `Demo1234!` |
+| Valentina | `valentina@nocta.app` | `Demo1234!` |
 
 Los tres users demo quedan publicados en **Niceto Club** (útiles para probar Discover / match).
+
+Al arrancar la API se resincronizan estas cuentas contra la base: quedan con `emailVerified: true`
+y con el password de esta tabla, aunque el seed completo se omita porque la base ya tiene usuarios.
 
 ---
 
@@ -110,26 +113,27 @@ Los tres users demo quedan publicados en **Niceto Club** (útiles para probar Di
 
 ## Backend
 
-> **Dueño:** agente backend. Actualizar esta sección al agregar rutas, modelos, env o cambiar seed/paginación/OAuth.
+> Actualizar esta sección al agregar rutas, modelos, env o cambiar seed/paginación/OAuth.
 
 ### Stack API
 
-- Express + Mongoose + Zod + JWT (`jsonwebtoken`) + `jose` (OAuth JWKS / Apple client secret)
+- Express + Mongoose + Zod + JWT + `jose` + Nodemailer + Multer
 - Path: `apps/api`
-- Health: `GET /health` → `{ ok, service: "nocta-api" }`
-- CORS: `CLIENT_ORIGIN`; body JSON + `urlencoded` (callback Apple `form_post`)
-- Auth middleware: `requireAuth` / `requireAdmin` (`src/middleware/auth.ts`)
-- Utilidades: `serialize*`, `expireStalePresences`, `isObjectId` / `paramId` / `sortedUserPair`
+- Health: `GET /health` → `{ ok, service, db }`
+- Estáticos: `GET /uploads/*` (fotos en `apps/api/uploads/`)
+- Gates: `requireVerified` / `requireProfileComplete`; `optionalAuth` en perfiles públicos
 
 ### Estructura (`apps/api/src`)
 
 ```text
 config.ts · db.ts · index.ts · seed.ts · seedData.ts
-middleware/auth.ts
-models/     User · Venue · Promotion · Presence · Swipe · Match · Message
+mail/       mailer · templates
+middleware/ auth · gates · optionalAuth
+models/     User · Follow · Block · Report · Venue · Promotion · Presence · Swipe · Match · Message
 oauth/      providers.ts · upsert.ts
-routes/     auth · oauth · profile · venues · presence · discover · matches · admin
-utils/      ids · presence · serialize
+routes/     auth · oauth · profile · users · me · venues · presence · discover · matches · admin
+uploads/    multer · validate · paths · middleware
+utils/      ids · presence · serialize · follows · tokens · matchActions · geocode
 ```
 
 ### Variables de entorno
@@ -139,28 +143,53 @@ Ver `apps/api/.env.example`.
 | Variable | Uso |
 |----------|-----|
 | `PORT` | Default `4000` |
-| `MONGODB_URI` | `memory` (Mongo embebido + auto-seed) o URI local/Atlas |
-| `JWT_SECRET` | Firma de tokens (exp. 7d) |
-| `CLIENT_ORIGIN` | CORS y redirects FE (`http://localhost:5173`) |
-| `API_PUBLIC_URL` | Base pública API para `redirect_uri` OAuth |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin del seed |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth Google |
-| `APPLE_CLIENT_ID` / `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY` | OAuth Apple (PEM con `\n`) |
-| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` / `MICROSOFT_TENANT` | OAuth Microsoft (`tenant` default `common`) |
+| `MONGODB_URI` | URI Atlas (preferido) o `memory` solo demo |
+| `MONGODB_DB` | Nombre de base (default `nocta`) |
+| `MONGODB_USERNAME` / `MONGODB_PASSWORD` | Credenciales opcionales |
+| `MONGODB_RETRIES` | Reintentos al arranque (default `5`) |
+| `SEED_ON_EMPTY` | Seed en Atlas si no hay users |
+| `JWT_SECRET` | Firma JWT |
+| `CLIENT_ORIGIN` / `API_PUBLIC_URL` | CORS + links |
+| `SMTP_*` / `MAIL_FROM` / `MAIL_DEV_LOG` | Nodemailer (Gmail App Password) |
+| OAuth `GOOGLE_*` / `APPLE_*` / `MICROSOFT_*` | Social login |
 
-Sin credenciales OAuth, `GET /api/auth/oauth/:provider` responde **503** `{ code: "OAUTH_NOT_CONFIGURED" }`.
+### Auth (email + código 6 dígitos)
 
-Redirect URIs a registrar en cada consola:
-
-`{API_PUBLIC_URL}/api/auth/oauth/{google|apple|microsoft}/callback`
-
-### Auth (email / password)
+Flujo: **register → código por mail (15 min) → verify → onboarding**.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `POST` | `/api/auth/register` | Crea user local; JWT |
-| `POST` | `/api/auth/login` | Si la cuenta es solo-OAuth (sin `passwordHash`) → 401 con mensaje social |
-| `GET` | `/api/auth/me` | Requiere Bearer |
+| `POST` | `/api/auth/register` | `emailVerified:false` + código; JWT con flag |
+| `POST` | `/api/auth/login` | Sin verificar → `403 EMAIL_NOT_VERIFIED` |
+| `POST` | `/api/auth/verify-email` | `{ email, code }` o `{ code }` + Bearer |
+| `POST` | `/api/auth/resend-verification` | Nuevo código; rate-limit 60s |
+| `POST` | `/api/auth/forgot-password` / `reset-password` | Reset por link |
+
+Shared: `EMAIL_VERIFICATION_CODE_LENGTH=6`, `EMAIL_VERIFICATION_TTL_MINUTES=15`, `PASSWORD_HINT`.
+
+Profile PUT/fotos, discover, presence y matches requieren `emailVerified`.
+
+### Profile y fotos
+
+`MIN_PHOTOS=1`, `MAX_PHOTOS=9`, `MIN_AGE=16`; `photos[0]`=avatar. Upload multipart `photo`/`photos` vía `src/uploads/`.
+
+| Método | Ruta |
+|--------|------|
+| `GET`/`PUT` | `/api/profile` |
+| `POST` | `/api/profile/photos` |
+| `PATCH` | `/api/profile/photos/reorder` |
+| `DELETE` | `/api/profile/photos/:index` |
+| `POST` | `/api/profile/password` |
+
+### Follows
+
+| Método | Ruta |
+|--------|------|
+| `GET` | `/api/users/:id` · `.../followers` · `.../following` |
+| `POST`/`DELETE` | `/api/users/:id/follow` |
+| `GET` | `/api/me/following` · `/api/me/followers` |
+| `POST`/`DELETE` | `/api/venues/:id/follow` |
+| `GET` | `/api/venues/:id/followers` |
 
 ### Auth social (OAuth) — implementado
 
@@ -168,9 +197,9 @@ Flujo authorization code:
 
 1. `GET /api/auth/oauth/:provider` → redirect al IdP (`google` \| `apple` \| `microsoft`)
 2. Callback `GET` (Google/Microsoft) o `POST` (Apple) en `/api/auth/oauth/:provider/callback`
-3. Exchange del `code` → perfil (`email`, `providerUserId`) → **`upsertOAuthUser`** (crea/vincula en Mongo)
+3. Exchange del `code` → perfil → **`upsertOAuthUser`** (`emailVerified: true`)
 4. Emite JWT y redirige a `{CLIENT_ORIGIN}/auth/callback?token=...`
-5. Error → `{CLIENT_ORIGIN}/login?error=...` (incluye fallos de persistencia si Atlas/Mongo no está OK)
+5. Error → `{CLIENT_ORIGIN}/login?error=...`
 
 Modelo: `passwordHash` opcional; `oauthAccounts[]` `{ provider, providerUserId }`; `authProvider`.
 
@@ -178,10 +207,11 @@ Código: `src/oauth/providers.ts`, `src/oauth/upsert.ts`, `src/routes/oauth.ts`.
 
 ### Profile
 
+Ver sección **Profile y fotos** arriba.
 | Método | Ruta | Notas |
 |--------|------|--------|
 | `GET` | `/api/profile` | Usuario autenticado |
-| `PUT` | `/api/profile` | Onboarding; Zod + `@nocta/shared`; ≥ `MIN_PHOTOS`; edad ≥ `MIN_AGE` |
+| `PUT` | `/api/profile` | Onboarding/edición; acepta `photos: []` durante el alta y completa el perfil al alcanzar `MIN_PHOTOS`; edad ≥ `MIN_AGE` |
 
 ### Venues y promociones
 
@@ -295,7 +325,7 @@ Todas bajo `requireAuth` + `requireAdmin`.
 
 ## Frontend
 
-> **Dueño:** agente frontend. Actualizar esta sección al agregar pantallas, assets, flujos UI o cambiar cómo se consume la API.
+> Actualizar esta sección al agregar pantallas, assets, flujos UI o cambiar cómo se consume la API.
 
 ### Stack Web
 
@@ -311,6 +341,7 @@ Todas bajo `requireAuth` + `requireAdmin`.
 - Mobile: tab bar inferior, UI tipo dating app (base para app nativa)  
 - Tablet/desktop: top nav; grids de locales; Discover centrado  
 - Pocas cajas anidadas; animaciones fade sobrias (`fade-in` / `fade-in-up`)  
+- Pulso `venue-live`, overlay de match y sheets respetan `prefers-reduced-motion`  
 - Iconos solo en botones / menús / tabs (nunca en títulos)
 
 Reglas Cursor: `.cursor/rules/nocta.mdc`.
@@ -319,21 +350,24 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`.
 
 | Ruta | Pantalla |
 |------|----------|
-| `/login` · `/register` | Auth (botones OAuth → API; callback `/auth/callback`) |
+| `/login` · `/register` | Auth; registro con nombre, confirmación y reglas de contraseña en vivo |
+| `/verify-email` | Código de 6 dígitos, pegado OTP y reenvío con cooldown |
 | `/auth/callback` | Recibe `?token=` post-OAuth |
-| `/onboarding` | Alta/edición perfil (`?edit=1`) |
-| `/` | Locales (búsqueda + filtro tipo + infinite scroll) |
-| `/venues/:id` | Detalle + publicar presencia |
-| `/discover` | Swipe del local activo |
-| `/matches` · `/matches/:id` | Lista y chat |
-| `/profile` | Perfil |
+| `/onboarding` | Alta/edición en 5 pasos: datos → identidad → búsqueda/gustos → trabajo/bio → upload fotos |
+| `/` | Locales: cards visuales 1/2/3 cols, texto sobre degradado, badge/pulso solo en el local con presencia activa |
+| `/venues/:id` | Detalle: mobile imagen → info → mapa; tablet/desktop foto + mapa oscuro a la izquierda e info a la derecha |
+| `/discover` | Swipe del local activo + overlay de celebración al match (ir al chat / seguir) |
+| `/matches` | Lista densa 3 líneas en mobile; grilla 2/3 cols en tablet/desktop; menú eliminar/denunciar/bloquear |
+| `/matches/:id` | Chat con avatar en header, hora en burbujas y separadores Hoy/Ayer/fecha |
+| `/profile` | Hero + galería a la izquierda / info a la derecha desde tablet; mobile apilado con nombre sobre la foto |
 | `/admin` | Panel admin |
 
 ### Consumo API
 
-- Cliente: `src/lib/api.ts` (Bearer JWT en `localStorage`)  
-- Proxy Vite: `/api` → `http://localhost:4000`  
+- Cliente: `src/lib/api.ts` (Bearer JWT en `localStorage`; JSON y `FormData`)
+- Proxy Vite: `/api` y `/uploads` → `http://localhost:4000`
 - Locales: query `page`, `limit`, `type`, `q` + IntersectionObserver para más páginas
+- Matches: `DELETE /api/matches/:id`, `POST .../report` (`REPORT_REASONS`), `POST .../block`; lista usa `lastMessage.createdAt`
 
 ---
 
@@ -341,18 +375,19 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`.
 
 Tipos y catálogos usados por API y Web:
 
-- `LOOKING_FOR`, `INTERESTS`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `OAUTH_PROVIDERS` (+ labels)  
-- `VENUES_PAGE_SIZE` (9), `MIN_PHOTOS`, `MIN_AGE`, `PRESENCE_PRESETS`  
-- Tipos: `AuthUser`, `Venue`, `PaginationMeta`, `PaginatedVenuesResponse`, `OAuthProvider`, `DiscoverCard`, `MatchSummary`, etc.
+- `LOOKING_FOR`, `INTERESTS`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `OAUTH_PROVIDERS`, `REPORT_REASONS` (+ labels donde aplica)  
+- `VENUES_PAGE_SIZE` (9), `MIN_PHOTOS`, `MAX_PHOTOS`, `MIN_AGE`, `PRESENCE_PRESETS`
+- `PASSWORD_RULES`, `PASSWORD_HINT`, constantes de verificación y upload
+- Tipos: `AuthUser`, `Venue`, `PaginationMeta`, `PaginatedVenuesResponse`, `OAuthProvider`, `DiscoverCard`, `MatchSummary`, `ChatMessage`, `ReportReason`, etc.
 
 Tras cambiar shared: `npm run build:shared` (o `postinstall`).
 
 ---
 
-## Convenciones entre agentes
+## Convenciones
 
-1. **Un solo README** (este). Frontend edita [Frontend](#frontend); backend edita [Backend](#backend); ambos pueden tocar Setup / Shared / Producto si el cambio es transversal.  
-2. Contratos de API: si el backend cambia un response/query, actualizar la tabla de endpoints **y** avisar en Frontend qué pantalla debe adaptarse.  
+1. **Un solo README** (este). Al cambiar API, pantallas, env, seed o contratos, actualizar [Backend](#backend) y/o [Frontend](#frontend) (y Setup / Shared / Producto si es transversal).  
+2. Contratos de API: si cambia un response/query, actualizar la tabla de endpoints **y** adaptar las pantallas que lo consumen en el mismo flujo.  
 3. No commitear secretos reales en `.env`; solo `.env.example`.  
 4. No inventar rol `owner` ni paneles de dueño hasta que el producto lo pida.  
 5. Mantener español en copy de producto y en este README.

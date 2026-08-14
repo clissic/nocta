@@ -1,8 +1,10 @@
 import type {
+  FOLLOW_TARGET_TYPES,
   GENDERS,
   INTERESTS,
   LOOKING_FOR,
   OAUTH_PROVIDERS,
+  REPORT_REASONS,
   VENUE_TYPES,
   WORK_STATUS,
 } from "./constants.js";
@@ -13,13 +15,15 @@ export type WorkStatus = (typeof WORK_STATUS)[number];
 export type VenueType = (typeof VENUE_TYPES)[number];
 export type Gender = (typeof GENDERS)[number];
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
+export type FollowTargetType = (typeof FOLLOW_TARGET_TYPES)[number];
+export type ReportReason = (typeof REPORT_REASONS)[number];
 export type UserRole = "user" | "admin";
 export type PresenceStatus = "active" | "expired" | "revoked";
 export type SwipeDirection = "like" | "pass";
 
 export interface UserProfile {
   name: string;
-  birthDate: string;
+  birthDate?: string;
   heightCm?: number;
   lookingFor: LookingFor[];
   photos: string[];
@@ -34,6 +38,7 @@ export interface AuthUser {
   id: string;
   email: string;
   role: UserRole;
+  emailVerified: boolean;
   profile: UserProfile | null;
   profileComplete: boolean;
 }
@@ -46,6 +51,10 @@ export interface Venue {
   city: string;
   description?: string;
   photos: string[];
+  location?: {
+    lat: number;
+    lng: number;
+  };
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -100,7 +109,11 @@ export interface MatchSummary {
     photo?: string;
   };
   createdAt: string;
-  lastMessage?: string;
+  lastMessage?: {
+    body: string;
+    createdAt: string;
+    fromUserId: string;
+  };
 }
 
 export interface ChatMessage {

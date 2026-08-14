@@ -5,10 +5,10 @@ import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../lib/api";
 
 const DEMO_ACCOUNTS = [
-  { email: "sofia@nocta.app", password: "demo1234", label: "Sofía" },
-  { email: "mateo@nocta.app", password: "demo1234", label: "Mateo" },
-  { email: "valentina@nocta.app", password: "demo1234", label: "Valentina" },
-  { email: "admin@nocta.app", password: "admin123456", label: "Admin" },
+  { email: "sofia@nocta.app", password: "Demo1234!", label: "Sofía" },
+  { email: "mateo@nocta.app", password: "Demo1234!", label: "Mateo" },
+  { email: "valentina@nocta.app", password: "Demo1234!", label: "Valentina" },
+  { email: "admin@nocta.app", password: "Admin1234!", label: "Admin" },
 ] as const;
 
 function startOAuth(provider: OAuthProvider) {
@@ -30,6 +30,9 @@ export function LoginPage() {
   }, [searchParams]);
 
   if (!loading && user) {
+    if (!user.emailVerified && user.role === "user") {
+      return <Navigate to="/verify-email" replace />;
+    }
     return <Navigate to={user.role === "admin" ? "/admin" : "/"} replace />;
   }
 
@@ -38,8 +41,22 @@ export function LoginPage() {
     setBusy(true);
     try {
       const u = await login(nextEmail, nextPassword);
-      navigate(u.role === "admin" ? "/admin" : u.profileComplete ? "/" : "/onboarding");
+      navigate(
+        u.role === "admin"
+          ? "/admin"
+          : !u.emailVerified
+            ? "/verify-email"
+            : u.profileComplete
+              ? "/"
+              : "/onboarding"
+      );
     } catch (err) {
+      if (err instanceof ApiError && err.code === "EMAIL_NOT_VERIFIED") {
+        const pendingEmail =
+          typeof err.data.email === "string" ? err.data.email : nextEmail;
+        navigate(`/verify-email?email=${encodeURIComponent(pendingEmail)}`);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión");
     } finally {
       setBusy(false);
@@ -99,7 +116,6 @@ export function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
             autoComplete="current-password"
           />
           {error && <p className="text-danger small mb-0">{error}</p>}

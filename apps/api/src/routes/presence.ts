@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import { requireVerified } from "../middleware/gates.js";
 import { Presence } from "../models/Presence.js";
 import { Venue } from "../models/Venue.js";
 import { expireStalePresences } from "../utils/presence.js";
@@ -15,7 +16,7 @@ const publishSchema = z.object({
   hours: z.number().positive().nullable(),
 });
 
-router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
+router.get("/me", requireAuth, requireVerified, async (req: AuthedRequest, res) => {
   await expireStalePresences({ userId: req.user!._id.toString() });
   const presence = await Presence.findOne({
     userId: req.user!._id,
@@ -38,7 +39,7 @@ router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   });
 });
 
-router.post("/", requireAuth, async (req: AuthedRequest, res) => {
+router.post("/", requireAuth, requireVerified, async (req: AuthedRequest, res) => {
   const user = req.user!;
   if (!user.profileComplete || !user.profile) {
     return res
@@ -87,7 +88,7 @@ router.post("/", requireAuth, async (req: AuthedRequest, res) => {
   });
 });
 
-router.delete("/me", requireAuth, async (req: AuthedRequest, res) => {
+router.delete("/me", requireAuth, requireVerified, async (req: AuthedRequest, res) => {
   await Presence.updateMany(
     { userId: req.user!._id, status: "active" },
     { $set: { status: "revoked" } }
