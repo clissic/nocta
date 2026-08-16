@@ -2,6 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import type { OAuthProvider } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
+import { AuthAtmosphere } from "../components/AuthAtmosphere";
+import { NoctaWordmark } from "../components/NoctaWordmark";
+import { useToast } from "../components/ToastProvider";
 import { ApiError } from "../lib/api";
 
 const DEMO_ACCOUNTS = [
@@ -17,12 +20,18 @@ function startOAuth(provider: OAuthProvider) {
 
 export function LoginPage() {
   const { login, user, loading } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const requestedNext = searchParams.get("next");
+  const safeNext =
+    requestedNext?.startsWith("/") && !requestedNext.startsWith("//")
+      ? requestedNext
+      : null;
 
   useEffect(() => {
     const oauthError = searchParams.get("error");
@@ -33,7 +42,12 @@ export function LoginPage() {
     if (!user.emailVerified && user.role === "user") {
       return <Navigate to="/verify-email" replace />;
     }
-    return <Navigate to={user.role === "admin" ? "/admin" : "/"} replace />;
+    return (
+      <Navigate
+        to={user.role === "admin" && safeNext?.startsWith("/admin") ? safeNext : user.role === "admin" ? "/admin" : "/"}
+        replace
+      />
+    );
   }
 
   async function doLogin(nextEmail: string, nextPassword: string) {
@@ -43,7 +57,9 @@ export function LoginPage() {
       const u = await login(nextEmail, nextPassword);
       navigate(
         u.role === "admin"
-          ? "/admin"
+          ? safeNext?.startsWith("/admin")
+            ? safeNext
+            : "/admin"
           : !u.emailVerified
             ? "/verify-email"
             : u.profileComplete
@@ -68,7 +84,19 @@ export function LoginPage() {
     await doLogin(email, password);
   }
 
+  function onSocialSoon(label: string) {
+    toast.info(`${label} se implementará próximamente`);
+  }
+
   async function onSocial(provider: OAuthProvider) {
+    if (provider === "apple") {
+      onSocialSoon("Sign in with Apple");
+      return;
+    }
+    if (provider === "microsoft") {
+      onSocialSoon("Iniciar sesión con Microsoft");
+      return;
+    }
     setError("");
     setBusy(true);
     try {
@@ -90,12 +118,13 @@ export function LoginPage() {
   }
 
   return (
-    <div className="auth-hero">
-      <div>
-        <h1 className="display-4 mb-1">
-          Noc<span className="text-primary">ta</span>
+    <div className="auth-hero auth-hero-login">
+      <AuthAtmosphere variant="login" />
+      <div className="auth-panel">
+        <h1 className="display-4 mb-1 auth-wordmark">
+          <NoctaWordmark />
         </h1>
-        <p className="text-secondary mb-3">
+        <p className="auth-tagline text-secondary">
           Publicate donde vas. Matcheá con quien está en el mismo lugar.
         </p>
 
@@ -124,7 +153,7 @@ export function LoginPage() {
           </button>
         </form>
 
-        <div className="auth-social d-flex justify-content-center gap-3 my-3">
+        <div className="auth-social d-flex justify-content-center gap-3">
           <button
             type="button"
             className="btn btn-outline-light auth-social-btn"
@@ -136,19 +165,21 @@ export function LoginPage() {
           </button>
           <button
             type="button"
-            className="btn btn-outline-light auth-social-btn"
-            aria-label="Continuar con Apple"
-            disabled={busy}
-            onClick={() => void onSocial("apple")}
+            className="btn btn-outline-light auth-social-btn is-soon"
+            aria-label="Continuar con Apple (próximamente)"
+            aria-disabled="true"
+            title="Próximamente"
+            onClick={() => onSocialSoon("Sign in with Apple")}
           >
             <i className="bi bi-apple fs-5" aria-hidden="true"></i>
           </button>
           <button
             type="button"
-            className="btn btn-outline-light auth-social-btn"
-            aria-label="Continuar con Microsoft"
-            disabled={busy}
-            onClick={() => void onSocial("microsoft")}
+            className="btn btn-outline-light auth-social-btn is-soon"
+            aria-label="Continuar con Microsoft (próximamente)"
+            aria-disabled="true"
+            title="Próximamente"
+            onClick={() => onSocialSoon("Iniciar sesión con Microsoft")}
           >
             <i className="bi bi-microsoft fs-5" aria-hidden="true"></i>
           </button>

@@ -3,7 +3,7 @@ import cors from "cors";
 import morgan from "morgan";
 import { config, isMemoryDb } from "./config.js";
 import { connectDb } from "./db.js";
-import { seedDemoData, ensureDemoAccounts } from "./seedData.js";
+import { seedDemoData, ensureDemoAccounts, normalizeLookingForSingleChoice } from "./seedData.js";
 import { Match } from "./models/Match.js";
 import { User } from "./models/User.js";
 import { ensureUploadsDir, UPLOADS_DIR } from "./uploads/index.js";
@@ -18,6 +18,7 @@ import matchRoutes from "./routes/matches.js";
 import adminRoutes from "./routes/admin.js";
 import userRoutes from "./routes/users.js";
 import meRoutes from "./routes/me.js";
+import muroRoutes from "./routes/muro.js";
 
 const app = express();
 
@@ -47,6 +48,7 @@ app.use("/api/matches", matchRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/me", meRoutes);
+app.use("/api/muro", muroRoutes);
 
 app.use(
   (
@@ -96,6 +98,7 @@ async function start() {
 
   await maybeSeed();
   await ensureDemoAccounts();
+  await normalizeLookingForSingleChoice();
   await verifyMailTransport();
 
   app.listen(config.port, () => {

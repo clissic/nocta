@@ -1,0 +1,32 @@
+---
+description: Alertas de interacción con Toast Bootstrap
+alwaysApply: true
+---
+
+# Toasts (feedback de interacción)
+
+Cuando el usuario realice una **interacción** que deba mostrar una alerta (copiar, guardar, activar/desactivar, error de acción, éxito breve), usar el sistema de **Toast de Bootstrap** de Nocta — no `alert()`, no banners permanentes de error para ese feedback.
+
+## Cómo
+
+- Provider: `apps/web/src/components/ToastProvider.tsx` (ya montado en `main.tsx`)
+- Hook: `const toast = useToast()`
+- API: `toast.success(msg)` · `toast.error(msg)` · `toast.info(msg)` · `toast.warning(msg)` · `toast.push({ message, variant, delayMs })`
+
+```tsx
+// ❌ BAD
+window.alert("Copiado");
+setError("No se pudo guardar"); // solo para feedback de acción puntual
+
+// ✅ GOOD
+toast.success("ID copiado");
+toast.error("No se pudo guardar");
+```
+
+## Alcance
+
+- **Sí toast:** resultado de una acción del usuario (copy, submit, toggle, delete, approve).
+- **Puede quedar inline:** estados de carga / vacío de pantalla (“Cargando…”, “Sin resultados”).
+- Variantes Bootstrap: `success` | `danger` | `warning` | `info`.
+- Copy en español, breve, sin jerga técnica innecesaria.
+---

@@ -2,14 +2,22 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import {
+  DRINKING,
+  EDUCATION_LEVELS,
+  FITNESS,
   INTERESTS,
   isStrongPassword,
+  LANGUAGES,
   LOOKING_FOR,
   MAX_PHOTOS,
   MIN_AGE,
   MIN_PHOTOS,
   PASSWORD_HINT,
+  PETS,
+  SEXUAL_ORIENTATIONS,
+  SOCIAL_NETWORKS,
   WORK_STATUS,
+  ZODIAC_SIGNS,
 } from "@nocta/shared";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { serializeUser, calcAge } from "../utils/serialize.js";
@@ -33,11 +41,28 @@ const photoUrlSchema = z
     "URL de foto inválida"
   );
 
+const livesInSchema = z.object({
+  country: z.string().trim().min(2).max(60),
+  city: z.string().trim().min(2).max(80),
+});
+
+const socialHandle = z.string().trim().max(80);
+
+const socialsSchema = z
+  .object({
+    instagram: socialHandle.optional(),
+    tiktok: socialHandle.optional(),
+    x: socialHandle.optional(),
+    facebook: socialHandle.optional(),
+    linkedin: socialHandle.optional(),
+  })
+  .strict();
+
 const profileSchema = z.object({
   name: z.string().min(2).max(60),
   birthDate: z.string(),
   heightCm: z.number().int().min(100).max(250).optional(),
-  lookingFor: z.array(z.enum(LOOKING_FOR)).min(1),
+  lookingFor: z.array(z.enum(LOOKING_FOR)).min(1).max(1),
   /** photos[0] = avatar. Vacío permitido hasta completar la subida. */
   photos: z.array(photoUrlSchema).max(MAX_PHOTOS).default([]),
   bio: z.string().max(500).optional(),
@@ -45,6 +70,18 @@ const profileSchema = z.object({
   workStatus: z.enum(WORK_STATUS).optional(),
   gender: z.string().optional(),
   interestedIn: z.array(z.string()).optional(),
+  livesIn: livesInSchema.optional(),
+  sexualOrientation: z.enum(SEXUAL_ORIENTATIONS).optional(),
+  languages: z.array(z.enum(LANGUAGES)).max(LANGUAGES.length).default([]),
+  zodiac: z.enum(ZODIAC_SIGNS).optional(),
+  educationLevel: z.enum(EDUCATION_LEVELS).optional(),
+  pets: z.enum(PETS).optional(),
+  drinking: z.enum(DRINKING).optional(),
+  fitness: z.enum(FITNESS).optional(),
+  socials: socialsSchema.optional(),
+  jobTitle: z.string().trim().max(80).optional(),
+  company: z.string().trim().max(80).optional(),
+  studiedAt: z.string().trim().max(120).optional(),
 });
 
 const passwordSchema = z.object({
@@ -58,6 +95,18 @@ const passwordSchema = z.object({
 const reorderSchema = z.object({
   order: z.array(z.number().int().min(0)).min(MIN_PHOTOS).max(MAX_PHOTOS),
 });
+
+function cleanSocials(
+  socials: z.infer<typeof socialsSchema> | undefined
+): Record<string, string> | undefined {
+  if (!socials) return undefined;
+  const next: Record<string, string> = {};
+  for (const key of SOCIAL_NETWORKS) {
+    const value = socials[key]?.trim();
+    if (value) next[key] = value.replace(/^@/, "");
+  }
+  return Object.keys(next).length ? next : undefined;
+}
 
 router.get("/", requireAuth, async (req: AuthedRequest, res) => {
   return res.json({ user: serializeUser(req.user!) });
@@ -86,6 +135,7 @@ router.put("/", requireAuth, async (req: AuthedRequest, res) => {
   const user = req.user!;
   const prevPhotos = user.profile?.photos ?? [];
   const nextPhotos = parsed.data.photos;
+  const socials = cleanSocials(parsed.data.socials);
 
   for (const old of prevPhotos) {
     if (!nextPhotos.includes(old)) deleteLocalUpload(old);
@@ -95,14 +145,27 @@ router.put("/", requireAuth, async (req: AuthedRequest, res) => {
     name: parsed.data.name,
     birthDate,
     heightCm: parsed.data.heightCm,
-    lookingFor: parsed.data.lookingFor,
+    lookingFor: parsed.data.lookingFor.slice(0, 1),
     photos: nextPhotos,
     bio: parsed.data.bio,
     interests: parsed.data.interests,
     workStatus: parsed.data.workStatus,
     gender: parsed.data.gender,
     interestedIn: parsed.data.interestedIn ?? [],
+    livesIn: parsed.data.livesIn,
+    sexualOrientation: parsed.data.sexualOrientation,
+    languages: parsed.data.languages ?? [],
+    zodiac: parsed.data.zodiac,
+    educationLevel: parsed.data.educationLevel,
+    pets: parsed.data.pets,
+    drinking: parsed.data.drinking,
+    fitness: parsed.data.fitness,
+    socials: socials ?? undefined,
+    jobTitle: parsed.data.jobTitle || undefined,
+    company: parsed.data.company || undefined,
+    studiedAt: parsed.data.studiedAt || undefined,
   } as typeof user.profile;
+  user.markModified("profile");
   user.profileComplete = nextPhotos.length >= MIN_PHOTOS;
   await user.save();
 

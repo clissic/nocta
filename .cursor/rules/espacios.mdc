@@ -1,0 +1,14 @@
+---
+description: Nomenclatura de producto — Espacios (no Locales)
+alwaysApply: true
+---
+
+# Espacios (nomenclatura)
+
+En copy de producto y UI de Nocta, los venues se llaman **Espacios**.
+
+- Usar: Espacio / Espacios
+- No usar en UI: Local / Locales (salvo código/IDs: `Venue`, `venueId`, `/venues`)
+- CTAs típicos: “Registrar espacio”, “Explorar espacios”, “Mis espacios”
+- Quien crea/gestiona un espacio: **Organizador** (no “dueño”; en código puede seguir `ownerId`)
+---

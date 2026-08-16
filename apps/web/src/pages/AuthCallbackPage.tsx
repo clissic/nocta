@@ -51,7 +51,7 @@ export function AuthCallbackPage() {
   if (error) {
     return (
       <div className="auth-hero">
-        <div>
+        <div className="auth-panel">
           <h1 className="h3 mb-2">Login social</h1>
           <p className="text-danger">{error}</p>
           <Link to="/login">Volver al login</Link>
@@ -62,7 +62,9 @@ export function AuthCallbackPage() {
 
   return (
     <div className="auth-hero">
-      <div className="text-secondary">Completando inicio de sesión…</div>
+      <div className="auth-panel text-secondary">
+        Completando inicio de sesión…
+      </div>
     </div>
   );
 }

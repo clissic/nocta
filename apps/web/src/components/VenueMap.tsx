@@ -139,8 +139,17 @@ export function VenueMap({
     requestAnimationFrame(() => map.invalidateSize());
     const resizeTimer = window.setTimeout(() => map.invalidateSize(), 200);
 
+    const ro =
+      typeof ResizeObserver !== "undefined" && mapElement.current
+        ? new ResizeObserver(() => {
+            map.invalidateSize();
+          })
+        : null;
+    if (ro && mapElement.current) ro.observe(mapElement.current);
+
     return () => {
       window.clearTimeout(resizeTimer);
+      ro?.disconnect();
       map.remove();
       mapRef.current = null;
     };

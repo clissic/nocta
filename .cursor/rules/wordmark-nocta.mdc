@@ -1,0 +1,44 @@
+---
+description: Wordmark Nocta — no + luna lima + ta (componente único)
+alwaysApply: true
+---
+
+# Wordmark Nocta (logo tipográfico)
+
+Cuando el **nombre se usa como logo** (header, auth, onboarding, empty states, marketing UI), **siempre** usar el componente `NoctaWordmark` — nunca reinventar el wordmark a mano.
+
+## Composición
+
+- Visual: **`no`** (minúsculas, color del texto / blanco) + **luna lima** (sustituye la “c”) + **`ta`** (minúsculas, mismo color que “no”).
+- Componente: `apps/web/src/components/NoctaWordmark.tsx`
+- Asset: `/images/nocta-logo-limaneon-nobg.png`
+- Accesible: `aria-label="Nocta"`; las letras e imagen van con `aria-hidden`.
+
+## Tipografía y estilo (obligatorio)
+
+- Fuente: `var(--nocta-display)` → **Syne** (display de marca).
+- Grosor: **800**.
+- Tracking: `-0.03em` (como `.brand` / títulos Nocta).
+- Color texto: hereda del contenedor (en dark = blanco/crema); **no** pintar “ta” en lima.
+- Acento lima: **solo** la luna (`--bs-primary` / asset limaneon).
+- Luna: altura ~`0.86em`, márgenes ópticos del componente; no reescalar a ojo por pantalla.
+
+## Qué no hacer
+
+```tsx
+// ❌ BAD — wordmark inventado
+Noc<span className="text-primary">ta</span>
+<span>Nocta</span>
+<img src="..." alt="Nocta" /> {/* logo solo cuando el brief pide ícono aislado */}
+
+// ✅ GOOD
+import { NoctaWordmark } from "../components/NoctaWordmark";
+<NavLink className="brand" to="/"><NoctaWordmark /></NavLink>
+<h1 className="display-4 auth-wordmark"><NoctaWordmark /></h1>
+```
+
+## Texto corrido vs logo
+
+- En **copy**, emails, títulos de sección y README: escribir **Nocta** (nombre propio).
+- Como **logo / wordmark visual**: solo `NoctaWordmark`.
+- Ícono solo (favicon, avatares de marca, núcleos animados): la luna limaneon está bien; no sustituye al wordmark completo en headers.

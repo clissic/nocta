@@ -6,9 +6,12 @@ import {
   type Presence,
   type Promotion,
   type Venue,
+  type VenueNews,
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
 import { VenueMap } from "../components/VenueMap";
+import { VenueReviewsSection } from "../components/VenueReviewsSection";
+import { useToast } from "../components/ToastProvider";
 
 const FALLBACK_PHOTO =
   "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=1200";
@@ -16,12 +19,15 @@ const FALLBACK_PHOTO =
 export function VenueDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [venue, setVenue] = useState<Venue | null>(null);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [news, setNews] = useState<VenueNews[]>([]);
   const [presence, setPresence] = useState<Presence | null>(null);
   const [hours, setHours] = useState<number | null>(24);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,15 +35,20 @@ export function VenueDetailPage() {
     (async () => {
       try {
         const [data, presenceResponse] = await Promise.all([
-          api<{ venue: Venue; promotions: Promotion[] }>(`/api/venues/${id}`),
+          api<{
+            venue: Venue;
+            promotions: Promotion[];
+            news: VenueNews[];
+          }>(`/api/venues/${id}`),
           api<{ presence: Presence | null }>("/api/presence/me"),
         ]);
         if (!alive) return;
         setVenue(data.venue);
         setPromotions(data.promotions);
+        setNews(data.news);
         setPresence(presenceResponse.presence);
       } catch {
-        if (alive) setError("Local no encontrado");
+        if (alive) setError("Espacio no encontrado");
       } finally {
         if (alive) setLoading(false);
       }
@@ -64,37 +75,126 @@ export function VenueDetailPage() {
     }
   }
 
+  async function toggleFollow() {
+    if (!venue || followBusy) return;
+    const nextFollowing = !venue.isFollowing;
+    setFollowBusy(true);
+    setError("");
+    setVenue((prev) =>
+      prev
+        ? {
+            ...prev,
+            isFollowing: nextFollowing,
+            followersCount: Math.max(
+              0,
+              (prev.followersCount ?? 0) + (nextFollowing ? 1 : -1)
+            ),
+          }
+        : prev
+    );
+    try {
+      const res = await api<{ isFollowing: boolean; followersCount: number }>(
+        `/api/venues/${venue.id}/follow`,
+        { method: nextFollowing ? "POST" : "DELETE" }
+      );
+      setVenue((prev) =>
+        prev
+          ? {
+              ...prev,
+              isFollowing: res.isFollowing,
+              followersCount: res.followersCount,
+            }
+          : prev
+      );
+      toast.success(nextFollowing ? "Espacio seguido" : "Dejaste de seguir");
+    } catch (err) {
+      setVenue((prev) =>
+        prev
+          ? {
+              ...prev,
+              isFollowing: !nextFollowing,
+              followersCount: Math.max(
+                0,
+                (prev.followersCount ?? 0) + (nextFollowing ? -1 : 1)
+              ),
+            }
+          : prev
+      );
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo actualizar el follow"
+      );
+      setError(
+        err instanceof ApiError ? err.message : "No se pudo actualizar el follow"
+      );
+    } finally {
+      setFollowBusy(false);
+    }
+  }
+
   if (loading) return <div className="app-screen text-secondary">Cargando…</div>;
   if (!venue) {
-    return <div className="app-screen text-danger">{error || "Local no encontrado"}</div>;
+    return (
+      <div className="app-screen text-danger">{error || "Espacio no encontrado"}</div>
+    );
   }
 
   const isPublishedHere = presence?.venueId === venue.id;
   const hero = venue.photos.filter(Boolean)[0] ?? FALLBACK_PHOTO;
+  const following = Boolean(venue.isFollowing);
+
+  function renderFollowButton() {
+    return (
+      <button
+        type="button"
+        className={`venue-follow-btn${following ? " is-following" : ""}`}
+        aria-pressed={following}
+        disabled={followBusy}
+        onClick={() => void toggleFollow()}
+      >
+        <i
+          className={`bi ${following ? "bi-bookmark-fill" : "bi-bookmark"}`}
+          aria-hidden="true"
+        />
+        <span>{following ? "Siguiendo" : "Seguir"}</span>
+      </button>
+    );
+  }
 
   return (
     <div className="app-screen flush venue-detail-page fade-in">
       <div className="venue-detail-layout">
-        <div className="venue-detail-media">
-          <div className="venue-detail-hero">
-            <img src={hero} alt={venue.name} />
-            <div className="venue-detail-hero-fade" />
-            <button
-              type="button"
-              className="venue-detail-back"
-              aria-label="Volver"
-              onClick={() => navigate("/")}
-            >
-              <i className="bi bi-arrow-left" aria-hidden="true" />
-            </button>
-            <div className="venue-detail-hero-caption d-md-none">
-              <span className="venue-detail-type">
-                {VENUE_TYPE_LABELS[venue.type]}
-              </span>
-              <h1 className="app-title h3 mb-1 text-white">{venue.name}</h1>
-              <p className="mb-0 small text-white-50">{venue.address}</p>
+        <div className="venue-detail-visual">
+          <div className="venue-detail-media">
+            <div className="venue-detail-hero">
+              <img src={hero} alt={venue.name} />
+              <div className="venue-detail-hero-fade" />
+              <button
+                type="button"
+                className="venue-detail-back"
+                aria-label="Volver"
+                onClick={() => navigate(-1)}
+              >
+                <i className="bi bi-arrow-left" aria-hidden="true" />
+              </button>
+              <div className="venue-detail-hero-caption d-md-none">
+                <span className="venue-detail-type">
+                  {VENUE_TYPE_LABELS[venue.type]}
+                </span>
+                <div className="venue-detail-title-row">
+                  <h1 className="app-title h3 mb-0 text-white">{venue.name}</h1>
+                  {renderFollowButton()}
+                </div>
+                <p className="mb-0 mt-1 small text-white-50">{venue.address}</p>
+              </div>
             </div>
           </div>
+
+          <VenueMap
+            name={venue.name}
+            address={venue.address}
+            city={venue.city}
+            location={venue.location}
+          />
         </div>
 
         <div className="venue-detail-info">
@@ -103,8 +203,27 @@ export function VenueDetailPage() {
               <span className="venue-detail-type">
                 {VENUE_TYPE_LABELS[venue.type]}
               </span>
-              <h1 className="app-title h3 mb-1">{venue.name}</h1>
-              <p className="text-secondary small mb-0">{venue.address}</p>
+              <div className="venue-detail-title-row">
+                <h1 className="app-title h3 mb-0">{venue.name}</h1>
+                {renderFollowButton()}
+              </div>
+              <p className="text-secondary small mb-0 mt-1">{venue.address}</p>
+              {typeof venue.followersCount === "number" && (
+                <p className="venue-detail-followers mb-0">
+                  {venue.followersCount}{" "}
+                  {venue.followersCount === 1 ? "seguidor" : "seguidores"}
+                </p>
+              )}
+              {(venue.ratingCount ?? 0) > 0 && venue.ratingAvg != null && (
+                <p className="venue-detail-rating mb-0">
+                  <span className="venue-review-stars-static" aria-hidden="true">
+                    <i className="bi bi-star-fill" />
+                  </span>{" "}
+                  {venue.ratingAvg.toFixed(1).replace(".", ",")} ·{" "}
+                  {venue.ratingCount}{" "}
+                  {venue.ratingCount === 1 ? "reseña" : "reseñas"}
+                </p>
+              )}
             </header>
 
             {venue.description && (
@@ -114,9 +233,17 @@ export function VenueDetailPage() {
               </section>
             )}
 
+            <VenueReviewsSection
+              venueId={venue.id}
+              venue={venue}
+              onVenuePatch={(patch) =>
+                setVenue((prev) => (prev ? { ...prev, ...patch } : prev))
+              }
+            />
+
             {!!promotions.length && (
               <section className="venue-detail-section">
-                <h2 className="venue-detail-label">Promos</h2>
+                <h2 className="venue-detail-label">Últimas promociones</h2>
                 <div className="venue-detail-promos">
                   {promotions.map((promotion) => (
                     <div key={promotion.id} className="venue-detail-promo">
@@ -124,10 +251,50 @@ export function VenueDetailPage() {
                       <p className="text-secondary small mb-0">
                         {promotion.description}
                       </p>
+                      {typeof promotion.priceUyu === "number" && (
+                        <p className="venue-detail-promo-price mb-0">
+                          {new Intl.NumberFormat("es-UY", {
+                            style: "currency",
+                            currency: "UYU",
+                            maximumFractionDigits: 0,
+                          }).format(promotion.priceUyu)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
               </section>
+            )}
+
+            {!!news.length && (
+              <section className="venue-detail-section">
+                <h2 className="venue-detail-label">Últimas noticias</h2>
+                <div className="venue-detail-news">
+                  {news.map((item) => (
+                    <article key={item.id} className="venue-detail-news-item">
+                      {item.photos[0] && (
+                        <img src={item.photos[0]} alt="" />
+                      )}
+                      <div className="min-w-0">
+                        <strong>{item.title}</strong>
+                        <p className="text-secondary small mb-0">{item.body}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {!following && (
+              <aside className="venue-detail-follow-callout">
+                <strong>
+                  Para enterarte de más de tu Espacio favorito, ¡empezá a
+                  seguirlo!
+                </strong>
+                <p className="text-secondary small mb-0">
+                  Sus próximas noticias y promociones aparecerán en tu Muro.
+                </p>
+              </aside>
             )}
           </div>
 
@@ -155,7 +322,7 @@ export function VenueDetailPage() {
               <>
                 <h2 className="venue-detail-label">Publicarme aquí</h2>
                 <p className="text-secondary small mb-2">
-                  Visible solo para quienes también se publicaron en este local.
+                  Visible solo para quienes también se publicaron en este espacio.
                 </p>
                 <div
                   className="venue-detail-presets"
@@ -182,23 +349,13 @@ export function VenueDetailPage() {
                   disabled={busy}
                   onClick={() => void publish()}
                 >
-                  <i
-                    className="bi bi-broadcast-pin me-1"
-                    aria-hidden="true"
-                  />
+                  <i className="bi bi-broadcast-pin me-1" aria-hidden="true" />
                   {busy ? "Publicando…" : "Publicar perfil"}
                 </button>
               </>
             )}
           </section>
         </div>
-
-        <VenueMap
-          name={venue.name}
-          address={venue.address}
-          city={venue.city}
-          location={venue.location}
-        />
       </div>
     </div>
   );

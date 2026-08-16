@@ -98,7 +98,7 @@ export function VenuesPage() {
         setHasMore(res.pagination.hasMore);
         setTotal(res.pagination.total);
       } catch {
-        setError("No se pudieron cargar los locales.");
+        setError("No se pudieron cargar los espacios.");
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -131,7 +131,7 @@ export function VenuesPage() {
 
   if (loading) {
     return (
-      <div className="app-screen text-secondary fade-in">Cargando locales…</div>
+      <div className="app-screen text-secondary fade-in">Cargando espacios…</div>
     );
   }
 
@@ -141,12 +141,12 @@ export function VenuesPage() {
         <div>
           <h1 className="app-title h3 mb-1">¿A dónde vas?</h1>
           <p className="text-secondary small mb-0">
-            Publicate en un local y descubrí quién más va.
+            Publicate en un espacio y descubrí quién más va.
           </p>
         </div>
         {total > 0 && (
           <span className="text-secondary small d-none d-md-inline">
-            {total} local{total === 1 ? "" : "es"}
+            {total} espacio{total === 1 ? "" : "s"}
           </span>
         )}
       </div>
@@ -162,7 +162,7 @@ export function VenuesPage() {
             placeholder="Buscar por nombre, barrio…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Buscar locales"
+            aria-label="Buscar espacios"
           />
           {query && (
             <button
@@ -189,7 +189,7 @@ export function VenuesPage() {
           ))}
         </select>
 
-        <div className="venue-type-filters" role="group" aria-label="Tipos de local">
+        <div className="venue-type-filters" role="group" aria-label="Tipos de espacio">
           {TYPE_FILTERS.map((f) => (
             <button
               key={f.id}
@@ -209,7 +209,7 @@ export function VenuesPage() {
         <div className="status-strip fade-in">
           <span className="live-dot" aria-hidden="true" />
           <span className="text-primary small fw-semibold">Publicado</span>
-          <span className="flex-grow-1 small">
+          <span className="status-strip-copy small">
             {presence.venue.name}
             {presence.endsAt
               ? ` · hasta ${new Date(presence.endsAt).toLocaleString("es-AR", {
@@ -217,11 +217,17 @@ export function VenuesPage() {
                   month: "short",
                   hour: "2-digit",
                   minute: "2-digit",
+                  hour12: false,
                 })}`
               : " · permanente"}
           </span>
-          <Link to="/discover" className="btn btn-sm btn-primary py-0 px-2">
-            Discover
+          <Link
+            to="/discover"
+            className="btn btn-sm btn-primary status-strip-discover"
+            aria-label="Discover"
+          >
+            <i className="bi bi-fire d-md-none" aria-hidden="true" />
+            <span className="d-none d-md-inline">Discover</span>
           </Link>
         </div>
       )}
@@ -269,7 +275,7 @@ export function VenuesPage() {
 
       {!venues.length && (
         <p className="text-secondary small mt-3 fade-in">
-          Todavía no hay locales
+          Todavía no hay espacios
           {debouncedQuery || typeFilter !== "all" ? " con ese filtro." : "."}
         </p>
       )}
@@ -282,7 +288,7 @@ export function VenuesPage() {
             ? "Cargando más…"
             : hasMore
               ? `Mostrando ${venues.length} de ${total}`
-              : `${total} local${total === 1 ? "" : "es"}`}
+              : `${total} espacio${total === 1 ? "" : "s"}`}
         </p>
       )}
     </div>

@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { AppLayout } from "./components/AppLayout";
+import { AdminLayout } from "./components/admin/AdminLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
@@ -9,15 +10,30 @@ import { OnboardingPage } from "./pages/OnboardingPage";
 import { VenuesPage } from "./pages/VenuesPage";
 import { VenueDetailPage } from "./pages/VenueDetailPage";
 import { DiscoverPage } from "./pages/DiscoverPage";
+import { MuroPage } from "./pages/MuroPage";
 import { MatchesPage } from "./pages/MatchesPage";
 import { ChatPage } from "./pages/ChatPage";
 import { ProfilePage } from "./pages/ProfilePage";
-import { AdminPage } from "./pages/AdminPage";
+import { VenueRequestPage } from "./pages/VenueRequestPage";
+import { VenueManagePage } from "./pages/VenueManagePage";
+import { MyPromosPage } from "./pages/MyPromosPage";
+import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
+import { AdminRequestsPage } from "./pages/admin/AdminRequestsPage";
+import { AdminVenuesPage } from "./pages/admin/AdminVenuesPage";
+import { AdminVenueCreatePage } from "./pages/admin/AdminVenueCreatePage";
+import { AdminContentPage } from "./pages/admin/AdminContentPage";
+import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
+import { AdminReportsPage } from "./pages/admin/AdminReportsPage";
+import { AdminVenueRequestPage } from "./pages/AdminVenueRequestPage";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <div className="app-shell"><div className="app-frame"><div className="app-screen text-secondary">Cargando…</div></div></div>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
   return children;
 }
 
@@ -77,23 +93,38 @@ export default function App() {
           index
           element={
             <AdminHomeRedirect>
-              <VenuesPage />
+              <MuroPage />
             </AdminHomeRedirect>
           }
         />
+        <Route path="venues" element={<VenuesPage />} />
+        <Route path="venues/:id/manage" element={<VenueManagePage />} />
         <Route path="venues/:id" element={<VenueDetailPage />} />
+        <Route path="muro" element={<Navigate to="/" replace />} />
         <Route path="discover" element={<DiscoverPage />} />
         <Route path="matches" element={<MatchesPage />} />
         <Route path="matches/:id" element={<ChatPage />} />
         <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile/promos" element={<MyPromosPage />} />
+        <Route path="profile/venue-request" element={<VenueRequestPage />} />
         <Route
           path="admin"
           element={
             <RequireAdmin>
-              <AdminPage />
+              <AdminLayout />
             </RequireAdmin>
           }
-        />
+        >
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<AdminOverviewPage />} />
+          <Route path="requests" element={<AdminRequestsPage />} />
+          <Route path="venues" element={<AdminVenuesPage />} />
+          <Route path="venues/new" element={<AdminVenueCreatePage />} />
+          <Route path="content" element={<AdminContentPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="reports" element={<AdminReportsPage />} />
+          <Route path="venue-requests/:id" element={<AdminVenueRequestPage />} />
+        </Route>
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -103,6 +134,6 @@ export default function App() {
 
 function AdminHomeRedirect({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (user?.role === "admin") return <Navigate to="/admin" replace />;
+  if (user?.role === "admin") return <Navigate to="/admin/overview" replace />;
   return children;
 }

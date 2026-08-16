@@ -76,6 +76,11 @@ export const config = {
     /** App passwords de Gmail pueden venir con espacios; se normalizan. */
     pass: env("SMTP_PASS").replace(/\s+/g, ""),
     from: env("MAIL_FROM", "Nocta <noreply@nocta.app>"),
+    /** Bandeja interna que recibe nuevas solicitudes de Espacios. */
+    notifyTo:
+      env("MAIL_NOTIFY_TO") ||
+      env("SMTP_USER") ||
+      env("ADMIN_EMAIL", "admin@nocta.app"),
     /** Si true, además loguea el mail en consola (aunque haya SMTP). */
     devLog: env("MAIL_DEV_LOG", "true") !== "false",
   },

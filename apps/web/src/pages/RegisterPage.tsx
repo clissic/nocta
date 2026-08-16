@@ -7,6 +7,8 @@ import {
   PASSWORD_RULES,
 } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
+import { AuthAtmosphere } from "../components/AuthAtmosphere";
+import { NoctaWordmark } from "../components/NoctaWordmark";
 import { ApiError } from "../lib/api";
 
 export function RegisterPage() {
@@ -71,10 +73,11 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="auth-hero">
-      <div>
-        <h1 className="display-4 mb-1">
-          Noc<span className="text-primary">ta</span>
+    <div className="auth-hero auth-hero-register">
+      <AuthAtmosphere variant="register" />
+      <div className="auth-panel">
+        <h1 className="display-4 mb-1 auth-wordmark">
+          <NoctaWordmark />
         </h1>
         <p className="text-secondary mb-3">
           Creá tu cuenta. El perfil queda oculto hasta que te publiques.

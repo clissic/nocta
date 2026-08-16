@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { requireVerified } from "../middleware/gates.js";
@@ -58,7 +58,7 @@ router.post("/", requireAuth, requireVerified, async (req: AuthedRequest, res) =
 
   const venue = await Venue.findOne({ _id: parsed.data.venueId, active: true });
   if (!venue) {
-    return res.status(404).json({ error: "Local no encontrado" });
+    return res.status(404).json({ error: "Espacio no encontrado" });
   }
 
   await expireStalePresences({ userId: user._id.toString() });
@@ -97,3 +97,4 @@ router.delete("/me", requireAuth, requireVerified, async (req: AuthedRequest, re
 });
 
 export default router;
+

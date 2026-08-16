@@ -120,63 +120,103 @@ export function MatchesPage() {
     return <div className="app-screen text-secondary fade-in">Cargando…</div>;
   }
 
+  if (!matches.length) {
+    return (
+      <div className="app-screen matches-empty-page fade-in">
+        {error && <p className="text-danger small matches-empty-error">{error}</p>}
+        <div className="matches-empty-visual" aria-hidden="true">
+          <span className="matches-empty-orbit is-one" />
+          <span className="matches-empty-orbit is-two" />
+          <span className="matches-empty-orbit is-three" />
+          <span className="matches-empty-dot is-one" />
+          <span className="matches-empty-dot is-two" />
+          <span className="matches-empty-dot is-three" />
+          <span className="matches-empty-core">
+            <i className="bi bi-chat-heart-fill" />
+          </span>
+        </div>
+
+        <div className="matches-empty-copy">
+          <p className="matches-empty-eyebrow">Matches</p>
+          <h1 className="app-title display-6 mb-2">Todavía no hay chispa</h1>
+          <p className="text-secondary mb-0">
+            Cuando alguien del mismo Espacio te guste también, el chat aparece
+            acá.
+          </p>
+
+          <div className="matches-empty-actions">
+            <Link className="btn btn-primary" to="/discover">
+              <i className="bi bi-fire me-2" aria-hidden="true" />
+              Ir al Discover
+              <i className="bi bi-arrow-right ms-2" aria-hidden="true" />
+            </Link>
+            <Link className="btn btn-outline-light" to="/venues">
+              <i className="bi bi-geo-alt me-2" aria-hidden="true" />
+              Explorar espacios
+            </Link>
+          </div>
+
+          <p className="matches-empty-note mb-0">
+            Solo ves gente publicada en el mismo Espacio que vos.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-screen matches-page fade-in">
       <div className="matches-head">
         <div>
           <h1 className="app-title h3 mb-1">Matches</h1>
-          <p className="text-secondary small mb-0">Gente del mismo local.</p>
+          <p className="text-secondary small mb-0">Gente del mismo espacio.</p>
         </div>
       </div>
 
       {error && <p className="text-danger small">{error}</p>}
 
-      {!matches.length ? (
-        <p className="text-secondary mt-4">Todavía no tenés matches.</p>
-      ) : (
-        <div className="matches-grid">
-          {matches.map((m) => (
-            <article key={m.id} className="match-row">
-              <Link to={`/matches/${m.id}`} className="match-row-main">
-                <img
-                  className="match-avatar"
-                  src={m.otherUser.photo ?? FALLBACK_PHOTO}
-                  alt=""
-                />
-                <div className="match-row-copy min-w-0">
-                  <div className="match-row-name fw-semibold text-truncate">
-                    {m.otherUser.name}
-                  </div>
-                  <div className="match-row-venue text-secondary small text-truncate">
-                    {m.venueName ?? "Local"}
-                  </div>
-                  <div className="match-row-preview small text-truncate">
-                    <span className="text-secondary">
-                      {m.lastMessage?.body ?? "Decí hola"}
-                    </span>
-                    {m.lastMessage?.createdAt && (
-                      <span className="match-row-time">
-                        · {formatMessageTime(m.lastMessage.createdAt)}
-                      </span>
-                    )}
-                  </div>
+      <div className="matches-grid">
+        {matches.map((m) => (
+          <article key={m.id} className="match-row">
+            <Link to={`/matches/${m.id}`} className="match-row-main">
+              <img
+                className="match-avatar"
+                src={m.otherUser.photo ?? FALLBACK_PHOTO}
+                alt=""
+              />
+              <div className="match-row-copy min-w-0">
+                <div className="match-row-name fw-semibold text-truncate">
+                  {m.otherUser.name}
                 </div>
-              </Link>
-              <button
-                type="button"
-                className="btn btn-link link-secondary match-row-menu"
-                aria-label={`Opciones de ${m.otherUser.name}`}
-                onClick={() => {
-                  setMenuMatch(m);
-                  setMode("menu");
-                }}
-              >
-                <i className="bi bi-three-dots-vertical" aria-hidden="true" />
-              </button>
-            </article>
-          ))}
-        </div>
-      )}
+                <div className="match-row-venue text-secondary small text-truncate">
+                  {m.venueName ?? "Espacio"}
+                </div>
+                <div className="match-row-preview small text-truncate">
+                  <span className="text-secondary">
+                    {m.lastMessage?.body ?? "Decí hola"}
+                  </span>
+                  {m.lastMessage?.createdAt && (
+                    <span className="match-row-time">
+                      · {formatMessageTime(m.lastMessage.createdAt)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Link>
+            <button
+              type="button"
+              className="btn btn-link link-secondary match-row-menu"
+              aria-label={`Opciones de ${m.otherUser.name}`}
+              onClick={() => {
+                setMenuMatch(m);
+                setMode("menu");
+              }}
+            >
+              <i className="bi bi-three-dots-vertical" aria-hidden="true" />
+            </button>
+          </article>
+        ))}
+      </div>
 
       {menuMatch && (
         <div className="chat-sheet" role="dialog" aria-modal="true">

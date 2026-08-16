@@ -5,7 +5,16 @@ alwaysApply: true
 
 # Nocta — reglas del proyecto
 
-App de citas acotada a salidas nocturnas. Perfil oculto hasta publicarse en un local. MVP: `user` | `admin` (sin owners).
+App de citas acotada a salidas nocturnas. Perfil oculto hasta publicarse en un espacio. MVP: roles `user` | `admin`. El organizador de un espacio es `Venue.ownerId` (asignación), no un rol aparte.
+
+## Nomenclatura de producto: Espacios
+
+En **toda** la UI y el copy de producto (nav, pantallas, vacíos, emails, errores visibles al usuario, README de producto):
+
+- Decir **Espacio / Espacios**, no “Local / Locales”.
+- Ejemplos: “Explorar espacios”, “Mis espacios”, “Registrar espacio”, “Organizador del espacio”.
+- Quien crea/gestiona un espacio se llama **Organizador**, no “dueño”.
+- En código está bien mantener `Venue`, `venueId`, `ownerId`, rutas `/venues`, etc. La regla aplica al lenguaje de producto, no a identificadores técnicos.
 
 ## Responsive (obligatorio — 3 breakpoints)
 
@@ -41,6 +50,8 @@ La UI **debe** existir y verse bien en **mobile, tablet y desktop**. Mobile-firs
 - Bootstrap 5 + Bootstrap Icons (iconos solo en botones/menús/tabs, nunca en títulos).
 - Docs: https://getbootstrap.com/docs/5.3/ · https://icons.getbootstrap.com/
 - Variables CSS dark OK.
+- Logo tipográfico: siempre `NoctaWordmark` (`no` + luna lima + `ta`); ver regla `wordmark-nocta`.
+- Feedback de interacción: Toast Bootstrap via `useToast()`; ver regla `toasts`.
 
 ## Stack MVP
 
