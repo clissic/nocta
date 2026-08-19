@@ -6,6 +6,8 @@ import {
   type VenueRequestStatus,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
+import { OverflowFade } from "../../components/OverflowFade";
+import { NoctaLoading } from "../../components/NoctaLoading";
 
 const FILTERS: { value: VenueRequestStatus | "all"; label: string; icon: string }[] = [
   { value: "pending", label: "Pendientes", icon: "bi-hourglass-split" },
@@ -50,7 +52,12 @@ export function AdminRequestsPage() {
         </div>
       </header>
 
-      <div className="admin-filter-row" role="tablist" aria-label="Filtro de estado">
+      <OverflowFade
+        axis="x"
+        className="admin-filter-row"
+        role="tablist"
+        aria-label="Filtro de estado"
+      >
         {FILTERS.map((f) => (
           <button
             key={f.value}
@@ -64,11 +71,11 @@ export function AdminRequestsPage() {
             <span>{f.label}</span>
           </button>
         ))}
-      </div>
+      </OverflowFade>
 
       {error && <p className="text-danger small">{error}</p>}
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando solicitudes…</p>
+        <NoctaLoading variant="block" />
       ) : requests.length === 0 ? (
         <p className="text-secondary small mb-0">No hay solicitudes en este filtro.</p>
       ) : (

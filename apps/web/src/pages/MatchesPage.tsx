@@ -6,6 +6,8 @@ import {
   type ReportReason,
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
+import { OverflowFade } from "../components/OverflowFade";
+import { NoctaLoading } from "../components/NoctaLoading";
 
 const REPORT_LABELS: Record<ReportReason, string> = {
   spam: "Spam",
@@ -117,7 +119,7 @@ export function MatchesPage() {
   }
 
   if (loading) {
-    return <div className="app-screen text-secondary fade-in">Cargando…</div>;
+    return <NoctaLoading />;
   }
 
   if (!matches.length) {
@@ -227,6 +229,7 @@ export function MatchesPage() {
             onClick={closeSheet}
           />
           <div className="chat-sheet-panel">
+            <OverflowFade>
             <div className="chat-sheet-handle d-md-none" aria-hidden="true" />
             <div className="chat-sheet-title">{menuMatch.otherUser.name}</div>
 
@@ -304,6 +307,7 @@ export function MatchesPage() {
                 </button>
               </div>
             )}
+            </OverflowFade>
           </div>
         </div>
       )}

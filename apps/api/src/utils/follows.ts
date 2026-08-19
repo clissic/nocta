@@ -5,6 +5,7 @@ import { User } from "../models/User.js";
 import { Venue } from "../models/Venue.js";
 import { Block, blockedPeerIds } from "../models/Block.js";
 import type { FollowTargetType } from "@nocta/shared";
+import { createNotification } from "./notify.js";
 
 export async function isFollowing(
   followerId: string | mongoose.Types.ObjectId,
@@ -160,10 +161,34 @@ export async function requestUserFollow(opts: {
       if ("error" in result) return result;
       existing.status = "accepted";
       await existing.save();
+      if (result.created) {
+        const fromName =
+          (await User.findById(fromUserId).select("profile.name"))?.profile
+            ?.name ?? "Alguien";
+        void createNotification({
+          userId: toUserId,
+          type: "new_follower",
+          title: "Nuevo seguidor",
+          body: `${fromName} empezó a seguirte`,
+          href: "/profile",
+          data: { actorId: fromUserId },
+        });
+      }
       return result;
     }
     existing.status = "pending";
     await existing.save();
+    const fromName =
+      (await User.findById(fromUserId).select("profile.name"))?.profile?.name ??
+      "Alguien";
+    void createNotification({
+      userId: toUserId,
+      type: "follow_request",
+      title: "Nueva solicitud de seguimiento",
+      body: `${fromName} quiere seguirte`,
+      href: "/profile",
+      data: { actorId: fromUserId },
+    });
     return { ok: true, status: "pending", created: true };
   }
 
@@ -188,6 +213,19 @@ export async function requestUserFollow(opts: {
         throw err;
       }
     }
+    if (result.created) {
+      const fromName =
+        (await User.findById(fromUserId).select("profile.name"))?.profile
+          ?.name ?? "Alguien";
+      void createNotification({
+        userId: toUserId,
+        type: "new_follower",
+        title: "Nuevo seguidor",
+        body: `${fromName} empezó a seguirte`,
+        href: "/profile",
+        data: { actorId: fromUserId },
+      });
+    }
     return result;
   }
 
@@ -208,6 +246,18 @@ export async function requestUserFollow(opts: {
     }
     throw err;
   }
+
+  const fromName =
+    (await User.findById(fromUserId).select("profile.name"))?.profile?.name ??
+    "Alguien";
+  void createNotification({
+    userId: toUserId,
+    type: "follow_request",
+    title: "Nueva solicitud de seguimiento",
+    body: `${fromName} quiere seguirte`,
+    href: "/profile",
+    data: { actorId: fromUserId },
+  });
 
   return { ok: true, status: "pending", created: true };
 }
@@ -248,6 +298,19 @@ export async function acceptFollowRequest(opts: {
 
   request.status = "accepted";
   await request.save();
+
+  const accepterName =
+    (await User.findById(opts.toUserId).select("profile.name"))?.profile
+      ?.name ?? "Alguien";
+  void createNotification({
+    userId: fromUserId,
+    type: "follow_accepted",
+    title: "Solicitud aceptada",
+    body: `${accepterName} aceptó tu solicitud`,
+    href: "/profile",
+    data: { actorId: opts.toUserId },
+  });
+
   return { ok: true, fromUserId };
 }
 

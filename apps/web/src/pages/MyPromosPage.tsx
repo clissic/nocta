@@ -6,6 +6,7 @@ import {
 } from "@nocta/shared";
 import { api } from "../lib/api";
 import { PromoQrCode } from "../components/PromoQrCode";
+import { NoctaLoading } from "../components/NoctaLoading";
 
 function formatPrice(value?: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -130,7 +131,7 @@ export function MyPromosPage() {
       </header>
 
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando tus promos…</p>
+        <NoctaLoading variant="block" />
       ) : purchases.length === 0 ? (
         <section
           className="my-promos-empty"

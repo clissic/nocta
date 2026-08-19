@@ -33,12 +33,12 @@ function escapeRegex(value: string) {
 const settingsSchema = z
   .object({
     autoAcceptFollowRequests: z.boolean().optional(),
-    hideActivityFromFollowers: z.boolean().optional(),
+    showActivityToFollowers: z.boolean().optional(),
   })
   .refine(
     (body) =>
       body.autoAcceptFollowRequests !== undefined ||
-      body.hideActivityFromFollowers !== undefined,
+      body.showActivityToFollowers !== undefined,
     { message: "Nada para actualizar" }
   );
 
@@ -50,18 +50,23 @@ router.patch("/settings", requireAuth, async (req: AuthedRequest, res) => {
 
   const updates: {
     autoAcceptFollowRequests?: boolean;
-    hideActivityFromFollowers?: boolean;
+    showActivityToFollowers?: boolean;
   } = {};
   if (parsed.data.autoAcceptFollowRequests !== undefined) {
     updates.autoAcceptFollowRequests = parsed.data.autoAcceptFollowRequests;
   }
-  if (parsed.data.hideActivityFromFollowers !== undefined) {
-    updates.hideActivityFromFollowers = parsed.data.hideActivityFromFollowers;
+  if (parsed.data.showActivityToFollowers !== undefined) {
+    updates.showActivityToFollowers = parsed.data.showActivityToFollowers;
   }
 
   const user = await User.findByIdAndUpdate(
     req.user!._id,
-    { $set: updates },
+    {
+      $set: updates,
+      ...(parsed.data.showActivityToFollowers !== undefined
+        ? { $unset: { hideActivityFromFollowers: 1 } }
+        : {}),
+    },
     { new: true }
   );
   if (!user) {

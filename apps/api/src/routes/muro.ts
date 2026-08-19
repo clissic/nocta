@@ -26,6 +26,8 @@ import {
 } from "../utils/serialize.js";
 import { currentlyValidPromoFilter } from "../utils/promoValidity.js";
 import { recordActivity } from "../utils/activity.js";
+import { resolveShowActivityToFollowers } from "../utils/activityVisibility.js";
+import { notifyUserFollowers } from "../utils/notifyFollowers.js";
 import { isObjectId } from "../utils/ids.js";
 import {
   assertUploadsAreImages,
@@ -143,7 +145,7 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
   const actorUsers = await User.find({
     _id: { $in: [...followedUserIds, me] },
     profileComplete: true,
-  }).select("profile hideActivityFromFollowers");
+  }).select("profile showActivityToFollowers hideActivityFromFollowers");
 
   const actorMap = new Map(
     actorUsers.map((u) => [
@@ -152,7 +154,7 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
         id: u._id.toString(),
         name: u.profile?.name ?? "Usuario",
         photo: u.profile?.photos?.[0],
-        hideActivityFromFollowers: Boolean(u.hideActivityFromFollowers),
+        showActivityToFollowers: resolveShowActivityToFollowers(u),
       },
     ])
   );
@@ -169,12 +171,12 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
       };
     });
 
-  // Incluye al viewer siempre; hideActivityFromFollowers solo aplica a terceros
+  // Incluye al viewer siempre; showActivityToFollowers solo aplica a terceros
   const activityActorIds = [
     meId,
     ...followedUserIds.filter((id) => {
       const actor = actorMap.get(id);
-      return Boolean(actor) && !actor?.hideActivityFromFollowers;
+      return Boolean(actor) && actor?.showActivityToFollowers;
     }),
   ].filter((id) => actorMap.has(id));
 
@@ -393,6 +395,22 @@ router.post(
         body: post.body,
         photos: post.photos ?? [],
         venueName: venue.name,
+      },
+    }).catch(() => undefined);
+
+    const authorName = req.user!.profile?.name ?? "Alguien";
+    void notifyUserFollowers({
+      actorId: authorId.toString(),
+      notification: {
+        type: "followed_user_post",
+        title: "Nueva publicación",
+        body: `${authorName} publicó en ${venue.name}`,
+        href: `/venues/${venueId}`,
+        data: {
+          venueId,
+          postId: post._id.toString(),
+        },
+        dedupePrefix: `followed_user_post:${post._id.toString()}`,
       },
     }).catch(() => undefined);
 

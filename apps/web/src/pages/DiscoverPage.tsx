@@ -3,7 +3,7 @@ import type {
   CSSProperties,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   DRINKING_LABELS,
   EDUCATION_LEVEL_LABELS,
@@ -36,8 +36,10 @@ import {
   type ZodiacSign,
 } from "@nocta/shared";
 import { DiscoverProfileDetail } from "../components/DiscoverProfileDetail";
+import { OverflowFade } from "../components/OverflowFade";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
+import { NoctaLoading } from "../components/NoctaLoading";
 
 type MatchFlash = {
   matchId: string;
@@ -219,6 +221,8 @@ const SWIPE_EXIT_MS = 240;
 
 export function DiscoverPage() {
   const toast = useToast();
+  const [searchParams] = useSearchParams();
+  const focusedUserId = searchParams.get("userId");
   const [cards, setCards] = useState<DiscoverCard[]>([]);
   const [presence, setPresence] = useState<Presence | null>(null);
   const [loading, setLoading] = useState(true);
@@ -269,7 +273,10 @@ export function DiscoverPage() {
         setCards([]);
         return;
       }
-      const feed = await api<DiscoverFeedResponse>("/api/discover/feed");
+      const feedUrl = focusedUserId
+        ? `/api/discover/feed?userId=${encodeURIComponent(focusedUserId)}`
+        : "/api/discover/feed";
+      const feed = await api<DiscoverFeedResponse>(feedUrl);
       setCards(feed.cards);
       setLikeAllowance(feed.likeAllowance);
       setFollowingIds(
@@ -296,7 +303,7 @@ export function DiscoverPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [focusedUserId]);
 
   useEffect(() => {
     void load();
@@ -634,9 +641,7 @@ export function DiscoverPage() {
 
   if (loading) {
     return (
-      <div className="app-screen justify-content-center align-items-center text-secondary fade-in">
-        Cargando…
-      </div>
+      <NoctaLoading />
     );
   }
 
@@ -819,7 +824,11 @@ export function DiscoverPage() {
                   />
                 </div>
 
-                <div className="swipe-card-scroller" ref={cardScrollRef}>
+                <OverflowFade
+                  className="swipe-card-scroller"
+                  fadeClassName="swipe-card-scroller-fade"
+                  scrollRef={cardScrollRef}
+                >
                   {detailOpen ? (
                     <DiscoverProfileDetail
                       card={current}
@@ -890,7 +899,7 @@ export function DiscoverPage() {
                       </div>
                     </div>
                   )}
-                </div>
+                </OverflowFade>
               </div>
 
               <div

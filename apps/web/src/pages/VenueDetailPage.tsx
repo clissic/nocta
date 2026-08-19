@@ -11,10 +11,11 @@ import {
 import { api, ApiError } from "../lib/api";
 import { VenueMap } from "../components/VenueMap";
 import { VenueReviewsSection } from "../components/VenueReviewsSection";
+import { OverflowFade } from "../components/OverflowFade";
 import { useToast } from "../components/ToastProvider";
-
-const FALLBACK_PHOTO =
-  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=1200";
+import { VenueTrustBadge } from "../components/VenueTrustBadge";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { NoctaLoading } from "../components/NoctaLoading";
 
 export function VenueDetailPage() {
   const { id } = useParams();
@@ -131,7 +132,7 @@ export function VenueDetailPage() {
     }
   }
 
-  if (loading) return <div className="app-screen text-secondary">Cargando…</div>;
+  if (loading) return <NoctaLoading />;
   if (!venue) {
     return (
       <div className="app-screen text-danger">{error || "Espacio no encontrado"}</div>
@@ -139,7 +140,7 @@ export function VenueDetailPage() {
   }
 
   const isPublishedHere = presence?.venueId === venue.id;
-  const hero = venue.photos.filter(Boolean)[0] ?? FALLBACK_PHOTO;
+  const hero = venueCoverSrc(venue);
   const following = Boolean(venue.isFollowing);
 
   function renderFollowButton() {
@@ -162,11 +163,15 @@ export function VenueDetailPage() {
 
   return (
     <div className="app-screen flush venue-detail-page fade-in">
-      <div className="venue-detail-layout">
-        <div className="venue-detail-visual">
+      <div className="row g-0 venue-detail-layout">
+        <div className="col-12 col-md-5 venue-detail-visual">
           <div className="venue-detail-media">
             <div className="venue-detail-hero">
-              <img src={hero} alt={venue.name} />
+              <img
+                src={hero}
+                alt={venue.name}
+                onError={onVenuePhotoError}
+              />
               <div className="venue-detail-hero-fade" />
               <button
                 type="button"
@@ -181,7 +186,10 @@ export function VenueDetailPage() {
                   {VENUE_TYPE_LABELS[venue.type]}
                 </span>
                 <div className="venue-detail-title-row">
-                  <h1 className="app-title h3 mb-0 text-white">{venue.name}</h1>
+                  <div className="venue-detail-title-text">
+                    <h1 className="app-title h3 mb-0 text-white">{venue.name}</h1>
+                    <VenueTrustBadge ownerId={venue.ownerId} />
+                  </div>
                   {renderFollowButton()}
                 </div>
                 <p className="mb-0 mt-1 small text-white-50">{venue.address}</p>
@@ -197,14 +205,17 @@ export function VenueDetailPage() {
           />
         </div>
 
-        <div className="venue-detail-info">
-          <div className="venue-detail-body">
+        <div className="col-12 col-md-7 d-md-flex flex-md-column venue-detail-info">
+          <OverflowFade className="venue-detail-body">
             <header className="venue-detail-head d-none d-md-block">
               <span className="venue-detail-type">
                 {VENUE_TYPE_LABELS[venue.type]}
               </span>
               <div className="venue-detail-title-row">
-                <h1 className="app-title h3 mb-0">{venue.name}</h1>
+                <div className="venue-detail-title-text">
+                  <h1 className="app-title h3 mb-0">{venue.name}</h1>
+                  <VenueTrustBadge ownerId={venue.ownerId} />
+                </div>
                 {renderFollowButton()}
               </div>
               <p className="text-secondary small mb-0 mt-1">{venue.address}</p>
@@ -292,11 +303,12 @@ export function VenueDetailPage() {
                   seguirlo!
                 </strong>
                 <p className="text-secondary small mb-0">
-                  Sus próximas noticias y promociones aparecerán en tu Muro.
+                  Sus próximas noticias y promociones van a aparecer en el perfil
+                  del Espacio.
                 </p>
               </aside>
             )}
-          </div>
+          </OverflowFade>
 
           <section className="venue-detail-action">
             {isPublishedHere ? (

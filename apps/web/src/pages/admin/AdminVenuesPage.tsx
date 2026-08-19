@@ -7,6 +7,8 @@ import {
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
 import { useToast } from "../../components/ToastProvider";
+import { NoctaLoading } from "../../components/NoctaLoading";
+import { onVenuePhotoError, venueCoverSrc } from "../../lib/venuePhoto";
 
 export function AdminVenuesPage() {
   const toast = useToast();
@@ -124,7 +126,7 @@ export function AdminVenuesPage() {
       </div>
 
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando espacios…</p>
+        <NoctaLoading variant="block" />
       ) : filtered.length === 0 ? (
         <p className="text-secondary small mb-0">Sin resultados.</p>
       ) : (
@@ -134,13 +136,12 @@ export function AdminVenuesPage() {
             return (
               <div key={v.id} className="admin-list-row">
                 <div className="admin-list-media">
-                  {v.photos[0] ? (
-                    <img src={v.photos[0]} alt="" className="admin-list-thumb" />
-                  ) : (
-                    <div className="admin-list-thumb is-empty" aria-hidden="true">
-                      <i className="bi bi-geo-alt" />
-                    </div>
-                  )}
+                  <img
+                    src={venueCoverSrc(v)}
+                    alt=""
+                    className="admin-list-thumb"
+                    onError={onVenuePhotoError}
+                  />
                   <span
                     className={`admin-badge ${v.active ? "is-approved" : "is-rejected"}`}
                   >

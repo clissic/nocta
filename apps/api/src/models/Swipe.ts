@@ -31,6 +31,8 @@ swipeSchema.index(
 
 export type SwipeDocument = InferSchemaType<typeof swipeSchema> & {
   _id: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export const Swipe = mongoose.model("Swipe", swipeSchema);

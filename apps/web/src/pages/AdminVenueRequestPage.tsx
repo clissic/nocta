@@ -7,6 +7,7 @@ import {
 } from "@nocta/shared";
 import { VenueMap } from "../components/VenueMap";
 import { api, ApiError } from "../lib/api";
+import { NoctaLoading } from "../components/NoctaLoading";
 
 const STATUS_LABEL: Record<VenueRequest["status"], string> = {
   pending: "Pendiente",
@@ -62,7 +63,11 @@ export function AdminVenueRequestPage() {
   }
 
   if (loading) {
-    return <div className="admin-review-state text-secondary">Cargando solicitud…</div>;
+    return (
+      <div className="admin-review-state admin-review-state-loading">
+        <NoctaLoading variant="block" />
+      </div>
+    );
   }
 
   if (!request) {

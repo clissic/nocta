@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { AdminStats } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
+import { NoctaLoading } from "../../components/NoctaLoading";
 
 export function AdminOverviewPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -18,7 +19,7 @@ export function AdminOverviewPage() {
   }, []);
 
   if (loading) {
-    return <p className="text-secondary small mb-0">Cargando resumen…</p>;
+    return <NoctaLoading variant="block" />;
   }
 
   return (

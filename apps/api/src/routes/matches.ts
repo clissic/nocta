@@ -11,6 +11,7 @@ import { Venue } from "../models/Venue.js";
 import { Report } from "../models/Report.js";
 import { Block, blockedPeerIds } from "../models/Block.js";
 import { isObjectId, paramId } from "../utils/ids.js";
+import { createNotification, notifyMany } from "../utils/notify.js";
 import {
   dissolveAllMatchesBetween,
   dissolveMatch,
@@ -129,6 +130,24 @@ router.post("/:id/messages", async (req: AuthedRequest, res) => {
   match.updatedAt = new Date();
   await match.save();
 
+  const senderName = req.user!.profile?.name ?? "Alguien";
+  const preview =
+    parsed.data.body.length > 80
+      ? `${parsed.data.body.slice(0, 77)}…`
+      : parsed.data.body;
+  void createNotification({
+    userId: peer,
+    type: "message_received",
+    title: `Mensaje de ${senderName}`,
+    body: preview,
+    href: `/matches/${match._id.toString()}`,
+    data: {
+      matchId: match._id.toString(),
+      actorId: userId,
+      messageId: message._id.toString(),
+    },
+  });
+
   return res.status(201).json({
     message: {
       id: message._id.toString(),
@@ -168,7 +187,7 @@ router.post("/:id/report", async (req: AuthedRequest, res) => {
   if (!match) return res.status(404).json({ error: "Match no encontrado" });
 
   const reportedUserId = otherUserId(match, userId);
-  await Report.create({
+  const report = await Report.create({
     reporterId: req.user!._id,
     reportedUserId,
     matchId: match._id,
@@ -179,6 +198,22 @@ router.post("/:id/report", async (req: AuthedRequest, res) => {
   if (parsed.data.unmatch !== false) {
     await dissolveMatch(match._id);
   }
+
+  const admins = await User.find({ role: "admin" }).select("_id");
+  void notifyMany(
+    admins.map((a) => a._id.toString()),
+    {
+      type: "report_created",
+      title: "Nueva denuncia",
+      body: `Motivo: ${parsed.data.reason}`,
+      href: "/admin/reports",
+      data: {
+        reportId: report._id.toString(),
+        matchId: match._id.toString(),
+        reporterId: userId,
+      },
+    }
+  );
 
   return res.status(201).json({ ok: true });
 });

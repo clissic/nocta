@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { LOOKING_FOR_ICONS } from "../lib/lookingForIcons";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 import { ProfileExtraSections, ProfileLanguagesSection } from "../components/ProfileExtraSections";
 import { ProfileSocialIcons } from "../components/ProfileSocialIcons";
 import { useToast } from "../components/ToastProvider";
@@ -498,11 +499,11 @@ export function ProfilePage() {
               <div className="profile-owned-venues">
                 {ownedVenues.map((v) => (
                   <Link key={v.id} className="profile-owned-card" to={`/venues/${v.id}/manage`}>
-                    {v.photos[0] ? (
-                      <img src={v.photos[0]} alt="" />
-                    ) : (
-                      <span className="profile-owned-fallback" />
-                    )}
+                    <img
+                      src={venueCoverSrc(v)}
+                      alt=""
+                      onError={onVenuePhotoError}
+                    />
                     <span>
                       <strong>{v.name}</strong>
                       <small>{VENUE_TYPE_LABELS[v.type]}</small>

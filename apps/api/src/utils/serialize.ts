@@ -15,6 +15,7 @@ import {
   type PromoPurchaseStatus,
 } from "@nocta/shared";
 import { refId } from "./ids.js";
+import { resolveShowActivityToFollowers } from "./activityVisibility.js";
 
 function calcAge(birthDate: Date): number {
   const now = new Date();
@@ -115,7 +116,7 @@ export function serializeUser(user: UserDocument) {
     followingUsersCount: user.followingUsersCount ?? 0,
     followingVenuesCount: user.followingVenuesCount ?? 0,
     autoAcceptFollowRequests: Boolean(user.autoAcceptFollowRequests),
-    hideActivityFromFollowers: Boolean(user.hideActivityFromFollowers),
+    showActivityToFollowers: resolveShowActivityToFollowers(user),
   };
 }
 

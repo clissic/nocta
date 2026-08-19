@@ -6,6 +6,8 @@ import {
   type ReportStatus,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
+import { OverflowFade } from "../../components/OverflowFade";
+import { NoctaLoading } from "../../components/NoctaLoading";
 
 const FILTERS: { value: ReportStatus | "all"; label: string; icon: string }[] = [
   { value: "open", label: "Abiertas", icon: "bi-envelope-open" },
@@ -63,7 +65,12 @@ export function AdminReportsPage() {
         </div>
       </header>
 
-      <div className="admin-filter-row" role="tablist" aria-label="Filtro de denuncias">
+      <OverflowFade
+        axis="x"
+        className="admin-filter-row"
+        role="tablist"
+        aria-label="Filtro de denuncias"
+      >
         {FILTERS.map((f) => (
           <button
             key={f.value}
@@ -77,11 +84,11 @@ export function AdminReportsPage() {
             <span>{f.label}</span>
           </button>
         ))}
-      </div>
+      </OverflowFade>
 
       {error && <p className="text-danger small">{error}</p>}
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando denuncias…</p>
+        <NoctaLoading variant="block" />
       ) : visible.length === 0 ? (
         <p className="text-secondary small mb-0">No hay denuncias en este filtro.</p>
       ) : (

@@ -8,6 +8,7 @@ import {
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
 import { useToast } from "../../components/ToastProvider";
+import { NoctaLoading } from "../../components/NoctaLoading";
 
 export function AdminVenueCreatePage() {
   const navigate = useNavigate();
@@ -84,7 +85,7 @@ export function AdminVenueCreatePage() {
       </header>
 
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando usuarios…</p>
+        <NoctaLoading variant="block" />
       ) : (
         <form className="admin-form" onSubmit={createVenue}>
           <label className="admin-field">

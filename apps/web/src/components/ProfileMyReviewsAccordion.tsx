@@ -8,6 +8,7 @@ import {
 import { api, ApiError } from "../lib/api";
 import { PhotoLightbox } from "./PhotoLightbox";
 import { useToast } from "./ToastProvider";
+import { NoctaLoading } from "./NoctaLoading";
 
 function Stars({ rating }: { rating: number }) {
   return (
@@ -116,7 +117,7 @@ export function ProfileMyReviewsAccordion() {
         />
 
         {loading && !reviews.length ? (
-          <p className="text-secondary small mb-0">Cargando…</p>
+          <NoctaLoading variant="inline" />
         ) : reviews.length === 0 ? (
           <p className="text-secondary small mb-0">
             {debouncedQuery

@@ -13,6 +13,8 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
+import { NoctaLoading } from "../components/NoctaLoading";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 
 function formatDate(value?: string) {
   if (!value) return null;
@@ -296,11 +298,7 @@ export function VenueManagePage() {
   }
 
   if (loading) {
-    return (
-      <div className="app-screen venue-manage-page fade-in">
-        <p className="text-secondary small mb-0">Cargando espacio…</p>
-      </div>
-    );
+    return <NoctaLoading />;
   }
 
   if (!venue) {
@@ -326,11 +324,12 @@ export function VenueManagePage() {
 
       <div className="venue-manage-overview">
         <header className="venue-manage-head">
-          {venue.photos[0] ? (
-            <img src={venue.photos[0]} alt="" className="venue-manage-thumb" />
-          ) : (
-            <span className="venue-manage-thumb is-empty" aria-hidden="true" />
-          )}
+          <img
+            src={venueCoverSrc(venue)}
+            alt=""
+            className="venue-manage-thumb"
+            onError={onVenuePhotoError}
+          />
           <div className="venue-manage-head-copy min-w-0">
             <div className="venue-manage-title-row">
               <h1 className="app-title h4 mb-0 text-truncate">{venue.name}</h1>
@@ -428,7 +427,7 @@ export function VenueManagePage() {
                 onClick={() => newsFileRef.current?.click()}
               >
                 <i className="bi bi-image" aria-hidden="true" />
-                <span>Imagen para el muro</span>
+                <span>Imagen de la noticia</span>
               </button>
             )}
           </div>

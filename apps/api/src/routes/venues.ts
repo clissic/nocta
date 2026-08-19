@@ -55,6 +55,8 @@ import {
   deactivateReviewActivity,
   recordActivity,
 } from "../utils/activity.js";
+import { createNotification } from "../utils/notify.js";
+import { notifyUserFollowers } from "../utils/notifyFollowers.js";
 import { sendVenueRequestNotificationEmail } from "../mail/mailer.js";
 import {
   assertUploadsAreImages,
@@ -576,6 +578,24 @@ router.post("/:id/follow", requireAuth, async (req: AuthedRequest, res) => {
       venueId: id,
       payload: { venueName: venue.name },
     }).catch(() => undefined);
+
+    if (venue.ownerId) {
+      const ownerId = venue.ownerId.toString();
+      if (ownerId !== req.user!._id.toString()) {
+        const followerName = req.user!.profile?.name ?? "Alguien";
+        void createNotification({
+          userId: ownerId,
+          type: "venue_new_follower",
+          title: "Nuevo seguidor de tu Espacio",
+          body: `${followerName} empezó a seguir ${venue.name}`,
+          href: `/venues/${id}/manage`,
+          data: {
+            venueId: id,
+            actorId: req.user!._id.toString(),
+          },
+        });
+      }
+    }
   }
 
   return res.json({
@@ -821,6 +841,40 @@ router.post(
       },
     }).catch(() => undefined);
 
+    const authorName = req.user?.profile?.name ?? "Alguien";
+    void notifyUserFollowers({
+      actorId: userId.toString(),
+      notification: {
+        type: "followed_user_review",
+        title: isUpdate ? "Actualizó una reseña" : "Nueva reseña",
+        body: `${authorName} ${isUpdate ? "actualizó su reseña de" : "reseñó"} ${venue.name}`,
+        href: `/venues/${id}`,
+        data: {
+          venueId: id,
+          reviewId: review!._id.toString(),
+        },
+        dedupePrefix: `followed_user_review:${review!._id.toString()}`,
+      },
+    }).catch(() => undefined);
+
+    if (!isUpdate && venue.ownerId) {
+      const ownerId = venue.ownerId.toString();
+      if (ownerId !== userId.toString()) {
+        void createNotification({
+          userId: ownerId,
+          type: "venue_new_review",
+          title: "Nueva reseña en tu Espacio",
+          body: `${authorName} reseñó ${venue.name}`,
+          href: `/venues/${id}`,
+          data: {
+            venueId: id,
+            reviewId: review!._id.toString(),
+            actorId: userId.toString(),
+          },
+        });
+      }
+    }
+
     const author = req.user?.profile?.name
       ? {
           id: userId.toString(),
@@ -931,6 +985,22 @@ router.patch(
         body: review.body,
         photos: review.photos ?? [],
         venueName: venue.name,
+      },
+    }).catch(() => undefined);
+
+    const authorName = req.user?.profile?.name ?? "Alguien";
+    void notifyUserFollowers({
+      actorId: req.user!._id.toString(),
+      notification: {
+        type: "followed_user_review",
+        title: "Actualizó una reseña",
+        body: `${authorName} actualizó su reseña de ${venue.name}`,
+        href: `/venues/${venueId}`,
+        data: {
+          venueId,
+          reviewId: review._id.toString(),
+        },
+        dedupePrefix: `followed_user_review:${review._id.toString()}:upd`,
       },
     }).catch(() => undefined);
 

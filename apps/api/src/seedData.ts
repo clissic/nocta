@@ -16,6 +16,16 @@ import { Message } from "./models/Message.js";
 import { followTarget } from "./utils/follows.js";
 import { recomputeVenueRatings } from "./utils/venueRatings.js";
 import { recordActivity } from "./utils/activity.js";
+import { Follow } from "./models/Follow.js";
+import { UserPost } from "./models/UserPost.js";
+import { ActivityEvent } from "./models/ActivityEvent.js";
+import { VenueRequest } from "./models/VenueRequest.js";
+import {
+  PILOT_CITY,
+  PILOT_DEMO_VENUE_NAME,
+  PILOT_VENUES,
+  venuePhotoUrl,
+} from "./pilotVenues.js";
 
 const DEMO_PHOTOS = [
   "https://images.unsplash.com/photo-1511367461989-f85a21fda167?w=600",
@@ -159,6 +169,72 @@ const DEMO_USERS: DemoUser[] = [
   },
 ];
 
+async function deleteVenueDependents(venueIds: Types.ObjectId[]) {
+  if (venueIds.length === 0) return;
+  await Promise.all([
+    Presence.deleteMany({ venueId: { $in: venueIds } }),
+    VenueReview.deleteMany({ venueId: { $in: venueIds } }),
+    VenueNews.deleteMany({ venueId: { $in: venueIds } }),
+    Promotion.deleteMany({ venueId: { $in: venueIds } }),
+    PromoPurchase.deleteMany({ venueId: { $in: venueIds } }),
+    Swipe.deleteMany({ venueId: { $in: venueIds } }),
+    Follow.deleteMany({ targetType: "venue", targetId: { $in: venueIds } }),
+    UserPost.deleteMany({ venueId: { $in: venueIds } }),
+    ActivityEvent.deleteMany({ venueId: { $in: venueIds } }),
+    VenueRequest.updateMany(
+      { venueId: { $in: venueIds } },
+      { $unset: { venueId: 1 } }
+    ),
+  ]);
+  const matches = await Match.find({ venueId: { $in: venueIds } }).select("_id");
+  const matchIds = matches.map((m) => m._id);
+  if (matchIds.length > 0) {
+    await Message.deleteMany({ matchId: { $in: matchIds } });
+    await Match.deleteMany({ _id: { $in: matchIds } });
+  }
+  await Venue.deleteMany({ _id: { $in: venueIds } });
+}
+
+/** Reemplaza el catálogo BA por los Espacios de Montevideo. No pisa ownerId. */
+export async function syncPilotVenues() {
+  const keptNames = new Set(PILOT_VENUES.map((item) => item.name));
+  const stale = await Venue.find({ name: { $nin: [...keptNames] } }).select(
+    "_id name"
+  );
+  if (stale.length > 0) {
+    await deleteVenueDependents(stale.map((v) => v._id));
+    console.log(
+      `Catálogo piloto: ${stale.length} Espacios anteriores eliminados`
+    );
+  }
+
+  const venues = [];
+  for (const item of PILOT_VENUES) {
+    const existing = await Venue.findOne({ name: item.name });
+    const payload = {
+      name: item.name,
+      type: item.type,
+      address: item.address,
+      city: PILOT_CITY,
+      photos: [venuePhotoUrl(item.name)],
+      location: item.location,
+      active: true,
+    };
+    const venue = existing
+      ? await Venue.findByIdAndUpdate(
+          existing._id,
+          { $set: payload },
+          { new: true }
+        )
+      : await Venue.create(payload);
+    if (venue) venues.push(venue);
+  }
+  console.log(
+    `Catálogo piloto: ${venues.length} Espacios en ${PILOT_CITY}`
+  );
+  return venues;
+}
+
 export async function seedDemoData() {
   const passwordHash = await bcrypt.hash(config.adminPassword, 10);
   await User.findOneAndUpdate(
@@ -180,203 +256,22 @@ export async function seedDemoData() {
     { upsert: true, new: true }
   );
 
-  const venuesData = [
-    {
-      name: "Niceto Club",
-      type: "boliche" as const,
-      address: "Niceto Vega 5510, Palermo",
-      city: "Buenos Aires",
-      description: "Club icónico de Palermo con electrónica y shows en vivo.",
-      photos: [
-        "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=800",
-      ],
-    },
-    {
-      name: "Frank's Bar",
-      type: "bar" as const,
-      address: "Arévalo 1443, Palermo",
-      city: "Buenos Aires",
-      description: "Speakeasy de cócteles clásicos.",
-      photos: [
-        "https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800",
-      ],
-    },
-    {
-      name: "The Temple Bar",
-      type: "pub" as const,
-      address: "Av. Corrientes 1234",
-      city: "Buenos Aires",
-      description: "Pub irlandés con birra y fútbol.",
-      photos: [
-        "https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800",
-      ],
-    },
-    {
-      name: "Patagonia Brew",
-      type: "cerveceria" as const,
-      address: "Honduras 5678, Palermo",
-      city: "Buenos Aires",
-      description: "Cerveza artesanal y tablas.",
-      photos: [
-        "https://images.unsplash.com/photo-1436076863939-06870fe779c2?w=800",
-      ],
-    },
-    {
-      name: "Rooftop Privado Recoleta",
-      type: "fiesta_privada" as const,
-      address: "Recoleta (ubicación al confirmar)",
-      city: "Buenos Aires",
-      description: "Fiesta privada en rooftop. Cupos limitados.",
-      photos: [
-        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800",
-      ],
-    },
-    {
-      name: "Luna Park — Noche Live",
-      type: "concierto" as const,
-      address: "Av. Eduardo Madero 470",
-      city: "Buenos Aires",
-      description: "Concierto en arena. Doors 20:00.",
-      photos: [
-        "https://images.unsplash.com/photo-1459749411175-04bf529277ea?w=800",
-      ],
-    },
-    {
-      name: "BA Electronic Festival",
-      type: "festival" as const,
-      address: "Costanera Sur",
-      city: "Buenos Aires",
-      description: "Festival al aire libre con stages múltiples.",
-      photos: [
-        "https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=800",
-      ],
-    },
-    {
-      name: "Crobar",
-      type: "boliche" as const,
-      address: "Paseo de la Infanta Isabel 555",
-      city: "Buenos Aires",
-      description: "Megadiscoteca frente al Río.",
-      photos: [
-        "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800",
-      ],
-    },
-    {
-      name: "Bahrein",
-      type: "boliche" as const,
-      address: "Lavalle 345",
-      city: "Buenos Aires",
-      description: "House y techno en Microcentro.",
-      photos: [
-        "https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=800",
-      ],
-    },
-    {
-      name: "Harrison Speakeasy",
-      type: "bar" as const,
-      address: "Malabia 1764, Palermo",
-      city: "Buenos Aires",
-      description: "Cócteles ocultos detrás de una librería.",
-      photos: [
-        "https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=800",
-      ],
-    },
-    {
-      name: "The Shamrock",
-      type: "pub" as const,
-      address: "Rodríguez Peña 1379",
-      city: "Buenos Aires",
-      description: "Pub irlandés con happy hour y dardos.",
-      photos: [
-        "https://images.unsplash.com/photo-1543007630-9710e4a00a20?w=800",
-      ],
-    },
-    {
-      name: "Antares Palermo",
-      type: "cerveceria" as const,
-      address: "Arieta 1449",
-      city: "Buenos Aires",
-      description: "Cerveza de fábrica y burgers.",
-      photos: [
-        "https://images.unsplash.com/photo-1608270586620-248524c67de9?w=800",
-      ],
-    },
-    {
-      name: "After Privado Belgrano",
-      type: "fiesta_privada" as const,
-      address: "Belgrano (por invitación)",
-      city: "Buenos Aires",
-      description: "After íntimo hasta el amanecer.",
-      photos: [
-        "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800",
-      ],
-    },
-    {
-      name: "Movistar Arena — Live",
-      type: "concierto" as const,
-      address: "Humboldt 450",
-      city: "Buenos Aires",
-      description: "Shows internacionales en arena.",
-      photos: [
-        "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800",
-      ],
-    },
-    {
-      name: "Dock Sud Open Air",
-      type: "festival" as const,
-      address: "Dock Sud",
-      city: "Buenos Aires",
-      description: "Festival industrial con lineup local.",
-      photos: [
-        "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=800",
-      ],
-    },
-  ];
+  const venues = await syncPilotVenues();
+  const jackson = venues.find((v) => v.name === PILOT_DEMO_VENUE_NAME)!;
 
-  const venueCoords: Record<string, { lat: number; lng: number }> = {
-    "Niceto Club": { lat: -34.58755, lng: -58.43085 },
-    "Frank's Bar": { lat: -34.5852, lng: -58.4336 },
-    "The Temple Bar": { lat: -34.6037, lng: -58.3915 },
-    "Patagonia Brew": { lat: -34.5889, lng: -58.4262 },
-    "Rooftop Privado Recoleta": { lat: -34.5875, lng: -58.3925 },
-    "Luna Park — Noche Live": { lat: -34.6033, lng: -58.3683 },
-    "BA Electronic Festival": { lat: -34.6167, lng: -58.3583 },
-    Crobar: { lat: -34.5717, lng: -58.4033 },
-    Bahrein: { lat: -34.6031, lng: -58.3782 },
-    "Harrison Speakeasy": { lat: -34.5881, lng: -58.4301 },
-    "The Shamrock": { lat: -34.5992, lng: -58.3931 },
-    "Antares Palermo": { lat: -34.5868, lng: -58.4322 },
-    "After Privado Belgrano": { lat: -34.5627, lng: -58.4584 },
-    "Movistar Arena — Live": { lat: -34.575, lng: -58.439 },
-    "Dock Sud Open Air": { lat: -34.655, lng: -58.345 },
-  };
-
-  const venues = [];
-  for (const data of venuesData) {
-    const location = venueCoords[data.name];
-    const venue = await Venue.findOneAndUpdate(
-      { name: data.name },
-      { ...data, location, active: true },
-      { upsert: true, new: true }
-    );
-    venues.push(venue);
-
-    await Promotion.findOneAndUpdate(
-      { venueId: venue._id, title: "Promo Nocta" },
-      {
-        venueId: venue._id,
-        title: "Promo Nocta",
-        description: `Entrada con descuento para usuarios Nocta en ${venue.name}.`,
-        priceUyu: 350,
-        active: true,
-        validFrom: new Date(),
-        validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-      { upsert: true }
-    );
-  }
-
-  const niceto = venues.find((v) => v.name === "Niceto Club")!;
+  await Promotion.findOneAndUpdate(
+    { venueId: jackson._id, title: "Promo Nocta" },
+    {
+      venueId: jackson._id,
+      title: "Promo Nocta",
+      description: `Entrada con descuento para usuarios Nocta en ${jackson.name}.`,
+      priceUyu: 350,
+      active: true,
+      validFrom: new Date(),
+      validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    },
+    { upsert: true }
+  );
 
   for (const demo of DEMO_USERS) {
     const hash = await bcrypt.hash(demo.password, 10);
@@ -431,7 +326,7 @@ export async function seedDemoData() {
 
     await Presence.create({
       userId: user._id,
-      venueId: niceto._id,
+      venueId: jackson._id,
       startsAt: new Date(),
       endsAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
       status: "active",
@@ -441,30 +336,30 @@ export async function seedDemoData() {
   const mateo = await User.findOne({ email: "mateo@nocta.app" });
   const sofia = await User.findOne({ email: "sofia@nocta.app" });
   const valentina = await User.findOne({ email: "valentina@nocta.app" });
-  const franks = venues.find((v) => v.name === "Frank's Bar");
-  const crobar = venues.find((v) => v.name === "Crobar");
+  const malafama = venues.find((v) => v.name === "Malafama");
+  const volveMiNegra = venues.find((v) => v.name === "Volvé Mi Negra");
 
-  const nicetoPromo = await Promotion.findOne({
-    venueId: niceto._id,
+  const jacksonPromo = await Promotion.findOne({
+    venueId: jackson._id,
     title: "Promo Nocta",
   });
-  if (mateo && nicetoPromo) {
+  if (mateo && jacksonPromo) {
     const existing = await PromoPurchase.findOne({
       userId: mateo._id,
-      promotionId: nicetoPromo._id,
+      promotionId: jacksonPromo._id,
     });
     if (!existing) {
       await PromoPurchase.create({
         userId: mateo._id,
-        venueId: niceto._id,
-        promotionId: nicetoPromo._id,
+        venueId: jackson._id,
+        promotionId: jacksonPromo._id,
         code: randomBytes(16).toString("hex"),
-        title: nicetoPromo.title,
-        priceUyu: nicetoPromo.priceUyu ?? 350,
+        title: jacksonPromo.title,
+        priceUyu: jacksonPromo.priceUyu ?? 350,
         status: "valid",
         purchasedAt: new Date(),
         validUntil:
-          nicetoPromo.validUntil ??
+          jacksonPromo.validUntil ??
           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
     }
@@ -495,31 +390,31 @@ export async function seedDemoData() {
       {
         followerId: sofia._id.toString(),
         targetType: "venue",
-        targetId: niceto._id.toString(),
+        targetId: jackson._id.toString(),
       },
       {
         followerId: mateo._id.toString(),
         targetType: "venue",
-        targetId: niceto._id.toString(),
+        targetId: jackson._id.toString(),
       },
       {
         followerId: valentina._id.toString(),
         targetType: "venue",
-        targetId: niceto._id.toString(),
+        targetId: jackson._id.toString(),
       },
     ];
-    if (franks) {
+    if (malafama) {
       followPairs.push({
         followerId: mateo._id.toString(),
         targetType: "venue",
-        targetId: franks._id.toString(),
+        targetId: malafama._id.toString(),
       });
     }
-    if (crobar) {
+    if (volveMiNegra) {
       followPairs.push({
         followerId: valentina._id.toString(),
         targetType: "venue",
-        targetId: crobar._id.toString(),
+        targetId: volveMiNegra._id.toString(),
       });
     }
 
@@ -544,9 +439,9 @@ export async function seedDemoData() {
   }
 
   await VenueNews.findOneAndUpdate(
-    { venueId: niceto._id, title: "Noche electrónica este sábado" },
+    { venueId: jackson._id, title: "Noche electrónica este sábado" },
     {
-      venueId: niceto._id,
+      venueId: jackson._id,
       title: "Noche electrónica este sábado",
       body: "Lineup confirmado desde las 00:00. Traé tu vibe Nocta.",
       photos: [
@@ -557,11 +452,11 @@ export async function seedDemoData() {
     },
     { upsert: true }
   );
-  if (franks) {
+  if (malafama) {
     await VenueNews.findOneAndUpdate(
-      { venueId: franks._id, title: "Happy hour de cócteles" },
+      { venueId: malafama._id, title: "Happy hour de cócteles" },
       {
-        venueId: franks._id,
+        venueId: malafama._id,
         title: "Happy hour de cócteles",
         body: "De 19 a 21 hs: 2x1 en clásicos. Ideal para arrancar la noche.",
         photos: [
@@ -584,23 +479,23 @@ export async function seedDemoData() {
   if (mateo) {
     reviewSeeds.push({
       user: mateo,
-      venue: niceto,
+      venue: jackson,
       rating: 5,
       body: "La pista no para. Ideal para descubrir gente nueva en Nocta.",
     });
   }
-  if (valentina && franks) {
+  if (valentina && malafama) {
     reviewSeeds.push({
       user: valentina,
-      venue: franks,
+      venue: malafama,
       rating: 4,
       body: "Cócteles impecables y ambiente íntimo. Volvería.",
     });
   }
-  if (sofia && crobar) {
+  if (sofia && volveMiNegra) {
     reviewSeeds.push({
       user: sofia,
-      venue: crobar,
+      venue: volveMiNegra,
       rating: 4,
       body: "Energía alta y buena vibra. Un clásico.",
     });
@@ -648,13 +543,13 @@ export async function seedDemoData() {
   }
 
   console.log(
-    "Usuarios demo (password Demo1234!): sofia@nocta.app, mateo@nocta.app, valentina@nocta.app — publicados en Niceto Club (follows, reseñas y noticias para Muro)"
+    "Usuarios demo (password Demo1234!): sofia@nocta.app, mateo@nocta.app, valentina@nocta.app — publicados en Jackson Bar (follows, reseñas y noticias para Muro)"
   );
 }
 
 /**
  * En Atlas el seed completo se omite si ya hay users: esto resincroniza las
- * cuentas demo/admin (verificación + password), refresca presencia en Niceto
+ * cuentas demo/admin (verificación + password), refresca presencia en Jackson Bar
  * y limpia swipes/matches que involucren demos para que vuelvan al Discover.
  */
 export async function ensureDemoAccounts() {
@@ -706,8 +601,8 @@ export async function ensureDemoAccounts() {
 
   if (demoIds.length === 0) return;
 
-  const niceto = await Venue.findOne({ name: "Niceto Club" });
-  if (niceto) {
+  const jacksonBar = await Venue.findOne({ name: PILOT_DEMO_VENUE_NAME });
+  if (jacksonBar) {
     const endsAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
     for (const userId of demoIds) {
       await Presence.updateMany(
@@ -716,14 +611,14 @@ export async function ensureDemoAccounts() {
       );
       await Presence.create({
         userId,
-        venueId: niceto._id,
+        venueId: jacksonBar._id,
         startsAt: new Date(),
         endsAt,
         status: "active",
       });
     }
     console.log(
-      `Presencia demo renovada en Niceto Club (${demoIds.length} users, 48h)`
+      `Presencia demo renovada en ${PILOT_DEMO_VENUE_NAME} (${demoIds.length} users, 48h)`
     );
   }
 

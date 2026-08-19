@@ -9,6 +9,7 @@ import {
 } from "@nocta/shared";
 import { useAuth } from "../../auth/AuthContext";
 import { api, ApiError } from "../../lib/api";
+import { NoctaLoading } from "../../components/NoctaLoading";
 
 export function AdminContentPage() {
   const { user } = useAuth();
@@ -241,7 +242,7 @@ export function AdminContentPage() {
       {error && <p className="text-danger small">{error}</p>}
 
       {loadingVenues ? (
-        <p className="text-secondary small mb-0">Cargando espacios…</p>
+        <NoctaLoading variant="block" />
       ) : venues.length === 0 ? (
         <p className="text-secondary small mb-0">Todavía no hay espacios.</p>
       ) : (
@@ -268,7 +269,7 @@ export function AdminContentPage() {
           )}
 
           {loadingContent ? (
-            <p className="text-secondary small mb-0">Cargando contenido…</p>
+            <NoctaLoading variant="inline" />
           ) : (
             <div className="admin-content-grid">
               <section className="admin-section">
@@ -435,7 +436,7 @@ export function AdminContentPage() {
                     />
                   </label>
                   <label className="admin-field">
-                    <span>Imagen para el muro</span>
+                    <span>Imagen de la noticia</span>
                     <input
                       className="form-control"
                       type="file"

@@ -404,6 +404,55 @@ export const REPORT_STATUS_LABELS = {
   dismissed: "Descartada",
 } as const;
 
+/** Tipos de notificaciones in-app. */
+export const NOTIFICATION_TYPES = [
+  "like_received",
+  "match_created",
+  "message_received",
+  "follow_request",
+  "follow_accepted",
+  "new_follower",
+  "followed_user_post",
+  "followed_user_review",
+  "venue_new_follower",
+  "venue_new_review",
+  "presence_expired",
+  "likes_recharged",
+  "venue_request_resolved",
+  "report_created",
+  "report_resolved",
+  "followed_presence",
+] as const;
+
+export const NOTIFICATION_TYPE_LABELS: Record<
+  (typeof NOTIFICATION_TYPES)[number],
+  string
+> = {
+  like_received: "Like recibido",
+  match_created: "Nuevo match",
+  message_received: "Nuevo mensaje",
+  follow_request: "Solicitud de seguimiento",
+  follow_accepted: "Solicitud aceptada",
+  new_follower: "Nuevo seguidor",
+  followed_user_post: "Publicación de alguien que seguís",
+  followed_user_review: "Reseña de alguien que seguís",
+  venue_new_follower: "Nuevo seguidor del Espacio",
+  venue_new_review: "Nueva reseña del Espacio",
+  presence_expired: "Presencia vencida",
+  likes_recharged: "Likes recargados",
+  venue_request_resolved: "Solicitud de Espacio resuelta",
+  report_created: "Nueva denuncia",
+  report_resolved: "Denuncia revisada",
+  followed_presence: "Alguien que seguís se publicó",
+};
+
+/** Días que vive una notificación después de marcarse como leída. */
+export const NOTIFICATION_READ_TTL_DAYS = 30;
+/** Preview en el desplegable de la campana. */
+export const NOTIFICATIONS_PREVIEW_LIMIT = 5;
+/** Tamaño de página en /notifications. */
+export const NOTIFICATIONS_PAGE_SIZE = 10;
+
 export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
 export const EMAIL_VERIFICATION_TTL_MINUTES = 15;
 

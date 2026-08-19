@@ -20,6 +20,7 @@ import type {
   FOLLOW_REQUEST_STATUSES,
   VENUE_TYPES,
   WORK_STATUS,
+  NOTIFICATION_TYPES,
 } from "./constants.js";
 
 export type LookingFor = (typeof LOOKING_FOR)[number];
@@ -99,8 +100,8 @@ export interface AuthUser {
   followingVenuesCount?: number;
   /** Aceptar solicitudes de follow al instante (solo “me”). */
   autoAcceptFollowRequests: boolean;
-  /** Ocultar mi actividad en el Muro a quienes me siguen (solo “me”). */
-  hideActivityFromFollowers: boolean;
+  /** Si true, quienes me siguen pueden ver mi actividad (solo “me”). */
+  showActivityToFollowers: boolean;
 }
 
 export interface VenueOwnerSummary {
@@ -389,6 +390,31 @@ export interface DiscoverRewindResponse {
   likeAllowance: LikeAllowance;
 }
 
+/** Like recibido (alguien te dio like y todavía no respondiste). */
+export interface ReceivedLike {
+  id: string;
+  createdAt: string;
+  venueId: string;
+  venueName?: string;
+  user: {
+    /** Solo si `viewerPremium`; sin Premium no se revela identidad técnica. */
+    id?: string;
+    /** Solo si `viewerPremium`; sin Premium el cliente muestra un placeholder. */
+    name?: string;
+    age: number;
+    /** Solo si `viewerPremium`; sin Premium la API no envía URL de foto. */
+    photo?: string;
+  };
+  /** Podés responder el like porque tenés presencia activa en ese Espacio. */
+  canRespond: boolean;
+}
+
+export interface ReceivedLikesResponse {
+  likes: ReceivedLike[];
+  /** Estado Premium validado por la API para decidir si se revelan las fotos. */
+  viewerPremium: boolean;
+}
+
 export interface MatchSummary {
   id: string;
   venueId: string;
@@ -412,6 +438,32 @@ export interface ChatMessage {
   senderId: string;
   body: string;
   createdAt: string;
+}
+
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export interface NotificationItem {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body?: string;
+  href?: string;
+  data: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationItem[];
+  nextCursor: string | null;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface NotificationsUnreadResponse {
+  count: number;
 }
 
 export interface AdminStats {

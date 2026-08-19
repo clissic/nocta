@@ -12,6 +12,7 @@ import {
 import { api, ApiError } from "../lib/api";
 import { PhotoLightbox } from "./PhotoLightbox";
 import { useToast } from "./ToastProvider";
+import { NoctaLoading } from "./NoctaLoading";
 import { useAuth } from "../auth/AuthContext";
 
 type Props = {
@@ -402,7 +403,7 @@ export function VenueReviewsSection({
       )}
 
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando reseñas…</p>
+        <NoctaLoading variant="inline" />
       ) : reviews.length === 0 ? (
         <p className="text-secondary small mb-0">
           Sé el primero en reseñar este Espacio.

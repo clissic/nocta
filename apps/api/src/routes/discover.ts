@@ -8,6 +8,7 @@ import { Swipe } from "../models/Swipe.js";
 import { Match } from "../models/Match.js";
 import { Message } from "../models/Message.js";
 import { User } from "../models/User.js";
+import { Venue } from "../models/Venue.js";
 import { expireStalePresences } from "../utils/presence.js";
 import { calcAge, serializeSocials } from "../utils/serialize.js";
 import { isObjectId, sortedUserPair } from "../utils/ids.js";
@@ -20,6 +21,7 @@ import {
   refundLike,
 } from "../utils/likeAllowance.js";
 import { isDemoUserEmail } from "../seedData.js";
+import { createNotification } from "../utils/notify.js";
 
 const router = Router();
 
@@ -86,6 +88,12 @@ function shuffleInPlace<T>(items: T[]) {
 
 router.get("/feed", async (req: AuthedRequest, res) => {
   const user = req.user!;
+  const focusedUserId =
+    user.premium &&
+    typeof req.query.userId === "string" &&
+    isObjectId(req.query.userId)
+      ? req.query.userId
+      : null;
   if (!user.profileComplete || !user.profile) {
     return res.status(400).json({ error: "Completá tu perfil" });
   }
@@ -142,6 +150,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   const cards = users
     .filter((u) => u.profile)
     .filter((u) => {
+      if (focusedUserId === u._id.toString()) return true;
       // Cuentas demo saltan el filtro mutuo para poder probar Discover
       if (viewerIsDemo || isDemoUserEmail(u.email)) {
         return true;
@@ -174,6 +183,13 @@ router.get("/feed", async (req: AuthedRequest, res) => {
     });
 
   shuffleInPlace(cards);
+  if (focusedUserId) {
+    cards.sort((a, b) => {
+      if (a.userId === focusedUserId) return -1;
+      if (b.userId === focusedUserId) return 1;
+      return 0;
+    });
+  }
 
   const cardUserIds = cards.map((c) => c.userId);
   const [followingRows, pendingRows] = await Promise.all([
@@ -271,6 +287,18 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
 
   let match: { id: string } | null = null;
   if (parsed.data.direction === "like") {
+    const actorName = user.profile?.name ?? "Alguien";
+    void createNotification({
+      userId: parsed.data.toUserId,
+      type: "like_received",
+      title: "Tenés un like nuevo",
+      body: "Alguien te dio like. Abrí Likes para ver más.",
+      href: "/likes",
+      data: {
+        venueId: myPresence.venueId.toString(),
+      },
+    });
+
     const reciprocal = await Swipe.findOne({
       fromUserId: parsed.data.toUserId,
       toUserId: user._id,
@@ -292,6 +320,39 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
           users,
         });
         if (existing) match = { id: existing._id.toString() };
+      }
+
+      if (match) {
+        const otherId = parsed.data.toUserId;
+        const matchHref = `/matches/${match.id}`;
+        void createNotification({
+          userId: otherId,
+          type: "match_created",
+          title: "¡Nuevo match!",
+          body: `Matcheaste con ${actorName}`,
+          href: matchHref,
+          data: {
+            matchId: match.id,
+            actorId: user._id.toString(),
+            venueId: myPresence.venueId.toString(),
+          },
+          dedupeKey: `match_created:${match.id}:${otherId}`,
+        });
+        const otherUser = await User.findById(otherId).select("profile.name");
+        const otherName = otherUser?.profile?.name ?? "Alguien";
+        void createNotification({
+          userId: user._id.toString(),
+          type: "match_created",
+          title: "¡Nuevo match!",
+          body: `Matcheaste con ${otherName}`,
+          href: matchHref,
+          data: {
+            matchId: match.id,
+            actorId: otherId,
+            venueId: myPresence.venueId.toString(),
+          },
+          dedupeKey: `match_created:${match.id}:${user._id.toString()}`,
+        });
       }
     }
   }
@@ -365,6 +426,91 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
 
   const likeAllowance = await getLikeAllowance(user._id.toString());
   return res.json({ ok: true, card, likeAllowance });
+});
+
+/** Likes recibidos pendientes de respuesta (no swipeados de vuelta, no bloqueados). */
+router.get("/likes", async (req: AuthedRequest, res) => {
+  const me = req.user!._id;
+  await expireStalePresences({ userId: me.toString() });
+
+  const [incoming, mySwipes, blocked, myPresence] = await Promise.all([
+    Swipe.find({
+      toUserId: me,
+      direction: "like",
+    })
+      .sort({ createdAt: -1 })
+      .limit(80),
+    Swipe.find({ fromUserId: me }).select("toUserId venueId"),
+    blockedPeerIds(me),
+    Presence.findOne({ userId: me, status: "active" }),
+  ]);
+
+  const blockedSet = new Set(blocked.map(String));
+  const respondedKeys = new Set(
+    mySwipes.map((s) => `${s.toUserId.toString()}:${s.venueId.toString()}`)
+  );
+
+  const pending = incoming.filter((s) => {
+    const fromId = s.fromUserId.toString();
+    if (blockedSet.has(fromId)) return false;
+    const key = `${fromId}:${s.venueId.toString()}`;
+    return !respondedKeys.has(key);
+  });
+
+  const userIds = [...new Set(pending.map((s) => s.fromUserId.toString()))];
+  const venueIds = [...new Set(pending.map((s) => s.venueId.toString()))];
+
+  const [users, venues] = await Promise.all([
+    userIds.length
+      ? User.find({
+          _id: { $in: userIds },
+          profileComplete: true,
+        }).select("profile")
+      : Promise.resolve([]),
+    venueIds.length
+      ? Venue.find({ _id: { $in: venueIds }, active: true }).select("name")
+      : Promise.resolve([]),
+  ]);
+
+  const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+  const venueMap = new Map(
+    venues.map((v) => [v._id.toString(), v.name as string])
+  );
+  const myVenueId = myPresence?.venueId.toString() ?? null;
+  const viewerPremium = Boolean(req.user!.premium);
+
+  const likes = pending
+    .map((s) => {
+      const fromId = s.fromUserId.toString();
+      const venueId = s.venueId.toString();
+      const u = userMap.get(fromId);
+      const birthDate = u?.profile?.birthDate;
+      if (!u?.profile || !birthDate) return null;
+      const venueName = venueMap.get(venueId);
+      if (!venueName) return null;
+
+      return {
+        id: s._id.toString(),
+        createdAt: s.createdAt.toISOString(),
+        venueId,
+        venueName,
+        user: {
+          // Sin Premium no enviamos id, nombre ni foto (el UI solo no alcanza).
+          ...(viewerPremium
+            ? {
+                id: fromId,
+                name: u.profile.name ?? "Usuario",
+                photo: u.profile.photos?.[0],
+              }
+            : {}),
+          age: calcAge(birthDate),
+        },
+        canRespond: Boolean(myVenueId && myVenueId === venueId),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  return res.json({ likes, viewerPremium });
 });
 
 export default router;

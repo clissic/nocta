@@ -14,7 +14,7 @@ const venueSchema = new Schema(
     name: { type: String, required: true, trim: true },
     type: { type: String, enum: VENUE_TYPES, required: true },
     address: { type: String, required: true },
-    city: { type: String, required: true, default: "Buenos Aires" },
+    city: { type: String, required: true, default: "Montevideo" },
     description: { type: String, maxlength: 1000 },
     photos: { type: [String], default: [] },
     location: { type: locationSchema, default: undefined },

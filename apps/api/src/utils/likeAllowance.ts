@@ -4,6 +4,7 @@ import {
   type LikeAllowance,
 } from "@nocta/shared";
 import { User } from "../models/User.js";
+import { createNotification } from "./notify.js";
 
 const RECHARGE_MS = LIKE_RECHARGE_HOURS * 60 * 60 * 1000;
 
@@ -45,12 +46,22 @@ export async function getLikeAllowance(userId: string): Promise<LikeAllowance> {
   const remaining = user.remainingLikes ?? DAILY_LIKE_LIMIT;
   const rechargeAt = user.likesRechargeAt ?? null;
   if (remaining <= 0 && rechargeAt && rechargeAt.getTime() <= Date.now()) {
+    const previousRechargeAt = rechargeAt;
     user = await User.findByIdAndUpdate(
       userId,
       { $set: { remainingLikes: DAILY_LIKE_LIMIT, likesRechargeAt: null } },
       { new: true }
     ).select("premium remainingLikes likesRechargeAt");
     if (!user) throw new Error("Usuario no encontrado");
+    void createNotification({
+      userId,
+      type: "likes_recharged",
+      title: "Tus likes se recargaron",
+      body: `Ya tenés ${DAILY_LIKE_LIMIT} likes disponibles`,
+      href: "/discover",
+      data: {},
+      dedupeKey: `likes_recharged:${userId}:${previousRechargeAt.toISOString()}`,
+    });
   } else if (remaining <= 0 && !rechargeAt) {
     user.likesRechargeAt = new Date(Date.now() + RECHARGE_MS);
     await user.save();

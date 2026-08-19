@@ -21,6 +21,7 @@ import { isObjectId, paramId } from "../utils/ids.js";
 import { expireStalePresences } from "../utils/presence.js";
 import { resolveVenueLocation } from "../utils/geocode.js";
 import { sendVenueRequestApprovedEmail, sendVenueRequestRejectedEmail } from "../mail/mailer.js";
+import { createNotification } from "../utils/notify.js";
 import {
   parsePromoValidityRange,
   resolveUserTimeZone,
@@ -219,6 +220,19 @@ router.post(
       console.error("[mail] venue request approved notify failed", err);
     }
 
+    void createNotification({
+      userId: owner._id.toString(),
+      type: "venue_request_resolved",
+      title: "Solicitud de Espacio aprobada",
+      body: `${venue.name} ya está disponible para gestionar`,
+      href: `/venues/${venue._id.toString()}/manage`,
+      data: {
+        requestId: request._id.toString(),
+        venueId: venue._id.toString(),
+        status: "approved",
+      },
+    });
+
     return res.json({
       request: serializeVenueRequest(request),
       venue: serializeVenue(venue),
@@ -264,6 +278,20 @@ router.post(
     } catch (err) {
       console.error("[mail] venue request rejected notify failed", err);
     }
+
+    void createNotification({
+      userId: request.requesterId.toString(),
+      type: "venue_request_resolved",
+      title: "Solicitud de Espacio rechazada",
+      body: request.adminNote?.trim()
+        ? request.adminNote.trim()
+        : `No pudimos aprobar ${request.name} por ahora`,
+      href: "/profile/venue-request",
+      data: {
+        requestId: request._id.toString(),
+        status: "rejected",
+      },
+    });
 
     return res.json({ request: serializeVenueRequest(request) });
   }
@@ -327,6 +355,25 @@ router.patch("/reports/:id", async (req: AuthedRequest, res) => {
     { new: true }
   );
   if (!report) return res.status(404).json({ error: "Denuncia no encontrada" });
+
+  if (parsed.data.status === "reviewed" || parsed.data.status === "dismissed") {
+    void createNotification({
+      userId: report.reporterId.toString(),
+      type: "report_resolved",
+      title: "Tu denuncia fue revisada",
+      body:
+        parsed.data.status === "reviewed"
+          ? "Un administrador revisó tu denuncia"
+          : "Un administrador descartó tu denuncia",
+      href: "/matches",
+      data: {
+        reportId: report._id.toString(),
+        status: parsed.data.status,
+      },
+      dedupeKey: `report_resolved:${report._id.toString()}`,
+    });
+  }
+
   return res.json({
     report: {
       id: report._id.toString(),

@@ -4,6 +4,8 @@ import { useAuth } from "../auth/AuthContext";
 import { ADMIN_NAV } from "./admin/AdminLayout";
 import { AppFooter } from "./AppFooter";
 import { NoctaWordmark } from "./NoctaWordmark";
+import { NotificationsBell } from "./NotificationsBell";
+import { OverflowFade } from "./OverflowFade";
 
 function linkClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : undefined;
@@ -80,17 +82,20 @@ export function AppLayout() {
               <i className="bi bi-shield-check" aria-hidden="true" />
               Admin
             </span>
-            <span className="admin-desktop-logout">{logoutBtn}</span>
-            <button
-              className="admin-menu-toggle"
-              type="button"
-              aria-label="Abrir menú administrativo"
-              aria-controls="admin-drawer"
-              aria-expanded={adminMenuOpen}
-              onClick={() => setAdminMenuOpen(true)}
-            >
-              <i className="bi bi-list" aria-hidden="true" />
-            </button>
+            <span className="admin-top-end">
+              <NotificationsBell />
+              <span className="admin-desktop-logout">{logoutBtn}</span>
+              <button
+                className="admin-menu-toggle"
+                type="button"
+                aria-label="Abrir menú administrativo"
+                aria-controls="admin-drawer"
+                aria-expanded={adminMenuOpen}
+                onClick={() => setAdminMenuOpen(true)}
+              >
+                <i className="bi bi-list" aria-hidden="true" />
+              </button>
+            </span>
           </header>
           <button
             className={`admin-drawer-backdrop${adminMenuOpen ? " is-open" : ""}`}
@@ -115,7 +120,11 @@ export function AppLayout() {
                 <i className="bi bi-x-lg" aria-hidden="true" />
               </button>
             </div>
-            <nav className="admin-drawer-nav">
+            <OverflowFade
+              className="admin-drawer-nav"
+              role="navigation"
+              aria-label="Navegación administrativa"
+            >
               {ADMIN_NAV.map((item) => (
                 <NavLink
                   key={item.to}
@@ -133,7 +142,7 @@ export function AppLayout() {
                   <i className="bi bi-chevron-right" aria-hidden="true" />
                 </NavLink>
               ))}
-            </nav>
+            </OverflowFade>
             <button
               className="admin-drawer-logout"
               type="button"
@@ -149,7 +158,6 @@ export function AppLayout() {
           </aside>
           <main className="app-main admin-main px-3 px-md-4">
             <Outlet />
-            <AppFooter className="d-none d-md-flex" />
           </main>
         </div>
       </div>
@@ -160,19 +168,19 @@ export function AppLayout() {
     <div className="app-shell">
       <div className="app-frame">
         <header className="app-top">
-          <NavLink className="brand" to="/">
+          <NavLink className="brand" to="/venues">
             <NoctaWordmark />
           </NavLink>
 
           {/* Tablet + desktop */}
           <nav className="top-nav" aria-label="Navegación principal">
-            <NavLink to="/" end className={linkClass}>
-              <i className="bi bi-newspaper" aria-hidden="true" />
-              Muro
-            </NavLink>
             <NavLink to="/venues" className={linkClass}>
               <i className="bi bi-geo-alt" aria-hidden="true" />
               Espacios
+            </NavLink>
+            <NavLink to="/likes" className={linkClass}>
+              <i className="bi bi-heart" aria-hidden="true" />
+              Likes
             </NavLink>
             <NavLink to="/discover" className={discoverClass}>
               <i className="bi bi-fire" aria-hidden="true" />
@@ -188,27 +196,26 @@ export function AppLayout() {
             </NavLink>
           </nav>
 
-          {logoutBtn}
+          <div className="app-top-actions">
+            <NotificationsBell />
+            {logoutBtn}
+          </div>
         </header>
 
         <main className="app-main">
           <Outlet />
-          <AppFooter
-            className={
-              location.pathname === "/profile" ? undefined : "d-none d-md-flex"
-            }
-          />
+          {location.pathname === "/profile" && <AppFooter />}
         </main>
 
         {/* Solo mobile */}
         <nav className="tab-bar" aria-label="Navegación móvil">
-          <NavLink to="/" end className={linkClass}>
-            <i className="bi bi-newspaper" aria-hidden="true" />
-            Muro
-          </NavLink>
           <NavLink to="/venues" className={linkClass}>
             <i className="bi bi-geo-alt" aria-hidden="true" />
             Espacios
+          </NavLink>
+          <NavLink to="/likes" className={linkClass}>
+            <i className="bi bi-heart" aria-hidden="true" />
+            Likes
           </NavLink>
           <NavLink to="/discover" className={discoverClass}>
             <i className="bi bi-fire" aria-hidden="true" />

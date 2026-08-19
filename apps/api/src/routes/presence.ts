@@ -7,6 +7,8 @@ import { Venue } from "../models/Venue.js";
 import { expireStalePresences } from "../utils/presence.js";
 import { serializePresence } from "../utils/serialize.js";
 import { isObjectId } from "../utils/ids.js";
+import { notifyUserFollowers } from "../utils/notifyFollowers.js";
+import { resolveShowActivityToFollowers } from "../utils/activityVisibility.js";
 
 const router = Router();
 
@@ -82,6 +84,26 @@ router.post("/", requireAuth, requireVerified, async (req: AuthedRequest, res) =
     endsAt,
     status: "active",
   });
+
+  if (resolveShowActivityToFollowers(user)) {
+    const actorName = user.profile?.name ?? "Alguien";
+    void notifyUserFollowers({
+      actorId: user._id.toString(),
+      requireShowActivity: true,
+      premiumOnly: true,
+      notification: {
+        type: "followed_presence",
+        title: `${actorName} se publicó`,
+        body: `Está en ${venue.name}`,
+        href: `/venues/${venue._id.toString()}`,
+        data: {
+          venueId: venue._id.toString(),
+          presenceId: presence._id.toString(),
+        },
+        dedupePrefix: `followed_presence:${presence._id.toString()}`,
+      },
+    }).catch(() => undefined);
+  }
 
   return res.status(201).json({
     presence: serializePresence(presence, venue),

@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { OverflowFade } from "./OverflowFade";
+import { NoctaLoading } from "./NoctaLoading";
 import {
   SOCIAL_NETWORKS,
   SOCIAL_NETWORK_LABELS,
@@ -83,9 +85,9 @@ export function FollowRequestProfileModal({
           </button>
         </header>
 
-        <div className="follow-request-profile-body">
+        <OverflowFade className="follow-request-profile-body">
           {loading || !profile ? (
-            <p className="text-secondary small mb-0">Cargando…</p>
+            <NoctaLoading variant="inline" />
           ) : (
             <>
               {profile.photo ? (
@@ -151,7 +153,7 @@ export function FollowRequestProfileModal({
               )}
             </>
           )}
-        </div>
+        </OverflowFade>
       </div>
     </div>,
     document.body

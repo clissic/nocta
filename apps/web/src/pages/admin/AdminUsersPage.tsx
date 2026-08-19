@@ -29,6 +29,8 @@ import {
   type ZodiacSign,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
+import { OverflowFade } from "../../components/OverflowFade";
+import { NoctaLoading } from "../../components/NoctaLoading";
 import { useToast } from "../../components/ToastProvider";
 import { LOOKING_FOR_ICONS } from "../../lib/lookingForIcons";
 
@@ -262,7 +264,7 @@ export function AdminUsersPage() {
       </div>
 
       {loading ? (
-        <p className="text-secondary small mb-0">Cargando usuarios…</p>
+        <NoctaLoading variant="block" />
       ) : filtered.length === 0 ? (
         <p className="text-secondary small mb-0">Sin resultados.</p>
       ) : (
@@ -347,7 +349,7 @@ export function AdminUsersPage() {
               </button>
             </header>
 
-            <div className="admin-modal-body">
+            <OverflowFade className="admin-modal-body">
               <section className="admin-modal-section">
                 <h3 className="admin-review-label">Cuenta</h3>
                 <div className="admin-modal-grid">
@@ -667,7 +669,7 @@ export function AdminUsersPage() {
                   Este usuario todavía no completó el onboarding.
                 </p>
               )}
-            </div>
+            </OverflowFade>
           </div>
         </div>
       )}

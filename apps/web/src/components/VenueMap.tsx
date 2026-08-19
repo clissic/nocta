@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { NoctaLoading } from "./NoctaLoading";
 
 type Coords = { lat: number; lon: number };
 
@@ -163,7 +164,7 @@ export function VenueMap({
     <div className="venue-detail-map">
       {status === "loading" && (
         <div className="venue-detail-map-fallback text-secondary small">
-          Cargando mapa…
+          <NoctaLoading variant="inline" />
         </div>
       )}
       {status === "error" && (

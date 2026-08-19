@@ -6,6 +6,7 @@ import type {
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
 import { FollowRequestProfileModal } from "./FollowRequestProfileModal";
+import { OverflowFade } from "./OverflowFade";
 import { useToast } from "./ToastProvider";
 
 type Props = {
@@ -30,11 +31,11 @@ export function ProfileSettingsModal({
 }: Props) {
   const toast = useToast();
   const [autoAccept, setAutoAccept] = useState(user.autoAcceptFollowRequests);
-  const [hideActivity, setHideActivity] = useState(
-    user.hideActivityFromFollowers
+  const [showActivity, setShowActivity] = useState(
+    user.showActivityToFollowers
   );
   const [busyKey, setBusyKey] = useState<
-    "autoAcceptFollowRequests" | "hideActivityFromFollowers" | null
+    "autoAcceptFollowRequests" | "showActivityToFollowers" | null
   >(null);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
     null
@@ -45,8 +46,8 @@ export function ProfileSettingsModal({
 
   useEffect(() => {
     setAutoAccept(user.autoAcceptFollowRequests);
-    setHideActivity(user.hideActivityFromFollowers);
-  }, [user.autoAcceptFollowRequests, user.hideActivityFromFollowers]);
+    setShowActivity(user.showActivityToFollowers);
+  }, [user.autoAcceptFollowRequests, user.showActivityToFollowers]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -86,7 +87,7 @@ export function ProfileSettingsModal({
   }
 
   async function patchSetting(
-    key: "autoAcceptFollowRequests" | "hideActivityFromFollowers",
+    key: "autoAcceptFollowRequests" | "showActivityToFollowers",
     value: boolean
   ) {
     setBusyKey(key);
@@ -99,7 +100,7 @@ export function ProfileSettingsModal({
       toast.success("Configuración guardada");
     } catch (err) {
       if (key === "autoAcceptFollowRequests") setAutoAccept(!value);
-      else setHideActivity(!value);
+      else setShowActivity(!value);
       toast.error(
         err instanceof ApiError ? err.message : "No se pudo guardar"
       );
@@ -134,7 +135,7 @@ export function ProfileSettingsModal({
           </button>
         </header>
 
-        <div className="profile-connections-body profile-settings-body">
+        <OverflowFade className="profile-connections-body profile-settings-body">
           <div className="form-check form-switch profile-settings-switch">
             <input
               className="form-check-input"
@@ -159,20 +160,20 @@ export function ProfileSettingsModal({
               className="form-check-input"
               type="checkbox"
               role="switch"
-              id="settings-hide-activity"
-              checked={hideActivity}
-              disabled={busyKey === "hideActivityFromFollowers"}
+              id="settings-show-activity"
+              checked={showActivity}
+              disabled={busyKey === "showActivityToFollowers"}
               onChange={(event) => {
                 const next = event.target.checked;
-                setHideActivity(next);
-                void patchSetting("hideActivityFromFollowers", next);
+                setShowActivity(next);
+                void patchSetting("showActivityToFollowers", next);
               }}
             />
             <label
               className="form-check-label"
-              htmlFor="settings-hide-activity"
+              htmlFor="settings-show-activity"
             >
-              Que quienes me siguen no vean mi actividad
+              Que quienes me siguen vean mi actividad
             </label>
           </div>
 
@@ -253,7 +254,7 @@ export function ProfileSettingsModal({
               </ul>
             )}
           </section>
-        </div>
+        </OverflowFade>
       </div>
       {selectedRequestId && (
         <FollowRequestProfileModal

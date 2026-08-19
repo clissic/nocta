@@ -1,0 +1,34 @@
+---
+description: Scrolls de UI sin barra visible y con sombreado de overflow
+alwaysApply: true
+---
+
+# Scrolls (barra oculta + fade)
+
+Los contenedores con `overflow` de la UI **no** muestran scrollbar. Si hay más contenido, un sombreado indica que se puede seguir scrolleando.
+
+## Cómo
+
+- Componente: `apps/web/src/components/OverflowFade.tsx`
+- Hook (si ya hay `ref`): `useOverflowFade(ref, "y" | "x")`
+- CSS: `.nocta-scroll` + wrapper `.nocta-scroll-fade`
+- Color del fade: `--nocta-scroll-fade` (default `var(--bs-body-bg)`). Pisarlo en el ancestro según el fondo (`#121214` en paneles, canvas `#0a0a0b`).
+
+```tsx
+// ❌ BAD — barra visible, sin pista de overflow
+<div className="list" style={{ overflowY: "auto" }}>…</div>
+
+// ✅ GOOD
+<OverflowFade className="list">…</OverflowFade>
+
+// ✅ GOOD — horizontal
+<OverflowFade axis="x" className="chips-row">…</OverflowFade>
+```
+
+## Alcance
+
+- **Sí:** paneles, modales, listas, chat, columnas de detalle, filtros que scrollean.
+- **No:** scrollbar del documento (`html` / `body`).
+- Vertical: sombreado **abajo** (`.has-more-below`) mientras `scrollHeight` > viewport.
+- Horizontal: sombreado a la **derecha** (`.has-more-end`).
+- Al llegar al final, el sombreado desaparece. `pointer-events: none` en el fade.

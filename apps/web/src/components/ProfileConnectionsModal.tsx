@@ -7,7 +7,10 @@ import type {
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
 import { FollowRequestProfileModal } from "./FollowRequestProfileModal";
+import { OverflowFade } from "./OverflowFade";
+import { NoctaLoading } from "./NoctaLoading";
 import { useToast } from "./ToastProvider";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 
 export type ProfileConnectionsMode = "followers" | "following" | "venues";
 
@@ -224,7 +227,7 @@ export function ProfileConnectionsModal({
           </button>
         </header>
 
-        <div className="profile-connections-body">
+        <OverflowFade className="profile-connections-body">
           <label
             className="visually-hidden"
             htmlFor="profile-connections-search"
@@ -241,7 +244,7 @@ export function ProfileConnectionsModal({
           />
 
           {loading ? (
-            <p className="text-secondary small mb-0">Cargando…</p>
+            <NoctaLoading variant="inline" />
           ) : listEmpty ? (
             <p className="text-secondary small mb-0">{emptyCopy}</p>
           ) : isVenues ? (
@@ -249,13 +252,11 @@ export function ProfileConnectionsModal({
               {visibleVenues.map((venue) => (
                 <li key={venue.id} className="profile-connections-item">
                   <div className="profile-connections-user">
-                    {venue.photos?.[0] ? (
-                      <img src={venue.photos[0]} alt="" />
-                    ) : (
-                      <span aria-hidden="true">
-                        {venue.name.slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
+                    <img
+                      src={venueCoverSrc(venue)}
+                      alt=""
+                      onError={onVenuePhotoError}
+                    />
                     <div className="min-w-0">
                       <Link
                         to={`/venues/${venue.id}`}
@@ -336,7 +337,7 @@ export function ProfileConnectionsModal({
               ))}
             </ul>
           )}
-        </div>
+        </OverflowFade>
       </div>
       {selectedUserId && (
         <FollowRequestProfileModal

@@ -134,8 +134,13 @@ const userSchema = new Schema(
     followingVenuesCount: { type: Number, default: 0 },
     /** Si true, las solicitudes de follow se aceptan al instante. */
     autoAcceptFollowRequests: { type: Boolean, default: false },
-    /** Si true, quienes me siguen no ven mi actividad en el Muro. */
-    hideActivityFromFollowers: { type: Boolean, default: false },
+    /**
+     * Si true, quienes me siguen ven mi actividad.
+     * Legado: `hideActivityFromFollowers` se interpreta al serializar si falta este campo.
+     */
+    showActivityToFollowers: { type: Boolean, default: true },
+    /** @deprecated Preferir showActivityToFollowers. */
+    hideActivityFromFollowers: { type: Boolean },
   },
   { timestamps: true }
 );

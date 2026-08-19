@@ -10,13 +10,14 @@ import { OnboardingPage } from "./pages/OnboardingPage";
 import { VenuesPage } from "./pages/VenuesPage";
 import { VenueDetailPage } from "./pages/VenueDetailPage";
 import { DiscoverPage } from "./pages/DiscoverPage";
-import { MuroPage } from "./pages/MuroPage";
+import { LikesPage } from "./pages/LikesPage";
 import { MatchesPage } from "./pages/MatchesPage";
 import { ChatPage } from "./pages/ChatPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { VenueRequestPage } from "./pages/VenueRequestPage";
 import { VenueManagePage } from "./pages/VenueManagePage";
 import { MyPromosPage } from "./pages/MyPromosPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
 import { AdminRequestsPage } from "./pages/admin/AdminRequestsPage";
 import { AdminVenuesPage } from "./pages/admin/AdminVenuesPage";
@@ -25,11 +26,20 @@ import { AdminContentPage } from "./pages/admin/AdminContentPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "./pages/admin/AdminReportsPage";
 import { AdminVenueRequestPage } from "./pages/AdminVenueRequestPage";
+import { NoctaLoading } from "./components/NoctaLoading";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="app-shell"><div className="app-frame"><div className="app-screen text-secondary">Cargando…</div></div></div>;
+  if (loading) {
+    return (
+      <div className="app-shell">
+        <div className="app-frame">
+          <NoctaLoading />
+        </div>
+      </div>
+    );
+  }
   if (!user) {
     const next = `${location.pathname}${location.search}`;
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
@@ -55,7 +65,7 @@ function RequireProfile({ children }: { children: React.ReactNode }) {
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (!user || user.role !== "admin") return <Navigate to="/" replace />;
+  if (!user || user.role !== "admin") return <Navigate to="/venues" replace />;
   return children;
 }
 
@@ -93,17 +103,19 @@ export default function App() {
           index
           element={
             <AdminHomeRedirect>
-              <MuroPage />
+              <Navigate to="/venues" replace />
             </AdminHomeRedirect>
           }
         />
         <Route path="venues" element={<VenuesPage />} />
         <Route path="venues/:id/manage" element={<VenueManagePage />} />
         <Route path="venues/:id" element={<VenueDetailPage />} />
-        <Route path="muro" element={<Navigate to="/" replace />} />
+        <Route path="likes" element={<LikesPage />} />
+        <Route path="muro" element={<Navigate to="/venues" replace />} />
         <Route path="discover" element={<DiscoverPage />} />
         <Route path="matches" element={<MatchesPage />} />
         <Route path="matches/:id" element={<ChatPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="profile/promos" element={<MyPromosPage />} />
         <Route path="profile/venue-request" element={<VenueRequestPage />} />
@@ -127,7 +139,7 @@ export default function App() {
         </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/venues" replace />} />
     </Routes>
   );
 }

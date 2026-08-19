@@ -10,11 +10,11 @@ import {
   type VenueType,
 } from "@nocta/shared";
 import { api } from "../lib/api";
+import { VenueTrustBadge } from "../components/VenueTrustBadge";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { NoctaLoading } from "../components/NoctaLoading";
 
 type TypeFilter = "all" | VenueType;
-
-const FALLBACK_PHOTO =
-  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=800";
 
 const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
   { id: "all", label: "Todos" },
@@ -131,7 +131,7 @@ export function VenuesPage() {
 
   if (loading) {
     return (
-      <div className="app-screen text-secondary fade-in">Cargando espacios…</div>
+      <NoctaLoading />
     );
   }
 
@@ -248,8 +248,9 @@ export function VenuesPage() {
             >
               <div className="venue-card-media">
                 <img
-                  src={venue.photos[0] ?? FALLBACK_PHOTO}
+                  src={venueCoverSrc(venue)}
                   alt={venue.name}
+                  onError={onVenuePhotoError}
                 />
                 <div className="venue-card-fade" />
                 {isLive && (
@@ -262,7 +263,12 @@ export function VenuesPage() {
                   <div className="venue-card-type">
                     {VENUE_TYPE_LABELS[venue.type]}
                   </div>
-                  <div className="venue-card-name">{venue.name}</div>
+                  <div className="venue-card-name">
+                    <span className="venue-card-name-text text-truncate">
+                      {venue.name}
+                    </span>
+                    <VenueTrustBadge ownerId={venue.ownerId} showUnclaimed={false} />
+                  </div>
                   <div className="venue-card-address text-truncate">
                     {venue.address}
                   </div>
