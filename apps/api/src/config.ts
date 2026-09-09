@@ -84,9 +84,15 @@ export const config = {
     /** Si true, además loguea el mail en consola (aunque haya transporte). */
     devLog: env("MAIL_DEV_LOG", "true") !== "false",
     /**
-     * Resend (HTTPS). Si está definido, tiene prioridad sobre SMTP.
-     * Recomendado en Railway: Gmail SMTP suele fallar (IPv6/timeout).
+     * `smtp` | `resend` | `auto` (default).
+     * `smtp` fuerza Gmail/SMTP aunque exista RESEND_API_KEY.
      */
+    transport: (() => {
+      const raw = env("MAIL_TRANSPORT", "auto").toLowerCase();
+      if (raw === "smtp" || raw === "resend") return raw;
+      return "auto" as const;
+    })(),
+    /** Resend (HTTPS). En `auto`, gana si hay key. */
     resendApiKey: env("RESEND_API_KEY"),
   },
   oauth: {

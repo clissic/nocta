@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { existsSync, readFileSync } from "node:fs";
+import { lookup } from "node:dns/promises";
 import { join } from "node:path";
 import { Resend } from "resend";
 import { VENUE_TYPE_LABELS, type VenueType } from "@nocta/shared";
@@ -17,6 +18,7 @@ import {
 } from "./templates.js";
 
 let transporter: Transporter | null = null;
+let transporterReady: Promise<Transporter> | null = null;
 let resendClient: Resend | null = null;
 
 function hasResend() {
@@ -28,7 +30,23 @@ function hasSmtp() {
 }
 
 function hasMailTransport() {
-  return hasResend() || hasSmtp();
+  return useResend() || useSmtp();
+}
+
+/** Resend solo si hay key y el modo no fuerza SMTP. */
+function useResend() {
+  if (!hasResend()) return false;
+  if (config.mail.transport === "smtp") return false;
+  if (config.mail.transport === "resend") return true;
+  // auto: Resend gana si hay key
+  return true;
+}
+
+function useSmtp() {
+  if (!hasSmtp()) return false;
+  if (config.mail.transport === "resend") return false;
+  if (config.mail.transport === "smtp") return true;
+  return !hasResend();
 }
 
 function getResend(): Resend {
@@ -38,27 +56,51 @@ function getResend(): Resend {
   return resendClient;
 }
 
-function getTransporter(): Transporter {
-  if (transporter) return transporter;
-
+async function buildSmtpTransporter(): Promise<Transporter> {
+  const hostName = config.mail.host;
   const port = config.mail.port;
-  // family:4 evita ENETUNREACH IPv6 en Railway → Gmail.
-  // Cast: @types/nodemailer no tipa bien `family` en createTransport.
-  transporter = nodemailer.createTransport({
-    host: config.mail.host,
+  // Forzar A-record IPv4: Node/Railway a menudo eligen AAAA → ENETUNREACH.
+  let connectHost = hostName;
+  try {
+    const { address } = await lookup(hostName, { family: 4 });
+    connectHost = address;
+    console.log(`[mail] SMTP DNS IPv4 ${hostName} → ${address}`);
+  } catch (err) {
+    console.warn(
+      `[mail] no se pudo resolver IPv4 de ${hostName}, uso hostname:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  return nodemailer.createTransport({
+    host: connectHost,
     port,
     secure: port === 465,
-    family: 4,
+    name: hostName,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 30_000,
     auth: {
       user: config.mail.user,
       pass: config.mail.pass,
     },
-    ...(port === 587
-      ? { requireTLS: true, tls: { minVersion: "TLSv1.2" as const } }
-      : {}),
+    tls: {
+      servername: hostName,
+      minVersion: "TLSv1.2",
+    },
+    ...(port === 587 ? { requireTLS: true } : {}),
   } as nodemailer.TransportOptions);
+}
 
-  return transporter;
+async function getTransporter(): Promise<Transporter> {
+  if (transporter) return transporter;
+  if (!transporterReady) {
+    transporterReady = buildSmtpTransporter().then((t) => {
+      transporter = t;
+      return t;
+    });
+  }
+  return transporterReady;
 }
 
 type MailAttachment = {
@@ -98,7 +140,8 @@ async function sendViaSmtp(opts: {
   html: string;
   attachments?: MailAttachment[];
 }) {
-  const info = await getTransporter().sendMail({
+  const transport = await getTransporter();
+  const info = await transport.sendMail({
     from: config.mail.from,
     to: opts.to,
     subject: opts.subject,
@@ -129,12 +172,13 @@ async function sendMail(opts: {
   }
 
   if (!hasMailTransport()) {
-    console.warn("[mail] sin transporte — mail no enviado (configurá RESEND_API_KEY o SMTP_*)");
+    console.warn(
+      "[mail] sin transporte — mail no enviado (configurá SMTP_* o RESEND_API_KEY)"
+    );
     return;
   }
 
-  // Preferir Resend (HTTPS) en PaaS donde SMTP a Gmail falla.
-  if (hasResend()) {
+  if (useResend()) {
     await sendViaResend(opts);
     return;
   }
@@ -348,18 +392,21 @@ export async function sendVenueRequestApprovedEmail(opts: {
 
 /** Verifica transporte de mail al boot (no aborta si falla). */
 export async function verifyMailTransport() {
-  if (hasResend()) {
-    console.log("[mail] Resend OK (RESEND_API_KEY configurada; preferido sobre SMTP)");
+  if (useResend()) {
+    console.log(
+      `[mail] usando Resend (MAIL_TRANSPORT=${config.mail.transport})`
+    );
     return;
   }
-  if (!hasSmtp()) {
+  if (!useSmtp()) {
     console.log(
-      "[mail] sin transporte — modo consola (RESEND_API_KEY o SMTP_* / MAIL_DEV_LOG)"
+      "[mail] sin transporte — modo consola (SMTP_* / RESEND_API_KEY / MAIL_DEV_LOG)"
     );
     return;
   }
   try {
-    await getTransporter().verify();
+    const transport = await getTransporter();
+    await transport.verify();
     console.log(
       `[mail] SMTP OK (${config.mail.host}:${config.mail.port} as ${config.mail.user}, IPv4)`
     );
@@ -367,6 +414,9 @@ export async function verifyMailTransport() {
     console.error(
       "[mail] SMTP verify falló:",
       err instanceof Error ? err.message : err
+    );
+    console.error(
+      "[mail] Tip Railway: probá SMTP_PORT=465. Si sigue ETIMEDOUT, el host bloquea SMTP → usá Resend + dominio."
     );
   }
 }

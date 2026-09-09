@@ -163,8 +163,9 @@ Ver `apps/api/.env.example`.
 | `CLIENT_ORIGIN` | CORS + redirects OAuth (URL del web, p. ej. Railway) |
 | `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` en JSON |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed (defaults de la tabla demo) |
-| `RESEND_API_KEY` | Mail vía Resend (HTTPS; **preferido en Railway**). Si está set, se usa antes que SMTP |
-| `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer (IPv4); `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
+| `MAIL_TRANSPORT` | `auto` (default) \| `smtp` \| `resend` — `smtp` fuerza Gmail aunque exista `RESEND_API_KEY` |
+| `RESEND_API_KEY` | Mail vía Resend (HTTPS). En `auto` tiene prioridad; sin dominio solo envía al mail de la cuenta Resend |
+| `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer (DNS IPv4); `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
 | OAuth `GOOGLE_*` / `APPLE_*` / `MICROSOFT_*` / `MICROSOFT_TENANT` | Social login (`MICROSOFT_TENANT` default `common`) |
 
 ### Auth (email + código 6 dígitos)
