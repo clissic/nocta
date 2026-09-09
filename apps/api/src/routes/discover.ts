@@ -10,7 +10,7 @@ import { Message } from "../models/Message.js";
 import { User } from "../models/User.js";
 import { Venue } from "../models/Venue.js";
 import { expireStalePresences } from "../utils/presence.js";
-import { calcAge, serializeSocials } from "../utils/serialize.js";
+import { calcAge, publicAssetUrl, publicAssetUrls, serializeSocials } from "../utils/serialize.js";
 import { isObjectId, sortedUserPair } from "../utils/ids.js";
 import { blockedPeerIds } from "../models/Block.js";
 import { Follow } from "../models/Follow.js";
@@ -50,7 +50,7 @@ function serializeCard(
       birthDate: birthDate.toISOString(),
       heightCm: profile.heightCm ?? undefined,
       lookingFor: (profile.lookingFor ?? []).slice(0, 1),
-      photos: profile.photos ?? [],
+      photos: publicAssetUrls(profile.photos),
       bio: profile.bio ?? undefined,
       interests: profile.interests ?? [],
       workStatus: profile.workStatus ?? undefined,
@@ -509,7 +509,7 @@ router.get("/likes", async (req: AuthedRequest, res) => {
             ? {
                 id: fromId,
                 name: u.profile.name ?? "Usuario",
-                photo: u.profile.photos?.[0],
+                photo: publicAssetUrl(u.profile.photos?.[0]),
               }
             : {}),
           age: calcAge(birthDate),

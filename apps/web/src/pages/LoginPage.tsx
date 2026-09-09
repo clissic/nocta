@@ -7,6 +7,7 @@ import { NoctaWordmark } from "../components/NoctaWordmark";
 import { useToast } from "../components/ToastProvider";
 import {
   ApiError,
+  apiUrl,
   getSuspensionNotice,
   type SuspensionNotice,
 } from "../lib/api";
@@ -19,7 +20,7 @@ const DEMO_ACCOUNTS = [
 ] as const;
 
 function startOAuth(provider: OAuthProvider) {
-  window.location.assign(`/api/auth/oauth/${provider}`);
+  window.location.assign(apiUrl(`/api/auth/oauth/${provider}`));
 }
 
 export function LoginPage() {
@@ -128,7 +129,7 @@ export function LoginPage() {
     setError("");
     setBusy(true);
     try {
-      const res = await fetch(`/api/auth/oauth/${provider}`, {
+      const res = await fetch(apiUrl(`/api/auth/oauth/${provider}`), {
         method: "GET",
         redirect: "manual",
       });

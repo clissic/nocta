@@ -2,6 +2,35 @@ const TOKEN_KEY = "nocta_token";
 const SUSPENSION_KEY = "nocta_suspension";
 export const AUTH_SESSION_INVALIDATED_EVENT = "nocta:auth-invalidated";
 
+/** Base de la API en producción (Railway). Vacío en local → proxy Vite. */
+export function apiBaseUrl() {
+  const raw = import.meta.env.VITE_API_URL;
+  return typeof raw === "string" ? raw.replace(/\/$/, "") : "";
+}
+
+/** Prefija rutas `/api/...` o `/uploads/...` con la base remota si existe. */
+export function apiUrl(path: string) {
+  if (!path) return apiBaseUrl() || path;
+  if (/^https?:\/\//i.test(path) || path.startsWith("blob:") || path.startsWith("data:")) {
+    return path;
+  }
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${apiBaseUrl()}${normalized}`;
+}
+
+/**
+ * URLs de media para <img>.
+ * `/uploads/...` vive en la API; el resto (p. ej. `/images/...`) en el web.
+ */
+export function mediaUrl(src?: string | null) {
+  if (!src) return "";
+  if (/^https?:\/\//i.test(src) || src.startsWith("blob:") || src.startsWith("data:")) {
+    return src;
+  }
+  if (src.startsWith("/uploads/")) return apiUrl(src);
+  return src;
+}
+
 export type SuspensionNotice = {
   code:
     | "ACCOUNT_TEMPORARILY_SUSPENDED"
@@ -92,7 +121,7 @@ export async function api<T>(
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(apiUrl(path), { ...options, headers });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (!res.ok) {
@@ -116,7 +145,7 @@ export async function downloadApiFile(path: string) {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(path, { headers });
+  const res = await fetch(apiUrl(path), { headers });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     throw new ApiError(

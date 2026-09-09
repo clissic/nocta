@@ -23,6 +23,7 @@ import {
   serializePromotion,
   serializeActivityItem,
   serializeUserPost,
+  publicAssetUrl,
 } from "../utils/serialize.js";
 import { currentlyValidPromoFilter } from "../utils/promoValidity.js";
 import { recordActivity } from "../utils/activity.js";
@@ -167,7 +168,7 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
       return {
         id: actor.id,
         name: actor.name,
-        photo: actor.photo,
+        photo: publicAssetUrl(actor.photo),
       };
     });
 

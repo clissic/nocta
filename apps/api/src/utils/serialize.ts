@@ -17,6 +17,18 @@ import {
 import { refId } from "./ids.js";
 import { resolveShowActivityToFollowers } from "./activityVisibility.js";
 import { getActiveSuspension } from "./moderation.js";
+import { config } from "../config.js";
+
+export function publicAssetUrl(url?: string | null) {
+  if (!url) return url ?? undefined;
+  if (!url.startsWith("/uploads/")) return url;
+  const base = config.apiPublicUrl.replace(/\/$/, "");
+  return base ? `${base}${url}` : url;
+}
+
+export function publicAssetUrls(urls?: string[] | null) {
+  return (urls ?? []).map((url) => publicAssetUrl(url) ?? url);
+}
 
 function calcAge(birthDate: Date): number {
   const now = new Date();
@@ -73,7 +85,7 @@ export function serializeUser(user: UserDocument) {
           : undefined,
         heightCm: user.profile.heightCm ?? undefined,
         lookingFor: user.profile.lookingFor?.slice(0, 1) ?? [],
-        photos: user.profile.photos ?? [],
+        photos: publicAssetUrls(user.profile.photos),
         bio: user.profile.bio ?? undefined,
         interests: user.profile.interests ?? [],
         workStatus: user.profile.workStatus ?? undefined,
@@ -141,7 +153,7 @@ export function serializePublicUser(
   if (!user.profile?.birthDate) {
     throw new Error("Usuario sin perfil público");
   }
-  const photos = user.profile.photos ?? [];
+  const photos = publicAssetUrls(user.profile.photos);
   const livesIn = user.profile.livesIn as
     | { country?: string | null; city?: string | null }
     | null
@@ -215,14 +227,16 @@ export function serializeVenue(
     country: venue.country ?? "Uruguay",
     city: venue.city,
     description: venue.description ?? undefined,
-    photos: venue.photos ?? [],
+    photos: publicAssetUrls(venue.photos),
     location:
       loc && typeof loc.lat === "number" && typeof loc.lng === "number"
         ? { lat: loc.lat, lng: loc.lng }
         : undefined,
     active: venue.active,
     ownerId,
-    owner: opts?.owner,
+    owner: opts?.owner
+      ? { ...opts.owner, photo: publicAssetUrl(opts.owner.photo) }
+      : undefined,
     followersCount:
       opts?.followersCount ??
       (typeof venue.followersCount === "number" ? venue.followersCount : 0),
@@ -253,11 +267,13 @@ export function serializeVenueReview(
     userId: review.userId.toString(),
     rating: review.rating,
     body,
-    photos: review.photos ?? [],
+    photos: publicAssetUrls(review.photos),
     active: review.active !== false,
-    author: opts?.author,
+    author: opts?.author
+      ? { ...opts.author, photo: publicAssetUrl(opts.author.photo) }
+      : undefined,
     venueName: opts?.venueName,
-    venuePhoto: opts?.venuePhoto,
+    venuePhoto: publicAssetUrl(opts?.venuePhoto),
     createdAt: review.createdAt.toISOString(),
     updatedAt: review.updatedAt.toISOString(),
   };
@@ -275,10 +291,10 @@ export function serializeUserPost(
     authorId: post.authorId.toString(),
     venueId: post.venueId.toString(),
     body: post.body.trim(),
-    photos: post.photos ?? [],
+    photos: publicAssetUrls(post.photos),
     active: post.active !== false,
     venueName: opts?.venueName,
-    venuePhoto: opts?.venuePhoto,
+    venuePhoto: publicAssetUrl(opts?.venuePhoto),
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
   };
@@ -306,10 +322,19 @@ export function serializeActivityItem(
     id: event._id.toString(),
     type: event.type as ActivityType,
     createdAt: event.createdAt.toISOString(),
-    actor: opts.actor,
-    venue: opts.venue,
-    review: opts.review,
-    post: opts.post,
+    actor: {
+      ...opts.actor,
+      photo: publicAssetUrl(opts.actor.photo),
+    },
+    venue: opts.venue
+      ? { ...opts.venue, photo: publicAssetUrl(opts.venue.photo) }
+      : undefined,
+    review: opts.review
+      ? { ...opts.review, photos: publicAssetUrls(opts.review.photos) }
+      : undefined,
+    post: opts.post
+      ? { ...opts.post, photos: publicAssetUrls(opts.post.photos) }
+      : undefined,
   };
 }
 
@@ -331,7 +356,7 @@ export function serializePromotion(
     validUntil: promo.validUntil?.toISOString(),
     active: promo.active,
     venueName: opts?.venueName,
-    venuePhoto: opts?.venuePhoto,
+    venuePhoto: publicAssetUrl(opts?.venuePhoto),
   };
 }
 
@@ -369,7 +394,7 @@ export function serializePromoPurchase(
     validUntil: purchase.validUntil?.toISOString(),
     redeemedAt: purchase.redeemedAt?.toISOString(),
     venueName: opts?.venueName,
-    venuePhoto: opts?.venuePhoto,
+    venuePhoto: publicAssetUrl(opts?.venuePhoto),
   };
 }
 
@@ -382,11 +407,11 @@ export function serializeVenueNews(
     venueId: news.venueId.toString(),
     title: news.title,
     body: news.body,
-    photos: news.photos ?? [],
+    photos: publicAssetUrls(news.photos),
     publishedAt: news.publishedAt.toISOString(),
     active: news.active,
     venueName: opts?.venueName,
-    venuePhoto: opts?.venuePhoto,
+    venuePhoto: publicAssetUrl(opts?.venuePhoto),
     createdAt: news.createdAt.toISOString(),
     updatedAt: news.updatedAt.toISOString(),
   };
@@ -422,7 +447,7 @@ export function serializeVenueRequest(
     country: request.country ?? "Uruguay",
     city: request.city,
     description: request.description ?? undefined,
-    photos: request.photos ?? [],
+    photos: publicAssetUrls(request.photos),
     evidenceFiles: (request.evidenceFiles ?? []).map((file) => ({
       id: file.id,
       originalName: file.originalName,

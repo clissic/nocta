@@ -160,7 +160,8 @@ Ver `apps/api/.env.example`.
 | `MONGODB_RETRIES` | Reintentos al arranque (default `5`) |
 | `SEED_ON_EMPTY` | Seed en Atlas si no hay users |
 | `JWT_SECRET` | Firma JWT |
-| `CLIENT_ORIGIN` / `API_PUBLIC_URL` | CORS + links |
+| `CLIENT_ORIGIN` | CORS + redirects OAuth (URL del web, p. ej. Railway) |
+| `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` en JSON |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed (defaults de la tabla demo) |
 | `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer; `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
 | OAuth `GOOGLE_*` / `APPLE_*` / `MICROSOFT_*` / `MICROSOFT_TENANT` | Social login (`MICROSOFT_TENANT` default `common`) |
@@ -488,8 +489,12 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 
 ### Consumo API
 
-- Cliente: `src/lib/api.ts` (Bearer JWT en `localStorage`; revocación automática y aviso de suspensión persistido en la sesión del navegador)
+- Cliente: `src/lib/api.ts` — `api()` / OAuth usan `apiUrl()`; `VITE_API_URL` (bake en build) apunta a la API en producción; vacío en local → rutas relativas + proxy Vite
+- Helper `mediaUrl()` antepone la API a `/uploads/` si hiciera falta en el cliente
 - Proxy Vite: `/api` y `/uploads` → `http://localhost:4000`
+- Producción (p. ej. Railway, web y API en dominios distintos):
+  - Web: `VITE_API_URL=https://…api…` y **redesplegar** (Vite incrusta el env en el build)
+  - API: `CLIENT_ORIGIN=https://…web…`, `API_PUBLIC_URL=https://…api…` (absolutiza fotos en JSON)
 - Espacios: `page` / `limit` / `type` / `q` + IntersectionObserver
 - Matches: `DELETE /api/matches/:id`, `POST .../report`, `POST .../block`
 - Chat desktop: `GET /api/users/:id` para galería y datos del perfil en el panel del match

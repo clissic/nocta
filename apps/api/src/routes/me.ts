@@ -14,6 +14,7 @@ import {
   serializeVenue,
   serializeVenueReview,
   serializePromoPurchase,
+  publicAssetUrl,
 } from "../utils/serialize.js";
 import {
   acceptFollowRequest,
@@ -150,7 +151,7 @@ router.get("/blocked-users", requireAuth, async (req: AuthedRequest, res) => {
         {
           id: user._id.toString(),
           name: user.profile?.name ?? "Usuario",
-          photo: user.profile?.photos?.[0] ?? undefined,
+          photo: publicAssetUrl(user.profile?.photos?.[0]),
           blockedAt: block.createdAt.toISOString(),
         },
       ];

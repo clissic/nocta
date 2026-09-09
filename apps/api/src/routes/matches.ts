@@ -14,6 +14,7 @@ import { isObjectId, paramId } from "../utils/ids.js";
 import { createNotification, notifyMany } from "../utils/notify.js";
 import { dissolveMatch } from "../utils/matchActions.js";
 import { blockUser } from "../utils/userSafety.js";
+import { publicAssetUrl } from "../utils/serialize.js";
 
 const router = Router();
 
@@ -56,7 +57,7 @@ router.get("/", async (req: AuthedRequest, res) => {
         otherUser: {
           id: otherId,
           name: other?.profile?.name ?? "Usuario",
-          photo: other?.profile?.photos?.[0],
+          photo: publicAssetUrl(other?.profile?.photos?.[0]),
         },
         createdAt: m.createdAt.toISOString(),
         lastMessage: last
