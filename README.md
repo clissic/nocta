@@ -128,7 +128,7 @@ En login hay atajos visuales para cargar estas cuentas (demo).
 
 ### Stack API
 
-- Express + Mongoose + Zod + JWT + `jose` + Nodemailer + Multer
+- Express + Mongoose + Zod + JWT + `jose` + Nodemailer / Resend + Multer
 - Path: `apps/api`
 - Health: `GET /health` → `{ ok, service, db }`
 - Estáticos: `GET /uploads/*` (fotos en `apps/api/uploads/`)
@@ -163,7 +163,8 @@ Ver `apps/api/.env.example`.
 | `CLIENT_ORIGIN` | CORS + redirects OAuth (URL del web, p. ej. Railway) |
 | `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` en JSON |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed (defaults de la tabla demo) |
-| `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer; `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
+| `RESEND_API_KEY` | Mail vía Resend (HTTPS; **preferido en Railway**). Si está set, se usa antes que SMTP |
+| `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer (IPv4); `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
 | OAuth `GOOGLE_*` / `APPLE_*` / `MICROSOFT_*` / `MICROSOFT_TENANT` | Social login (`MICROSOFT_TENANT` default `common`) |
 
 ### Auth (email + código 6 dígitos)

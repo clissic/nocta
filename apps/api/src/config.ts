@@ -81,8 +81,13 @@ export const config = {
       env("MAIL_NOTIFY_TO") ||
       env("SMTP_USER") ||
       env("ADMIN_EMAIL", "admin@nocta.app"),
-    /** Si true, además loguea el mail en consola (aunque haya SMTP). */
+    /** Si true, además loguea el mail en consola (aunque haya transporte). */
     devLog: env("MAIL_DEV_LOG", "true") !== "false",
+    /**
+     * Resend (HTTPS). Si está definido, tiene prioridad sobre SMTP.
+     * Recomendado en Railway: Gmail SMTP suele fallar (IPv6/timeout).
+     */
+    resendApiKey: env("RESEND_API_KEY"),
   },
   oauth: {
     google: {

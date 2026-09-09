@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Resend } from "resend";
 import { VENUE_TYPE_LABELS, type VenueType } from "@nocta/shared";
 import { config } from "../config.js";
 import { UPLOADS_DIR } from "../uploads/paths.js";
@@ -16,19 +17,38 @@ import {
 } from "./templates.js";
 
 let transporter: Transporter | null = null;
+let resendClient: Resend | null = null;
+
+function hasResend() {
+  return Boolean(config.mail.resendApiKey);
+}
 
 function hasSmtp() {
   return Boolean(config.mail.host && config.mail.user && config.mail.pass);
+}
+
+function hasMailTransport() {
+  return hasResend() || hasSmtp();
+}
+
+function getResend(): Resend {
+  if (!resendClient) {
+    resendClient = new Resend(config.mail.resendApiKey);
+  }
+  return resendClient;
 }
 
 function getTransporter(): Transporter {
   if (transporter) return transporter;
 
   const port = config.mail.port;
+  // family:4 evita ENETUNREACH IPv6 en Railway → Gmail.
+  // Cast: @types/nodemailer no tipa bien `family` en createTransport.
   transporter = nodemailer.createTransport({
     host: config.mail.host,
     port,
     secure: port === 465,
+    family: 4,
     auth: {
       user: config.mail.user,
       pass: config.mail.pass,
@@ -36,21 +56,66 @@ function getTransporter(): Transporter {
     ...(port === 587
       ? { requireTLS: true, tls: { minVersion: "TLSv1.2" as const } }
       : {}),
-  });
+  } as nodemailer.TransportOptions);
 
   return transporter;
+}
+
+type MailAttachment = {
+  filename: string;
+  path: string;
+};
+
+async function sendViaResend(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: MailAttachment[];
+}) {
+  const attachments = opts.attachments?.map((item) => ({
+    filename: item.filename,
+    content: readFileSync(item.path),
+  }));
+
+  const { data, error } = await getResend().emails.send({
+    from: config.mail.from,
+    to: opts.to,
+    subject: opts.subject,
+    html: opts.html,
+    attachments,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Resend send failed");
+  }
+
+  console.log(`[mail] enviado (resend) a ${opts.to} id=${data?.id ?? "?"}`);
+}
+
+async function sendViaSmtp(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: MailAttachment[];
+}) {
+  const info = await getTransporter().sendMail({
+    from: config.mail.from,
+    to: opts.to,
+    subject: opts.subject,
+    html: opts.html,
+    attachments: opts.attachments,
+  });
+
+  console.log(`[mail] enviado (smtp) a ${opts.to} messageId=${info.messageId}`);
 }
 
 async function sendMail(opts: {
   to: string;
   subject: string;
   html: string;
-  attachments?: Array<{
-    filename: string;
-    path: string;
-  }>;
+  attachments?: MailAttachment[];
 }) {
-  if (!hasSmtp() || config.mail.devLog) {
+  if (!hasMailTransport() || config.mail.devLog) {
     console.log("\n========== MAIL (dev) ==========");
     console.log(`To: ${opts.to}`);
     console.log(`Subject: ${opts.subject}`);
@@ -63,20 +128,18 @@ async function sendMail(opts: {
     console.log("================================\n");
   }
 
-  if (!hasSmtp()) {
-    console.warn("[mail] SMTP no configurado — mail no enviado");
+  if (!hasMailTransport()) {
+    console.warn("[mail] sin transporte — mail no enviado (configurá RESEND_API_KEY o SMTP_*)");
     return;
   }
 
-  const info = await getTransporter().sendMail({
-    from: config.mail.from,
-    to: opts.to,
-    subject: opts.subject,
-    html: opts.html,
-    attachments: opts.attachments,
-  });
+  // Preferir Resend (HTTPS) en PaaS donde SMTP a Gmail falla.
+  if (hasResend()) {
+    await sendViaResend(opts);
+    return;
+  }
 
-  console.log(`[mail] enviado a ${opts.to} messageId=${info.messageId}`);
+  await sendViaSmtp(opts);
 }
 
 export async function sendVerificationEmail(opts: {
@@ -94,7 +157,7 @@ export async function sendVerificationEmail(opts: {
       ttlMinutes: opts.ttlMinutes,
     }),
   });
-  if (!hasSmtp() || config.mail.devLog) {
+  if (!hasMailTransport() || config.mail.devLog) {
     console.log(`[mail] código verificación ${opts.to}: ${opts.code}`);
   }
 }
@@ -283,16 +346,22 @@ export async function sendVenueRequestApprovedEmail(opts: {
   });
 }
 
-/** Verifica credenciales SMTP al boot (no aborta si falla). */
+/** Verifica transporte de mail al boot (no aborta si falla). */
 export async function verifyMailTransport() {
+  if (hasResend()) {
+    console.log("[mail] Resend OK (RESEND_API_KEY configurada; preferido sobre SMTP)");
+    return;
+  }
   if (!hasSmtp()) {
-    console.log("[mail] SMTP off — modo consola (MAIL_DEV_LOG / sin credenciales)");
+    console.log(
+      "[mail] sin transporte — modo consola (RESEND_API_KEY o SMTP_* / MAIL_DEV_LOG)"
+    );
     return;
   }
   try {
     await getTransporter().verify();
     console.log(
-      `[mail] SMTP OK (${config.mail.host}:${config.mail.port} as ${config.mail.user})`
+      `[mail] SMTP OK (${config.mail.host}:${config.mail.port} as ${config.mail.user}, IPv4)`
     );
   } catch (err) {
     console.error(
