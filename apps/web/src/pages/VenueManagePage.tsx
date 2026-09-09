@@ -15,6 +15,7 @@ import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { ManualSearchInput } from "../components/ManualSearchInput";
 
 function formatDate(value?: string) {
   if (!value) return null;
@@ -74,25 +75,27 @@ export function VenueManagePage() {
   const [newsListOpen, setNewsListOpen] = useState(false);
   const [promoListOpen, setPromoListOpen] = useState(false);
   const [newsQuery, setNewsQuery] = useState("");
+  const [submittedNewsQuery, setSubmittedNewsQuery] = useState("");
   const [promoQuery, setPromoQuery] = useState("");
+  const [submittedPromoQuery, setSubmittedPromoQuery] = useState("");
 
   const filteredNews = useMemo(() => {
-    const q = newsQuery.trim().toLowerCase();
+    const q = submittedNewsQuery.toLowerCase();
     if (!q) return news;
     return news.filter((item) => {
       const haystack = `${item.title} ${item.body}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [news, newsQuery]);
+  }, [news, submittedNewsQuery]);
 
   const filteredPromos = useMemo(() => {
-    const q = promoQuery.trim().toLowerCase();
+    const q = submittedPromoQuery.toLowerCase();
     if (!q) return promos;
     return promos.filter((item) => {
       const haystack = `${item.title} ${item.description}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [promos, promoQuery]);
+  }, [promos, submittedPromoQuery]);
 
   useEffect(() => {
     if (!id) return;
@@ -102,7 +105,9 @@ export function VenueManagePage() {
 
     void (async () => {
       try {
-        const venueRes = await api<{ venue: Venue }>(`/api/venues/${id}`);
+        const venueRes = await api<{ venue: Venue }>(
+          `/api/venues/${id}/manage`
+        );
         if (!alive) return;
 
         const nextVenue = venueRes.venue;
@@ -356,16 +361,35 @@ export function VenueManagePage() {
           </div>
         </header>
 
-        <aside className="venue-manage-followers" aria-label="Seguidores">
-          <i className="bi bi-people-fill" aria-hidden="true" />
-          <div>
-            <strong>{venue.followersCount ?? 0}</strong>
-            <span>
-              {(venue.followersCount ?? 0) === 1 ? "seguidor" : "seguidores"}
-            </span>
-          </div>
-        </aside>
+        <div className="venue-manage-overview-actions">
+          <aside className="venue-manage-followers" aria-label="Seguidores">
+            <i className="bi bi-people-fill" aria-hidden="true" />
+            <div>
+              <strong>{venue.followersCount ?? 0}</strong>
+              <span>
+                {(venue.followersCount ?? 0) === 1
+                  ? "seguidor"
+                  : "seguidores"}
+              </span>
+            </div>
+          </aside>
+          <Link
+            className="btn venue-manage-brand-action venue-manage-edit-link"
+            to={`/venues/${venue.id}/edit`}
+          >
+            <i className="bi bi-pencil" aria-hidden="true" />
+            <span>Editar información</span>
+          </Link>
+        </div>
       </div>
+
+      <p
+        className={`venue-manage-description mb-0${
+          venue.description ? "" : " text-secondary"
+        }`}
+      >
+        {venue.description || "Sin descripción."}
+      </p>
 
       <div className="venue-manage-content-grid">
         <section className="venue-manage-section">
@@ -473,19 +497,17 @@ export function VenueManagePage() {
               </p>
             ) : (
               <>
-                <label className="venue-manage-search">
-                  <i className="bi bi-search" aria-hidden="true" />
-                  <input
-                    className="form-control"
-                    type="search"
-                    placeholder="Buscar por palabras clave…"
-                    value={newsQuery}
-                    onChange={(e) => setNewsQuery(e.target.value)}
-                  />
-                </label>
+                <ManualSearchInput
+                  className="venue-manage-search"
+                  placeholder="Buscar por palabras clave…"
+                  ariaLabel="Buscar noticias"
+                  value={newsQuery}
+                  onValueChange={setNewsQuery}
+                  onSearch={setSubmittedNewsQuery}
+                />
                 {filteredNews.length === 0 ? (
                   <p className="text-secondary small mb-0">
-                    Ninguna noticia coincide con “{newsQuery.trim()}”.
+                    Ninguna noticia coincide con “{submittedNewsQuery}”.
                   </p>
                 ) : (
                   <ul className="venue-manage-list">
@@ -634,19 +656,17 @@ export function VenueManagePage() {
               </p>
             ) : (
               <>
-                <label className="venue-manage-search">
-                  <i className="bi bi-search" aria-hidden="true" />
-                  <input
-                    className="form-control"
-                    type="search"
-                    placeholder="Buscar por palabras clave…"
-                    value={promoQuery}
-                    onChange={(e) => setPromoQuery(e.target.value)}
-                  />
-                </label>
+                <ManualSearchInput
+                  className="venue-manage-search"
+                  placeholder="Buscar por palabras clave…"
+                  ariaLabel="Buscar promociones"
+                  value={promoQuery}
+                  onValueChange={setPromoQuery}
+                  onSearch={setSubmittedPromoQuery}
+                />
                 {filteredPromos.length === 0 ? (
                   <p className="text-secondary small mb-0">
-                    Ninguna promoción coincide con “{promoQuery.trim()}”.
+                    Ninguna promoción coincide con “{submittedPromoQuery}”.
                   </p>
                 ) : (
                   <ul className="venue-manage-list">
@@ -736,12 +756,13 @@ export function VenueManagePage() {
         </div>
         <button
           type="button"
-          className="btn btn-outline-light venue-manage-payments-action"
+          className="btn venue-manage-brand-action venue-manage-payments-action"
           onClick={() =>
             toast.info("La vinculación segura con Mercado Pago estará disponible próximamente")
           }
         >
-          Configurar cuenta
+          <i className="bi bi-link-45deg" aria-hidden="true" />
+          <span>Configurar cuenta</span>
         </button>
       </section>
     </div>

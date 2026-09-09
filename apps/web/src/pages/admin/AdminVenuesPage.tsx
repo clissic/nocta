@@ -1,64 +1,54 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   VENUE_TYPE_LABELS,
-  type AuthUser,
   type Venue,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
 import { useToast } from "../../components/ToastProvider";
 import { NoctaLoading } from "../../components/NoctaLoading";
 import { onVenuePhotoError, venueCoverSrc } from "../../lib/venuePhoto";
+import { ManualSearchInput } from "../../components/ManualSearchInput";
+import {
+  ADMIN_PAGE_SIZE,
+  AdminPagination,
+} from "../../components/admin/AdminPagination";
 
 export function AdminVenuesPage() {
   const toast = useToast();
   const [venues, setVenues] = useState<Venue[]>([]);
-  const [users, setUsers] = useState<AuthUser[]>([]);
   const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalVenues, setTotalVenues] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return venues;
-    return venues.filter((v) => {
-      const organizer = (
-        v.owner?.name ??
-        users.find((x) => x.id === v.ownerId)?.profile?.name ??
-        users.find((x) => x.id === v.ownerId)?.email ??
-        ""
-      ).toLowerCase();
-      return (
-        v.name.toLowerCase().includes(q) ||
-        v.city.toLowerCase().includes(q) ||
-        v.address.toLowerCase().includes(q) ||
-        VENUE_TYPE_LABELS[v.type].toLowerCase().includes(q) ||
-        organizer.includes(q)
-      );
-    });
-  }, [venues, query, users]);
-
   useEffect(() => {
-    void Promise.all([
-      api<{ venues: Venue[] }>("/api/venues/admin/all"),
-      api<{ users: AuthUser[] }>("/api/admin/users"),
-    ])
-      .then(([venuesRes, usersRes]) => {
-        setVenues(venuesRes.venues);
-        setUsers(usersRes.users);
+    setLoading(true);
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(ADMIN_PAGE_SIZE),
+    });
+    if (submittedQuery) params.set("q", submittedQuery);
+    void api<{
+      venues: Venue[];
+      pagination: { total: number };
+    }>(`/api/venues/admin/all?${params}`)
+      .then((response) => {
+        setVenues(response.venues);
+        setTotalVenues(response.pagination.total);
       })
       .catch((err) =>
         toast.error(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cargar una vez al montar
-  }, []);
+  }, [page, submittedQuery, toast]);
 
   function organizerName(venue: Venue) {
     if (venue.owner?.name) return venue.owner.name;
     if (!venue.ownerId) return "Sin organizador";
-    const u = users.find((x) => x.id === venue.ownerId);
-    return u?.profile?.name ?? u?.email ?? "Organizador";
+    return "Organizador";
   }
 
   async function copyOrganizerId(id: string, name: string) {
@@ -114,24 +104,26 @@ export function AdminVenuesPage() {
         </div>
       </header>
 
-      <div className="admin-toolbar">
-        <i className="bi bi-search" aria-hidden="true" />
-        <input
-          className="form-control"
-          type="search"
-          placeholder="Buscar por nombre, ciudad o tipo…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
+      <ManualSearchInput
+        className="admin-toolbar"
+        placeholder="Buscar por nombre, ciudad o tipo…"
+        ariaLabel="Buscar Espacios"
+        value={query}
+        onValueChange={setQuery}
+        onSearch={(value) => {
+          setSubmittedQuery(value);
+          setPage(1);
+        }}
+      />
 
       {loading ? (
         <NoctaLoading variant="block" />
-      ) : filtered.length === 0 ? (
+      ) : venues.length === 0 ? (
         <p className="text-secondary small mb-0">Sin resultados.</p>
       ) : (
-        <div className="admin-list">
-          {filtered.map((v) => {
+        <>
+          <div className="admin-list">
+          {venues.map((v) => {
             const name = organizerName(v);
             return (
               <div key={v.id} className="admin-list-row">
@@ -200,7 +192,14 @@ export function AdminVenuesPage() {
               </div>
             );
           })}
-        </div>
+          </div>
+          <AdminPagination
+            page={page}
+            totalItems={totalVenues}
+            onPageChange={setPage}
+            label="Páginas de Espacios"
+          />
+        </>
       )}
     </div>
   );

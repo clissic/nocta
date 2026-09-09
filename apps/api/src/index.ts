@@ -3,7 +3,12 @@ import cors from "cors";
 import morgan from "morgan";
 import { config, isMemoryDb } from "./config.js";
 import { connectDb } from "./db.js";
-import { seedDemoData, ensureDemoAccounts, normalizeLookingForSingleChoice, syncPilotVenues } from "./seedData.js";
+import {
+  seedDemoData,
+  ensureDemoAccounts,
+  normalizeLookingForSingleChoice,
+  syncPilotVenues,
+} from "./seedData.js";
 import { Match } from "./models/Match.js";
 import { User } from "./models/User.js";
 import { ensureUploadsDir, UPLOADS_DIR } from "./uploads/index.js";

@@ -11,6 +11,7 @@ import {
   OAUTH_PROVIDERS,
   PETS,
   SEXUAL_ORIENTATIONS,
+  SUSPENSION_DURATIONS,
   WORK_STATUS,
   ZODIAC_SIGNS,
 } from "@nocta/shared";
@@ -123,6 +124,7 @@ const userSchema = new Schema(
     emailVerificationExpires: { type: Date },
     passwordResetToken: { type: String, index: true },
     passwordResetExpires: { type: Date },
+    authVersion: { type: Number, min: 0, default: 0 },
     oauthAccounts: { type: [oauthAccountSchema], default: [] },
     authProvider: {
       type: String,
@@ -141,11 +143,24 @@ const userSchema = new Schema(
     showActivityToFollowers: { type: Boolean, default: true },
     /** @deprecated Preferir showActivityToFollowers. */
     hideActivityFromFollowers: { type: Boolean },
+    moderationStatus: {
+      type: String,
+      enum: ["active", "suspended"],
+      default: "active",
+      index: true,
+    },
+    suspendedAt: { type: Date },
+    suspendedUntil: { type: Date },
+    suspensionDuration: { type: Schema.Types.Mixed, enum: SUSPENSION_DURATIONS },
+    suspendedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    suspensionReportId: { type: Schema.Types.ObjectId, ref: "Report" },
+    suspensionReason: { type: String, trim: true, maxlength: 1000 },
   },
   { timestamps: true }
 );
 
 userSchema.index({ "oauthAccounts.provider": 1, "oauthAccounts.providerUserId": 1 });
+userSchema.index({ moderationStatus: 1, suspendedUntil: 1 });
 
 export type UserDocument = HydratedDocument<InferSchemaType<typeof userSchema>>;
 

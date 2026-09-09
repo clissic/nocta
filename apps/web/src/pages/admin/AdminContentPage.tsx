@@ -10,6 +10,11 @@ import {
 import { useAuth } from "../../auth/AuthContext";
 import { api, ApiError } from "../../lib/api";
 import { NoctaLoading } from "../../components/NoctaLoading";
+import {
+  ADMIN_PAGE_SIZE,
+  AdminPagination,
+} from "../../components/admin/AdminPagination";
+import { AdminSearchSelect } from "../../components/admin/AdminSearchSelect";
 
 export function AdminContentPage() {
   const { user } = useAuth();
@@ -19,8 +24,14 @@ export function AdminContentPage() {
 
   const [venues, setVenues] = useState<Venue[]>([]);
   const [venueId, setVenueId] = useState(venueIdParam);
+  const [venueQuery, setVenueQuery] = useState("");
+  const [submittedVenueQuery, setSubmittedVenueQuery] = useState("");
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [news, setNews] = useState<VenueNews[]>([]);
+  const [promoPage, setPromoPage] = useState(1);
+  const [newsPage, setNewsPage] = useState(1);
+  const [totalPromos, setTotalPromos] = useState(0);
+  const [totalNews, setTotalNews] = useState(0);
   const [loadingVenues, setLoadingVenues] = useState(true);
   const [loadingContent, setLoadingContent] = useState(false);
   const [error, setError] = useState("");
@@ -38,13 +49,37 @@ export function AdminContentPage() {
   const [newsPhoto, setNewsPhoto] = useState<File | null>(null);
 
   useEffect(() => {
-    void api<{ venues: Venue[] }>("/api/venues/admin/all")
-      .then((res) => {
-        setVenues(res.venues);
+    setLoadingVenues(true);
+    const params = new URLSearchParams({
+      page: "1",
+      limit: String(ADMIN_PAGE_SIZE),
+    });
+    if (submittedVenueQuery) params.set("q", submittedVenueQuery);
+    void api<{ venues: Venue[] }>(`/api/venues/admin/all?${params}`)
+      .then(async (res) => {
+        let nextVenues = res.venues;
+        if (
+          venueIdParam &&
+          !submittedVenueQuery &&
+          !nextVenues.some((venue) => venue.id === venueIdParam)
+        ) {
+          try {
+            const selected = await api<{ venue: Venue }>(
+              `/api/venues/${venueIdParam}/manage`
+            );
+            nextVenues = [
+              selected.venue,
+              ...nextVenues.filter((venue) => venue.id !== venueIdParam),
+            ].slice(0, ADMIN_PAGE_SIZE);
+          } catch {
+            // La selección enlazada ya no está disponible.
+          }
+        }
+        setVenues(nextVenues);
         const initial =
-          venueIdParam && res.venues.some((v) => v.id === venueIdParam)
+          venueIdParam && nextVenues.some((v) => v.id === venueIdParam)
             ? venueIdParam
-            : res.venues[0]?.id ?? "";
+            : nextVenues[0]?.id ?? "";
         setVenueId(initial);
         if (initial && initial !== venueIdParam) {
           setSearchParams({ venueId: initial }, { replace: true });
@@ -54,8 +89,7 @@ export function AdminContentPage() {
         setError(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoadingVenues(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar
-  }, []);
+  }, [submittedVenueQuery, setSearchParams, venueIdParam]);
 
   useEffect(() => {
     if (!venueId) {
@@ -66,12 +100,18 @@ export function AdminContentPage() {
     setLoadingContent(true);
     setError("");
     void Promise.all([
-      api<{ promotions: Promotion[] }>(`/api/venues/${venueId}/promotions`),
-      api<{ news: VenueNews[] }>(`/api/venues/${venueId}/news`),
+      api<{ promotions: Promotion[]; pagination: { total: number } }>(
+        `/api/venues/${venueId}/promotions?page=${promoPage}&limit=${ADMIN_PAGE_SIZE}`
+      ),
+      api<{ news: VenueNews[]; pagination: { total: number } }>(
+        `/api/venues/${venueId}/news?page=${newsPage}&limit=${ADMIN_PAGE_SIZE}`
+      ),
     ])
       .then(([promoRes, newsRes]) => {
         setPromos(promoRes.promotions);
         setNews(newsRes.news);
+        setTotalPromos(promoRes.pagination.total);
+        setTotalNews(newsRes.pagination.total);
       })
       .catch((err) =>
         setError(
@@ -79,10 +119,12 @@ export function AdminContentPage() {
         )
       )
       .finally(() => setLoadingContent(false));
-  }, [venueId]);
+  }, [venueId, promoPage, newsPage]);
 
   function selectVenue(nextId: string) {
     setVenueId(nextId);
+    setPromoPage(1);
+    setNewsPage(1);
     setSearchParams(nextId ? { venueId: nextId } : {}, { replace: true });
   }
 
@@ -118,7 +160,9 @@ export function AdminContentPage() {
           }),
         }
       );
-      setPromos((prev) => [res.promotion, ...prev]);
+      setPromos((prev) => [res.promotion, ...prev].slice(0, ADMIN_PAGE_SIZE));
+      setTotalPromos((total) => total + 1);
+      setPromoPage(1);
       setPromoTitle("");
       setPromoDescription("");
       setPromoPrice("");
@@ -150,7 +194,9 @@ export function AdminContentPage() {
         method: "POST",
         body: form,
       });
-      setNews((prev) => [res.news, ...prev]);
+      setNews((prev) => [res.news, ...prev].slice(0, ADMIN_PAGE_SIZE));
+      setTotalNews((total) => total + 1);
+      setNewsPage(1);
       setNewsTitle("");
       setNewsBody("");
       setNewsPhoto(null);
@@ -241,26 +287,29 @@ export function AdminContentPage() {
 
       {error && <p className="text-danger small">{error}</p>}
 
-      {loadingVenues ? (
+      {loadingVenues && venues.length === 0 ? (
         <NoctaLoading variant="block" />
-      ) : venues.length === 0 ? (
+      ) : !loadingVenues && venues.length === 0 && !submittedVenueQuery ? (
         <p className="text-secondary small mb-0">Todavía no hay espacios.</p>
       ) : (
         <>
-          <label className="admin-field admin-field-inline">
-            <span><i className="bi bi-geo-alt" aria-hidden="true" /> Espacio</span>
-            <select
-              className="form-select"
-              value={venueId}
-              onChange={(e) => selectVenue(e.target.value)}
-            >
-              {venues.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name} {v.active ? "" : "(inactivo)"}
-                </option>
-              ))}
-            </select>
-          </label>
+          <AdminSearchSelect
+            label="Espacio"
+            value={venueId}
+            options={venues.map((venue) => ({
+              value: venue.id,
+              label: venue.name,
+              meta: venue.active ? "Activo" : "Inactivo",
+            }))}
+            query={venueQuery}
+            placeholder="Seleccionar Espacio"
+            searchPlaceholder="Buscar Espacio…"
+            emptyMessage="No hay Espacios para esta búsqueda."
+            loading={loadingVenues}
+            onChange={selectVenue}
+            onQueryChange={setVenueQuery}
+            onSearch={setSubmittedVenueQuery}
+          />
 
           {selectedVenue && (
             <p className="text-secondary small">
@@ -409,6 +458,12 @@ export function AdminContentPage() {
                         </div>
                       </div>
                     ))}
+                    <AdminPagination
+                      page={promoPage}
+                      totalItems={totalPromos}
+                      onPageChange={setPromoPage}
+                      label="Páginas de promociones"
+                    />
                   </div>
                 )}
               </section>
@@ -499,6 +554,12 @@ export function AdminContentPage() {
                         </div>
                       </div>
                     ))}
+                    <AdminPagination
+                      page={newsPage}
+                      totalItems={totalNews}
+                      onPageChange={setNewsPage}
+                      label="Páginas de noticias"
+                    />
                   </div>
                 )}
               </section>

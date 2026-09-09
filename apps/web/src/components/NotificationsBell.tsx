@@ -8,6 +8,7 @@ import {
   type NotificationsUnreadResponse,
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
+import { notificationHref } from "../lib/notificationHref";
 import { useToast } from "./ToastProvider";
 import { NotificationContent } from "./NotificationContent";
 import { OverflowFade } from "./OverflowFade";
@@ -140,7 +141,8 @@ export function NotificationsBell() {
   async function openItem(item: NotificationItem) {
     if (!item.readAt) await markRead([item.id]);
     setOpen(false);
-    if (item.href) navigate(item.href);
+    const href = notificationHref(item);
+    if (href) navigate(href);
   }
 
   function openAll() {

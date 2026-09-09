@@ -9,6 +9,7 @@ import { api, ApiError } from "../lib/api";
 import { PhotoLightbox } from "./PhotoLightbox";
 import { useToast } from "./ToastProvider";
 import { NoctaLoading } from "./NoctaLoading";
+import { ManualSearchInput } from "./ManualSearchInput";
 
 function Stars({ rating }: { rating: number }) {
   return (
@@ -28,7 +29,7 @@ export function ProfileMyReviewsAccordion() {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [page, setPage] = useState(1);
   const [reviews, setReviews] = useState<VenueReview[]>([]);
   const [total, setTotal] = useState(0);
@@ -40,14 +41,6 @@ export function ProfileMyReviewsAccordion() {
     index: number;
   } | null>(null);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedQuery(query.trim());
-      setPage(1);
-    }, 280);
-    return () => window.clearTimeout(timer);
-  }, [query]);
-
   const loadReviews = useCallback(async () => {
     setLoading(true);
     try {
@@ -55,7 +48,7 @@ export function ProfileMyReviewsAccordion() {
         page: String(page),
         limit: String(MY_REVIEWS_PAGE_SIZE),
       });
-      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (submittedQuery) params.set("q", submittedQuery);
       const response = await api<PaginatedReviewsResponse>(
         `/api/me/reviews?${params}`
       );
@@ -70,7 +63,7 @@ export function ProfileMyReviewsAccordion() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery, page, toast]);
+  }, [submittedQuery, page, toast]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,23 +97,24 @@ export function ProfileMyReviewsAccordion() {
         className={`profile-gallery-panel${open ? " is-open" : ""}`}
         hidden={!open}
       >
-        <label className="visually-hidden" htmlFor="profile-my-reviews-search">
-          Buscar reseñas
-        </label>
-        <input
+        <ManualSearchInput
           id="profile-my-reviews-search"
-          type="search"
-          className="form-control profile-my-reviews-search"
+          className="profile-my-reviews-search"
           placeholder="Buscar por espacio o texto…"
+          ariaLabel="Buscar reseñas"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onValueChange={setQuery}
+          onSearch={(value) => {
+            setSubmittedQuery(value);
+            setPage(1);
+          }}
         />
 
         {loading && !reviews.length ? (
           <NoctaLoading variant="inline" />
         ) : reviews.length === 0 ? (
           <p className="text-secondary small mb-0">
-            {debouncedQuery
+            {submittedQuery
               ? "No hay reseñas para esa búsqueda."
               : "Todavía no dejaste reseñas."}
           </p>

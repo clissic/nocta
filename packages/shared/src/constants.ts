@@ -332,6 +332,23 @@ export const VENUE_REQUEST_STATUSES = [
   "rejected",
 ] as const;
 
+export const VENUE_REQUEST_TYPES = ["create", "claim"] as const;
+export const MAX_VENUE_CLAIM_FILES = 3;
+export const MAX_VENUE_CLAIM_FILE_BYTES = 2 * 1024 * 1024;
+export const VENUE_CLAIM_FILE_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+export const VENUE_CLAIM_FILE_EXTENSIONS = [
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+] as const;
+
 /** Estado de una promo comprada (QR). */
 export const PROMO_PURCHASE_STATUSES = [
   "valid",
@@ -389,6 +406,25 @@ export const OAUTH_PROVIDERS = ["google", "apple", "microsoft"] as const;
 export const REPORT_REASONS = [
   "spam", "acoso", "perfil_falso", "contenido_inapropiado", "otro",
 ] as const;
+
+export const SUSPENSION_DURATIONS = [
+  30,
+  90,
+  180,
+  360,
+  "permanent",
+] as const;
+
+export const SUSPENSION_DURATION_LABELS: Record<
+  (typeof SUSPENSION_DURATIONS)[number],
+  string
+> = {
+  30: "30 días",
+  90: "90 días",
+  180: "180 días",
+  360: "360 días",
+  permanent: "Permanente",
+};
 
 export const REPORT_REASON_LABELS: Record<(typeof REPORT_REASONS)[number], string> = {
   spam: "Spam",
@@ -712,7 +748,37 @@ export const PROFILE_COUNTRIES = [
   "Otro",
 ] as const;
 
-/** Ciudades piloto (Uruguay) con centro de mapa. */
+/** Países latinoamericanos disponibles para registrar Espacios. */
+export const VENUE_COUNTRIES = [
+  { id: "argentina", label: "Argentina", enabled: true },
+  { id: "bolivia", label: "Bolivia", enabled: false },
+  { id: "brasil", label: "Brasil", enabled: true },
+  { id: "chile", label: "Chile", enabled: false },
+  { id: "colombia", label: "Colombia", enabled: false },
+  { id: "costa_rica", label: "Costa Rica", enabled: false },
+  { id: "cuba", label: "Cuba", enabled: false },
+  { id: "ecuador", label: "Ecuador", enabled: false },
+  { id: "el_salvador", label: "El Salvador", enabled: false },
+  { id: "guatemala", label: "Guatemala", enabled: false },
+  { id: "haiti", label: "Haití", enabled: false },
+  { id: "honduras", label: "Honduras", enabled: false },
+  { id: "mexico", label: "México", enabled: false },
+  { id: "nicaragua", label: "Nicaragua", enabled: false },
+  { id: "panama", label: "Panamá", enabled: false },
+  { id: "paraguay", label: "Paraguay", enabled: false },
+  { id: "peru", label: "Perú", enabled: false },
+  { id: "republica_dominicana", label: "República Dominicana", enabled: false },
+  { id: "uruguay", label: "Uruguay", enabled: true },
+  { id: "venezuela", label: "Venezuela", enabled: false },
+] as const;
+
+export const ENABLED_VENUE_COUNTRIES = [
+  "Uruguay",
+  "Argentina",
+  "Brasil",
+] as const;
+
+/** Ciudades de Uruguay con centro de mapa. */
 export const URUGUAY_CITIES = [
   { id: "montevideo", label: "Montevideo", lat: -34.9011, lng: -56.1645 },
   { id: "ciudad_de_la_costa", label: "Ciudad de la Costa", lat: -34.8167, lng: -55.95 },
@@ -737,7 +803,66 @@ export const URUGUAY_CITIES = [
   { id: "san_jose_de_mayo", label: "San José de Mayo", lat: -34.3375, lng: -56.7136 },
 ] as const;
 
+export const ARGENTINA_CITIES = [
+  { id: "buenos_aires", label: "Buenos Aires", lat: -34.6037, lng: -58.3816 },
+  { id: "cordoba", label: "Córdoba", lat: -31.4201, lng: -64.1888 },
+  { id: "rosario", label: "Rosario", lat: -32.9442, lng: -60.6505 },
+  { id: "mendoza", label: "Mendoza", lat: -32.8895, lng: -68.8458 },
+  { id: "la_plata", label: "La Plata", lat: -34.9214, lng: -57.9544 },
+  { id: "mar_del_plata", label: "Mar del Plata", lat: -38.0055, lng: -57.5426 },
+  { id: "salta", label: "Salta", lat: -24.7821, lng: -65.4232 },
+  { id: "san_miguel_de_tucuman", label: "San Miguel de Tucumán", lat: -26.8083, lng: -65.2176 },
+  { id: "santa_fe", label: "Santa Fe", lat: -31.6333, lng: -60.7 },
+  { id: "neuquen", label: "Neuquén", lat: -38.9516, lng: -68.0591 },
+  { id: "bariloche", label: "San Carlos de Bariloche", lat: -41.1335, lng: -71.3103 },
+] as const;
+
+export const BRAZIL_CITIES = [
+  { id: "sao_paulo", label: "São Paulo", lat: -23.5505, lng: -46.6333 },
+  { id: "rio_de_janeiro", label: "Rio de Janeiro", lat: -22.9068, lng: -43.1729 },
+  { id: "brasilia", label: "Brasília", lat: -15.7939, lng: -47.8828 },
+  { id: "belo_horizonte", label: "Belo Horizonte", lat: -19.9167, lng: -43.9345 },
+  { id: "salvador", label: "Salvador", lat: -12.9777, lng: -38.5016 },
+  { id: "fortaleza", label: "Fortaleza", lat: -3.7319, lng: -38.5267 },
+  { id: "recife", label: "Recife", lat: -8.0476, lng: -34.877 },
+  { id: "porto_alegre", label: "Porto Alegre", lat: -30.0346, lng: -51.2177 },
+  { id: "curitiba", label: "Curitiba", lat: -25.4284, lng: -49.2733 },
+  { id: "manaus", label: "Manaus", lat: -3.119, lng: -60.0217 },
+  { id: "goiania", label: "Goiânia", lat: -16.6869, lng: -49.2648 },
+  { id: "florianopolis", label: "Florianópolis", lat: -27.5949, lng: -48.5482 },
+] as const;
+
+export const VENUE_CITIES_BY_COUNTRY = {
+  Uruguay: URUGUAY_CITIES,
+  Argentina: ARGENTINA_CITIES,
+  Brasil: BRAZIL_CITIES,
+} as const;
+
 export const DEFAULT_URUGUAY_CITY = URUGUAY_CITIES[0];
+export const DEFAULT_VENUE_COUNTRY = "Uruguay" as const;
+
+export function isEnabledVenueCountry(
+  country: string
+): country is (typeof ENABLED_VENUE_COUNTRIES)[number] {
+  return ENABLED_VENUE_COUNTRIES.some((candidate) => candidate === country);
+}
+
+export function venueCitiesForCountry(country: string) {
+  return isEnabledVenueCountry(country)
+    ? VENUE_CITIES_BY_COUNTRY[country]
+    : URUGUAY_CITIES;
+}
+
+export function isVenueCity(country: string, city: string): boolean {
+  return venueCitiesForCountry(country).some(
+    (candidate) => candidate.label === city
+  );
+}
+
+export const VENUE_COVER_WIDTH = 1600;
+export const VENUE_COVER_HEIGHT = 1200;
+export const VENUE_COVER_MIME = "image/webp";
+export const VENUE_COVER_EXTENSION = ".webp";
 
 export const DISPLAY_ADDRESS_HINT =
   "Usá un formato claro: calle y número, barrio o esquina. Ej: Av. 18 de Julio 1234, esquina Ejido";

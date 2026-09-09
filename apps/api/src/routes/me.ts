@@ -22,7 +22,10 @@ import {
   venueFollowersCount,
 } from "../utils/follows.js";
 import { FollowRequest } from "../models/FollowRequest.js";
+import { Block } from "../models/Block.js";
+import { Report } from "../models/Report.js";
 import { isObjectId, paramId } from "../utils/ids.js";
+import { deleteUserAccount } from "../utils/deleteUserAccount.js";
 
 const router = Router();
 
@@ -75,6 +78,108 @@ router.patch("/settings", requireAuth, async (req: AuthedRequest, res) => {
 
   return res.json({ user: serializeUser(user) });
 });
+
+const blockedUsersPaginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(10).max(50).default(20),
+});
+
+router.get("/reports/:id", requireAuth, async (req: AuthedRequest, res) => {
+  const id = paramId(req.params.id);
+  if (!isObjectId(id)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const report = await Report.findOne({
+    _id: id,
+    reporterId: req.user!._id,
+  }).lean();
+  if (!report) {
+    return res.status(404).json({ error: "Denuncia no encontrada" });
+  }
+  return res.json({
+    report: {
+      id: report._id.toString(),
+      reason: report.reason,
+      details: report.details ?? undefined,
+      status: report.status ?? "open",
+      source: report.source ?? (report.matchId ? "match" : "profile"),
+      createdAt: report.createdAt.toISOString(),
+      resolution: report.resolution
+        ? {
+            action: report.resolution.action,
+            reason: report.resolution.reason ?? undefined,
+            duration: report.resolution.duration ?? undefined,
+            suspendedUntil:
+              report.resolution.suspendedUntil?.toISOString() ?? undefined,
+            resolvedAt: report.resolution.resolvedAt.toISOString(),
+          }
+        : undefined,
+    },
+  });
+});
+
+router.get("/blocked-users", requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = blockedUsersPaginationSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Paginación inválida" });
+  }
+  const { page, limit } = parsed.data;
+  const filter = { blockerId: req.user!._id };
+  const [blocks, total] = await Promise.all([
+    Block.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Block.countDocuments(filter),
+  ]);
+  const users = await User.find({
+    _id: { $in: blocks.map((block) => block.blockedId) },
+  })
+    .select("profile.name profile.photos")
+    .lean();
+  const usersById = new Map(
+    users.map((user) => [user._id.toString(), user])
+  );
+
+  return res.json({
+    users: blocks.flatMap((block) => {
+      const user = usersById.get(block.blockedId.toString());
+      if (!user) return [];
+      return [
+        {
+          id: user._id.toString(),
+          name: user.profile?.name ?? "Usuario",
+          photo: user.profile?.photos?.[0] ?? undefined,
+          blockedAt: block.createdAt.toISOString(),
+        },
+      ];
+    }),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page * limit < total,
+    },
+  });
+});
+
+router.delete(
+  "/blocked-users/:id",
+  requireAuth,
+  async (req: AuthedRequest, res) => {
+    const blockedId = paramId(req.params.id);
+    if (!isObjectId(blockedId)) {
+      return res.status(400).json({ error: "Usuario inválido" });
+    }
+    await Block.deleteOne({
+      blockerId: req.user!._id,
+      blockedId,
+    });
+    return res.json({ ok: true, blocked: false, blockedUserId: blockedId });
+  }
+);
 
 router.get("/reviews", requireAuth, async (req: AuthedRequest, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
@@ -143,7 +248,6 @@ router.get("/reviews", requireAuth, async (req: AuthedRequest, res) => {
 router.get("/venues/owned", requireAuth, async (req: AuthedRequest, res) => {
   const venues = await Venue.find({
     ownerId: req.user!._id,
-    active: true,
   }).sort({ name: 1 });
   return res.json({
     venues: venues.map((v) =>
@@ -401,5 +505,27 @@ router.post(
     return res.json({ ok: true });
   }
 );
+
+router.delete("/account", requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = z.object({ confirmation: z.literal("Eliminar") }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Escribí "Eliminar" para confirmar',
+    });
+  }
+
+  const user = req.user!;
+  if (user.role === "admin") {
+    const adminCount = await User.countDocuments({ role: "admin" });
+    if (adminCount <= 1) {
+      return res.status(409).json({
+        error: "No podés eliminar la última cuenta administradora",
+      });
+    }
+  }
+
+  await deleteUserAccount(user);
+  return res.json({ ok: true });
+});
 
 export default router;

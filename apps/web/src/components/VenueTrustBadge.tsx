@@ -139,7 +139,7 @@ export function VenueTrustBadge({
       </button>
       <span className="venue-trust-help-popover" role="tooltip" style={style}>
         Si sos el organizador de este espacio y querés administrarlo en Nocta,
-        completá el formulario al pie de tu perfil.
+        usá la pestaña Reclamar espacio en el formulario de tu perfil.
       </span>
     </span>
   );

@@ -6,8 +6,10 @@ import {
   type VenueRequest,
 } from "@nocta/shared";
 import { VenueMap } from "../components/VenueMap";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, downloadApiFile } from "../lib/api";
 import { NoctaLoading } from "../components/NoctaLoading";
+import { useToast } from "../components/ToastProvider";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 
 const STATUS_LABEL: Record<VenueRequest["status"], string> = {
   pending: "Pendiente",
@@ -16,8 +18,10 @@ const STATUS_LABEL: Record<VenueRequest["status"], string> = {
 };
 
 export function AdminVenueRequestPage() {
+  const toast = useToast();
   const { id } = useParams();
   const [request, setRequest] = useState<VenueRequest | null>(null);
+  const [targetVenue, setTargetVenue] = useState<Venue | null>(null);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -26,9 +30,12 @@ export function AdminVenueRequestPage() {
 
   useEffect(() => {
     if (!id) return;
-    void api<{ request: VenueRequest }>(`/api/admin/venue-requests/${id}`)
-      .then(({ request: next }) => {
+    void api<{ request: VenueRequest; venue?: Venue }>(
+      `/api/admin/venue-requests/${id}`
+    )
+      .then(({ request: next, venue }) => {
         setRequest(next);
+        setTargetVenue(venue ?? null);
         setNote(next.adminNote ?? "");
       })
       .catch((err) =>
@@ -62,6 +69,26 @@ export function AdminVenueRequestPage() {
     }
   }
 
+  async function downloadEvidence(file: VenueRequest["evidenceFiles"][number]) {
+    if (!request) return;
+    try {
+      const blob = await downloadApiFile(
+        `/api/admin/venue-requests/${request.id}/evidence/${file.id}`
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = file.originalName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Comprobante descargado");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo descargar"
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div className="admin-review-state admin-review-state-loading">
@@ -83,6 +110,10 @@ export function AdminVenueRequestPage() {
     );
   }
 
+  const isClaim = request.requestType === "claim";
+  const requestsManagement = isClaim || request.wantsToManage;
+  const reviewVenue = targetVenue ?? createdVenue;
+
   return (
     <div className="admin-venue-review fade-in">
       <header className="admin-venue-review-head">
@@ -91,10 +122,16 @@ export function AdminVenueRequestPage() {
             <i className="bi bi-arrow-left" aria-hidden="true" />
             <span>Solicitudes</span>
           </Link>
-          <p className="admin-venue-review-eyebrow">Revisión de Espacio</p>
+          <p className="admin-venue-review-eyebrow">
+            {isClaim
+              ? "Reclamación de Espacio"
+              : requestsManagement
+                ? "Alta con administración"
+                : "Sugerencia de Espacio"}
+          </p>
           <h1 className="app-title display-6 mb-2">{request.name}</h1>
           <p className="text-secondary mb-0">
-            {VENUE_TYPE_LABELS[request.type]} · {request.city}
+            {VENUE_TYPE_LABELS[request.type]} · {request.country}, {request.city}
           </p>
         </div>
         <span className={`admin-review-status is-${request.status}`}>
@@ -106,8 +143,15 @@ export function AdminVenueRequestPage() {
 
       <div className="admin-venue-review-layout">
         <div className="admin-venue-review-media">
-          {request.photos[0] ? (
-            <img src={request.photos[0]} alt={request.name} />
+          {request.photos[0] || reviewVenue ? (
+            <img
+              src={
+                request.photos[0] ||
+                (reviewVenue ? venueCoverSrc(reviewVenue) : "")
+              }
+              alt={request.name}
+              onError={onVenuePhotoError}
+            />
           ) : (
             <div className="admin-venue-review-media-empty">Sin foto</div>
           )}
@@ -116,6 +160,7 @@ export function AdminVenueRequestPage() {
               name={request.name}
               address={request.address}
               city={request.city}
+              country={request.country}
               location={request.location}
             />
           )}
@@ -125,7 +170,9 @@ export function AdminVenueRequestPage() {
           <section>
             <h2 className="admin-review-label">Ubicación</h2>
             <strong>{request.address}</strong>
-            <p className="text-secondary small mb-0">{request.city}</p>
+            <p className="text-secondary small mb-0">
+              {request.country}, {request.city}
+            </p>
             {request.geocodedAddress && (
               <p className="admin-review-detected mb-0">
                 Detectada: {request.geocodedAddress}
@@ -135,8 +182,48 @@ export function AdminVenueRequestPage() {
 
           {request.description && (
             <section>
-              <h2 className="admin-review-label">Descripción</h2>
+              <h2 className="admin-review-label">
+                {isClaim && !request.managementMessage
+                  ? "Información aportada"
+                  : "Descripción"}
+              </h2>
               <p className="mb-0">{request.description}</p>
+            </section>
+          )}
+
+          {request.managementMessage && (
+            <section>
+              <h2 className="admin-review-label">
+                Información de administración
+              </h2>
+              <p className="mb-0">{request.managementMessage}</p>
+            </section>
+          )}
+
+          {requestsManagement && (
+            <section>
+              <h2 className="admin-review-label">Comprobantes privados</h2>
+              <div className="admin-evidence-list">
+                {request.evidenceFiles.map((file) => (
+                  <button
+                    key={file.id}
+                    type="button"
+                    className="btn btn-sm btn-outline-light"
+                    onClick={() => void downloadEvidence(file)}
+                  >
+                    <i
+                      className={`bi ${
+                        file.mimeType === "application/pdf"
+                          ? "bi-file-earmark-pdf"
+                          : "bi-file-earmark-image"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <span>{file.originalName}</span>
+                    <small>{Math.ceil(file.size / 1024)} KB</small>
+                  </button>
+                ))}
+              </div>
             </section>
           )}
 
@@ -185,7 +272,15 @@ export function AdminVenueRequestPage() {
                 onClick={() => void review("approve")}
               >
                 <i className="bi bi-check-lg" aria-hidden="true" />
-                <span>{busy ? "Procesando…" : "Autorizar y crear Espacio"}</span>
+                <span>
+                  {busy
+                    ? "Procesando…"
+                    : isClaim
+                      ? "Autorizar administración"
+                      : requestsManagement
+                        ? "Autorizar, crear y asignar"
+                        : "Autorizar y publicar"}
+                </span>
               </button>
               <button
                 className="btn btn-outline-light"

@@ -13,6 +13,7 @@ import { api } from "../lib/api";
 import { VenueTrustBadge } from "../components/VenueTrustBadge";
 import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 import { NoctaLoading } from "../components/NoctaLoading";
+import { ManualSearchInput } from "../components/ManualSearchInput";
 
 type TypeFilter = "all" | VenueType;
 
@@ -41,7 +42,7 @@ export function VenuesPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -62,11 +63,6 @@ export function VenuesPage() {
   useEffect(() => {
     pageRef.current = page;
   }, [page]);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [query]);
 
   useEffect(() => {
     let alive = true;
@@ -91,7 +87,7 @@ export function VenuesPage() {
       }
       try {
         const res = await api<PaginatedVenuesResponse>(
-          buildVenuesUrl(nextPage, typeFilter, debouncedQuery)
+          buildVenuesUrl(nextPage, typeFilter, submittedQuery)
         );
         setVenues((prev) => (replace ? res.venues : [...prev, ...res.venues]));
         setPage(res.pagination.page);
@@ -104,7 +100,7 @@ export function VenuesPage() {
         setLoadingMore(false);
       }
     },
-    [typeFilter, debouncedQuery]
+    [typeFilter, submittedQuery]
   );
 
   useEffect(() => {
@@ -152,29 +148,15 @@ export function VenuesPage() {
       </div>
 
       <div className="venues-toolbar">
-        <div className="venue-search input-group">
-          <span className="input-group-text bg-transparent border-secondary">
-            <i className="bi bi-search" aria-hidden="true" />
-          </span>
-          <input
-            type="search"
-            className="form-control bg-transparent border-secondary"
-            placeholder="Buscar por nombre, barrio…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Buscar espacios"
-          />
-          {query && (
-            <button
-              type="button"
-              className="btn btn-outline-secondary"
-              aria-label="Limpiar búsqueda"
-              onClick={() => setQuery("")}
-            >
-              <i className="bi bi-x-lg" aria-hidden="true" />
-            </button>
-          )}
-        </div>
+        <ManualSearchInput
+          className="venue-search"
+          inputClassName="bg-transparent border-secondary"
+          placeholder="Buscar por nombre, barrio…"
+          ariaLabel="Buscar espacios"
+          value={query}
+          onValueChange={setQuery}
+          onSearch={setSubmittedQuery}
+        />
 
         <select
           className="form-select bg-transparent border-secondary venue-type-select"
@@ -204,6 +186,11 @@ export function VenuesPage() {
           ))}
         </div>
       </div>
+
+      <p className="venues-request-cta">
+        ¿No encontrás tu Espacio favorito? ¡Pedí que lo agreguen a Nocta!{" "}
+        <Link to="/profile/venue-request">Solicitalo aquí</Link>
+      </p>
 
       {presence?.venue && (
         <div className="status-strip fade-in">
@@ -282,7 +269,7 @@ export function VenuesPage() {
       {!venues.length && (
         <p className="text-secondary small mt-3 fade-in">
           Todavía no hay espacios
-          {debouncedQuery || typeFilter !== "all" ? " con ese filtro." : "."}
+          {submittedQuery || typeFilter !== "all" ? " con ese filtro." : "."}
         </p>
       )}
 

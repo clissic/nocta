@@ -6,6 +6,7 @@ import type {
   LOOKING_FOR,
   OAUTH_PROVIDERS,
   REPORT_REASONS,
+  SUSPENSION_DURATIONS,
   SEXUAL_ORIENTATIONS,
   LANGUAGES,
   ZODIAC_SIGNS,
@@ -15,6 +16,7 @@ import type {
   FITNESS,
   SOCIAL_NETWORKS,
   VENUE_REQUEST_STATUSES,
+  VENUE_REQUEST_TYPES,
   PROMO_PURCHASE_STATUSES,
   ACTIVITY_TYPES,
   FOLLOW_REQUEST_STATUSES,
@@ -41,10 +43,15 @@ export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 export type FollowTargetType = (typeof FOLLOW_TARGET_TYPES)[number];
 export type FollowRequestStatus = (typeof FOLLOW_REQUEST_STATUSES)[number];
 export type VenueRequestStatus = (typeof VENUE_REQUEST_STATUSES)[number];
+export type VenueRequestType = (typeof VENUE_REQUEST_TYPES)[number];
 export type PromoPurchaseStatus = (typeof PROMO_PURCHASE_STATUSES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type ReportReason = (typeof REPORT_REASONS)[number];
 export type ReportStatus = "open" | "reviewed" | "dismissed";
+export type ReportSource = "profile" | "match";
+export type ReportResolutionAction = "dismiss" | "suspend";
+export type SuspensionDuration = (typeof SUSPENSION_DURATIONS)[number];
+export type ModerationStatus = "active" | "suspended";
 export type UserRole = "user" | "admin";
 export type PresenceStatus = "active" | "expired" | "revoked";
 export type SwipeDirection = "like" | "pass";
@@ -102,6 +109,12 @@ export interface AuthUser {
   autoAcceptFollowRequests: boolean;
   /** Si true, quienes me siguen pueden ver mi actividad (solo “me”). */
   showActivityToFollowers: boolean;
+  moderationStatus: ModerationStatus;
+  suspension?: {
+    suspendedAt: string;
+    suspendedUntil?: string;
+    duration: SuspensionDuration;
+  };
 }
 
 export interface VenueOwnerSummary {
@@ -115,6 +128,7 @@ export interface Venue {
   name: string;
   type: VenueType;
   address: string;
+  country: string;
   city: string;
   description?: string;
   photos: string[];
@@ -218,13 +232,24 @@ export interface VenueNews {
 export interface VenueRequest {
   id: string;
   requesterId: string;
+  requestType: VenueRequestType;
+  targetVenueId?: string;
+  wantsToManage: boolean;
+  managementMessage?: string;
   name: string;
   type: VenueType;
   /** Dirección pública escrita por el solicitante (para mostrar). */
   address: string;
+  country: string;
   city: string;
   description?: string;
   photos: string[];
+  evidenceFiles: Array<{
+    id: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  }>;
   contactEmail?: string;
   contactPhone?: string;
   location?: {
@@ -365,6 +390,30 @@ export interface FollowListUser {
   isFollower?: boolean;
 }
 
+export interface BlockedUser {
+  id: string;
+  name: string;
+  photo?: string;
+  blockedAt: string;
+}
+
+/** Resultado de una denuncia propio (solo el denunciante). */
+export interface MyReportResolution {
+  id: string;
+  reason: ReportReason;
+  details?: string;
+  status: ReportStatus;
+  source: ReportSource;
+  createdAt: string;
+  resolution?: {
+    action: ReportResolutionAction;
+    reason?: string;
+    duration?: SuspensionDuration;
+    suspendedUntil?: string;
+    resolvedAt: string;
+  };
+}
+
 export interface LikeAllowance {
   remainingLikes: number | null;
   limit: number | null;
@@ -468,10 +517,43 @@ export interface NotificationsUnreadResponse {
 
 export interface AdminStats {
   users: number;
+  admins: number;
   venues: number;
+  ownerlessVenues: number;
   activePresences: number;
   matches: number;
   pendingVenueRequests: number;
+  openReports: number;
+  promoPurchases: number;
+  promoRevenueUyu: number;
+}
+
+export interface AdminPromoPurchase {
+  id: string;
+  title: string;
+  priceUyu?: number;
+  status: PromoPurchaseStatus;
+  purchasedAt: string;
+  redeemedAt?: string;
+  validUntil?: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  venue: {
+    id: string;
+    name: string;
+  };
+  promotion: {
+    id: string;
+    title: string;
+  };
+}
+
+export interface AdminPromoPurchasesResponse {
+  purchases: AdminPromoPurchase[];
+  pagination: PaginationMeta;
 }
 
 export interface AdminReport {
@@ -479,6 +561,7 @@ export interface AdminReport {
   reason: ReportReason;
   details?: string;
   status: ReportStatus;
+  source: ReportSource;
   createdAt: string;
   matchId?: string;
   reporter: {
@@ -488,5 +571,13 @@ export interface AdminReport {
   reportedUser: {
     id: string;
     name: string;
+  };
+  resolution?: {
+    action: "dismiss" | "suspend";
+    reason?: string;
+    duration?: SuspensionDuration;
+    suspendedUntil?: string;
+    resolvedAt: string;
+    resolvedBy: string;
   };
 }

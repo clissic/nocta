@@ -7,6 +7,8 @@ import { UPLOADS_DIR } from "../uploads/paths.js";
 import { safeUploadBasename } from "../uploads/validate.js";
 import {
   passwordResetEmailHtml,
+  accountSuspendedEmailHtml,
+  reportResolutionEmailHtml,
   verificationEmailHtml,
   venueRequestApprovedHtml,
   venueRequestNotificationHtml,
@@ -111,6 +113,35 @@ export async function sendPasswordResetEmail(opts: {
   return resetUrl;
 }
 
+export async function sendReportResolutionEmail(opts: {
+  to: string;
+  reporterName?: string;
+  reportId: string;
+  action: "dismiss" | "suspend";
+  resolutionReason: string;
+}) {
+  await sendMail({
+    to: opts.to,
+    subject: "Resultado de tu denuncia — Nocta",
+    html: reportResolutionEmailHtml(opts),
+  });
+}
+
+export async function sendAccountSuspendedEmail(opts: {
+  to: string;
+  userName?: string;
+  suspendedAt: string;
+  suspendedUntil?: string;
+  durationLabel: string;
+  resolutionReason: string;
+}) {
+  await sendMail({
+    to: opts.to,
+    subject: "Tu cuenta fue suspendida — Nocta",
+    html: accountSuspendedEmailHtml(opts),
+  });
+}
+
 function localPhotoAttachment(photoUrl?: string) {
   if (!photoUrl) return null;
   const filename = safeUploadBasename(photoUrl);
@@ -122,6 +153,8 @@ function localPhotoAttachment(photoUrl?: string) {
 
 export async function sendVenueRequestNotificationEmail(opts: {
   request: {
+    requestType?: "create" | "claim";
+    wantsToManage?: boolean;
     id: string;
     name: string;
     type: VenueType;
@@ -129,9 +162,11 @@ export async function sendVenueRequestNotificationEmail(opts: {
     city: string;
     geocodedAddress?: string;
     description?: string;
+    managementMessage?: string;
     contactEmail?: string;
     contactPhone?: string;
     photoUrl?: string;
+    evidenceCount?: number;
   };
   requester: {
     email: string;
@@ -142,11 +177,19 @@ export async function sendVenueRequestNotificationEmail(opts: {
     opts.request.id
   )}`;
   const attachment = localPhotoAttachment(opts.request.photoUrl);
+  const requestLabel =
+    opts.request.requestType === "claim"
+      ? "Nueva reclamación"
+      : opts.request.wantsToManage === false
+        ? "Nueva sugerencia de Espacio"
+        : "Nueva solicitud de administración";
 
   await sendMail({
     to: config.mail.notifyTo,
-    subject: `Nueva solicitud de Espacio: ${opts.request.name}`,
+    subject: `${requestLabel}: ${opts.request.name}`,
     html: venueRequestNotificationHtml({
+      requestType: opts.request.requestType,
+      wantsToManage: opts.request.wantsToManage,
       requestId: opts.request.id,
       venueName: opts.request.name,
       venueType: VENUE_TYPE_LABELS[opts.request.type],
@@ -154,12 +197,14 @@ export async function sendVenueRequestNotificationEmail(opts: {
       city: opts.request.city,
       geocodedAddress: opts.request.geocodedAddress,
       description: opts.request.description,
+      managementMessage: opts.request.managementMessage,
       requesterName: opts.requester.name,
       requesterEmail: opts.requester.email,
       contactEmail: opts.request.contactEmail,
       contactPhone: opts.request.contactPhone,
       adminUrl,
       hasPhoto: Boolean(attachment),
+      evidenceCount: opts.request.evidenceCount,
     }),
     attachments: attachment ? [attachment] : undefined,
   });
@@ -168,6 +213,8 @@ export async function sendVenueRequestNotificationEmail(opts: {
 }
 
 export async function sendVenueRequestRejectedEmail(opts: {
+  requestType?: "create" | "claim";
+  wantsToManage?: boolean;
   to: string;
   requesterName?: string;
   venueName: string;
@@ -178,8 +225,16 @@ export async function sendVenueRequestRejectedEmail(opts: {
   const profileUrl = `${config.clientOrigin}/profile`;
   await sendMail({
     to: opts.to,
-    subject: `Tu solicitud de Espacio fue rechazada — ${opts.venueName}`,
+    subject: `${
+      opts.requestType === "claim"
+        ? "Tu reclamación fue rechazada"
+        : opts.wantsToManage === false
+          ? "Tu sugerencia de Espacio fue rechazada"
+          : "Tu solicitud de Espacio fue rechazada"
+    } — ${opts.venueName}`,
     html: venueRequestRejectedHtml({
+      requestType: opts.requestType,
+      wantsToManage: opts.wantsToManage,
       venueName: opts.venueName,
       venueType: VENUE_TYPE_LABELS[opts.venueType],
       city: opts.city,
@@ -191,6 +246,8 @@ export async function sendVenueRequestRejectedEmail(opts: {
 }
 
 export async function sendVenueRequestApprovedEmail(opts: {
+  requestType?: "create" | "claim";
+  wantsToManage?: boolean;
   to: string;
   requesterName?: string;
   venueId: string;
@@ -200,11 +257,21 @@ export async function sendVenueRequestApprovedEmail(opts: {
   address: string;
   adminNote?: string;
 }) {
-  const venueUrl = `${config.clientOrigin}/venues/${encodeURIComponent(opts.venueId)}`;
+  const canManage =
+    opts.requestType === "claim" || opts.wantsToManage !== false;
+  const venueUrl = `${config.clientOrigin}/venues/${encodeURIComponent(
+    opts.venueId
+  )}${canManage ? "/manage" : ""}`;
   await sendMail({
     to: opts.to,
-    subject: `Tu Espacio fue autorizado — ${opts.venueName}`,
+    subject: `${
+      opts.requestType === "claim" || opts.wantsToManage !== false
+        ? "Administración autorizada"
+        : "Tu sugerencia fue aprobada"
+    } — ${opts.venueName}`,
     html: venueRequestApprovedHtml({
+      requestType: opts.requestType,
+      wantsToManage: opts.wantsToManage,
       venueName: opts.venueName,
       venueType: VENUE_TYPE_LABELS[opts.venueType],
       city: opts.city,

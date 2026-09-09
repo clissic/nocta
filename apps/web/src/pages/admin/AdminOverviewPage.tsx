@@ -4,6 +4,12 @@ import type { AdminStats } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
 import { NoctaLoading } from "../../components/NoctaLoading";
 
+const uyu = new Intl.NumberFormat("es-UY", {
+  style: "currency",
+  currency: "UYU",
+  maximumFractionDigits: 0,
+});
+
 export function AdminOverviewPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [error, setError] = useState("");
@@ -27,9 +33,9 @@ export function AdminOverviewPage() {
       <header className="admin-page-head">
         <div>
           <p className="admin-page-eyebrow">Administración</p>
-          <h1 className="app-title h3 mb-1">Resumen</h1>
+          <h1 className="app-title h3 mb-1">Dashboard de administrador</h1>
           <p className="text-secondary small mb-0">
-            Vista rápida del estado de Nocta.
+            Estado operativo y accesos de gestión de Nocta.
           </p>
         </div>
       </header>
@@ -40,10 +46,15 @@ export function AdminOverviewPage() {
         <div className="admin-kpi-grid">
           {[
             ["Usuarios", stats.users],
+            ["Administradores", stats.admins],
             ["Espacios", stats.venues],
+            ["Sin Organizador", stats.ownerlessVenues],
             ["Presencias", stats.activePresences],
             ["Matches", stats.matches],
-            ["Solicitudes", stats.pendingVenueRequests],
+            ["Solicitudes pendientes", stats.pendingVenueRequests],
+            ["Denuncias abiertas", stats.openReports],
+            ["Compras de promos", stats.promoPurchases],
+            ["Importe en promos", uyu.format(stats.promoRevenueUyu)],
           ].map(([label, value]) => (
             <div key={String(label)} className="admin-kpi">
               <strong>{value}</strong>
@@ -90,9 +101,37 @@ export function AdminOverviewPage() {
           <i className="bi bi-flag" aria-hidden="true" />
           <div>
             <strong>Denuncias</strong>
-            <span>Moderación de reportes</span>
+            <span>
+              {stats?.openReports
+                ? `${stats.openReports} abiertas`
+                : "Moderación de reportes"}
+            </span>
           </div>
         </Link>
+        <Link className="admin-shortcut" to="/admin/transactions">
+          <i className="bi bi-receipt" aria-hidden="true" />
+          <div>
+            <strong>Transacciones</strong>
+            <span>Compras internas de promos</span>
+          </div>
+        </Link>
+        <Link className="admin-shortcut" to="/admin/audit">
+          <i className="bi bi-shield-check" aria-hidden="true" />
+          <div>
+            <strong>Auditoría</strong>
+            <span>Módulo preparado, registro pendiente</span>
+          </div>
+        </Link>
+      </div>
+
+      <div className="admin-panel mt-4">
+        <p className="admin-page-eyebrow mb-2">Próximas capacidades</p>
+        <h2 className="h6 mb-2">Cobertura administrativa en desarrollo</h2>
+        <p className="text-secondary small mb-0">
+          El dashboard ya consolida la gestión real disponible. La auditoría,
+          las denuncias directas de perfiles o contenido y la conciliación de
+          pagos externos se incorporarán cuando existan sus fuentes de datos.
+        </p>
       </div>
     </div>
   );

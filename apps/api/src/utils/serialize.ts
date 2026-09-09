@@ -16,6 +16,7 @@ import {
 } from "@nocta/shared";
 import { refId } from "./ids.js";
 import { resolveShowActivityToFollowers } from "./activityVisibility.js";
+import { getActiveSuspension } from "./moderation.js";
 
 function calcAge(birthDate: Date): number {
   const now = new Date();
@@ -52,6 +53,7 @@ export function serializeSocials(
 }
 
 export function serializeUser(user: UserDocument) {
+  const suspension = getActiveSuspension(user);
   const socials = serializeSocials(user.profile?.socials);
   const livesIn = user.profile?.livesIn as
     | {
@@ -117,6 +119,14 @@ export function serializeUser(user: UserDocument) {
     followingVenuesCount: user.followingVenuesCount ?? 0,
     autoAcceptFollowRequests: Boolean(user.autoAcceptFollowRequests),
     showActivityToFollowers: resolveShowActivityToFollowers(user),
+    moderationStatus: suspension ? "suspended" : "active",
+    suspension: suspension
+      ? {
+          suspendedAt: suspension.suspendedAt.toISOString(),
+          suspendedUntil: suspension.suspendedUntil?.toISOString(),
+          duration: suspension.duration,
+        }
+      : undefined,
   };
 }
 
@@ -202,6 +212,7 @@ export function serializeVenue(
     name: venue.name,
     type: venue.type,
     address: venue.address,
+    country: venue.country ?? "Uruguay",
     city: venue.city,
     description: venue.description ?? undefined,
     photos: venue.photos ?? [],
@@ -399,12 +410,25 @@ export function serializeVenueRequest(
   return {
     id: request._id.toString(),
     requesterId: request.requesterId.toString(),
+    requestType: request.requestType ?? "create",
+    targetVenueId: request.targetVenueId
+      ? request.targetVenueId.toString()
+      : undefined,
+    wantsToManage: request.wantsToManage !== false,
+    managementMessage: request.managementMessage ?? undefined,
     name: request.name,
     type: request.type,
     address: request.address,
+    country: request.country ?? "Uruguay",
     city: request.city,
     description: request.description ?? undefined,
     photos: request.photos ?? [],
+    evidenceFiles: (request.evidenceFiles ?? []).map((file) => ({
+      id: file.id,
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      size: file.size,
+    })),
     contactEmail: request.contactEmail ?? undefined,
     contactPhone: request.contactPhone ?? undefined,
     location: hasLocation

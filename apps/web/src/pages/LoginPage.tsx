@@ -5,7 +5,11 @@ import { useAuth } from "../auth/AuthContext";
 import { AuthAtmosphere } from "../components/AuthAtmosphere";
 import { NoctaWordmark } from "../components/NoctaWordmark";
 import { useToast } from "../components/ToastProvider";
-import { ApiError } from "../lib/api";
+import {
+  ApiError,
+  getSuspensionNotice,
+  type SuspensionNotice,
+} from "../lib/api";
 
 const DEMO_ACCOUNTS = [
   { email: "sofia@nocta.app", password: "Demo1234!", label: "Sofía" },
@@ -32,6 +36,22 @@ export function LoginPage() {
     requestedNext?.startsWith("/") && !requestedNext.startsWith("//")
       ? requestedNext
       : null;
+  const querySuspensionCode = searchParams.get("code");
+  const querySuspension: SuspensionNotice | null =
+    (querySuspensionCode === "ACCOUNT_TEMPORARILY_SUSPENDED" ||
+      querySuspensionCode === "ACCOUNT_PERMANENTLY_SUSPENDED") &&
+    searchParams.get("suspendedAt")
+      ? {
+          code: querySuspensionCode,
+          suspendedAt: searchParams.get("suspendedAt")!,
+          suspendedUntil: searchParams.get("suspendedUntil") ?? undefined,
+          duration:
+            searchParams.get("duration") === "permanent"
+              ? "permanent"
+              : Number(searchParams.get("duration") ?? 0),
+        }
+      : null;
+  const suspensionNotice = querySuspension ?? getSuspensionNotice();
 
   useEffect(() => {
     const oauthError = searchParams.get("error");
@@ -71,6 +91,14 @@ export function LoginPage() {
         const pendingEmail =
           typeof err.data.email === "string" ? err.data.email : nextEmail;
         navigate(`/verify-email?email=${encodeURIComponent(pendingEmail)}`);
+        return;
+      }
+      if (
+        err instanceof ApiError &&
+        (err.code === "ACCOUNT_TEMPORARILY_SUSPENDED" ||
+          err.code === "ACCOUNT_PERMANENTLY_SUSPENDED")
+      ) {
+        setError("");
         return;
       }
       setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión");
@@ -127,6 +155,31 @@ export function LoginPage() {
         <p className="auth-tagline text-secondary">
           Publicate donde vas. Matcheá con quien está en el mismo lugar.
         </p>
+
+        {suspensionNotice && (
+          <div className="auth-suspension-notice" role="alert">
+            <strong>Cuenta bloqueada</strong>
+            <p className="mb-0">
+              {suspensionNotice.duration === "permanent"
+                ? `Tu cuenta está bloqueada permanentemente desde el ${new Date(
+                    suspensionNotice.suspendedAt
+                  ).toLocaleDateString("es-UY")}.`
+                : `Tu cuenta está bloqueada por ${
+                    suspensionNotice.duration
+                  } días desde el ${new Date(
+                    suspensionNotice.suspendedAt
+                  ).toLocaleDateString("es-UY")}.`}
+            </p>
+            {suspensionNotice.suspendedUntil && (
+              <small>
+                Podrás volver a ingresar el{" "}
+                {new Date(
+                  suspensionNotice.suspendedUntil
+                ).toLocaleDateString("es-UY")}.
+              </small>
+            )}
+          </div>
+        )}
 
         <form className="d-grid gap-2 mb-3" onSubmit={onSubmit}>
           <input

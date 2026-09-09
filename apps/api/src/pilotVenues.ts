@@ -6,19 +6,22 @@ export type PilotVenue = {
   zone: string;
   type: VenueType;
   address: string;
+  description?: string;
   location: { lat: number; lng: number };
 };
 
 export const PILOT_CITY = "Montevideo";
+export const PILOT_COUNTRY = "Uruguay";
 
 export const PILOT_VENUES: PilotVenue[] = [
   { name: "Jackson Bar", zone: "Cordón", type: "bar", address: "Juan D. Jackson 1220", location: { lat: -34.907098, lng: -56.17309 } },
   { name: "The Puta Madre", zone: "Parque Rodó", type: "pub", address: "Maldonado 1938", location: { lat: -34.908461, lng: -56.173427 } },
   { name: "Brickel Irish Pub", zone: "Parque Rodó", type: "pub", address: "Bulevar España 2218", location: { lat: -34.909496, lng: -56.16789 } },
   { name: "Baker's Bar", zone: "Parque Rodó", type: "bar", address: "José Enrique Rodó 1840", location: { lat: -34.904369, lng: -56.176372 } },
-  { name: "Volvé Mi Negra", zone: "Parque Rodó", type: "boliche", address: "Bulevar España 2218", location: { lat: -34.909496, lng: -56.16789 } },
-  { name: "Viejo Barreiro", zone: "Parque Rodó", type: "boliche", address: "Juan Paullier 1080", location: { lat: -34.908473, lng: -56.167236 } },
-  { name: "IL Tempo", zone: "Parque Rodó", type: "boliche", address: "Gonzalo Ramírez 2121 bis", location: { lat: -34.911441, lng: -56.168731 } },
+  { name: "Volvé Mi Negra", zone: "Parque Rodó", type: "boliche", address: "Rambla Presidente Wilson esq. Av. Sarmiento", location: { lat: -34.91542, lng: -56.168337 } },
+  { name: "VOU Club", zone: "Parque Rodó", type: "boliche", address: "Rambla Presidente Wilson esq. Av. Sarmiento", description: "Reggaetón, cumbia vieja, urbano y fiestas temáticas. Abierto al público general y disponible para eventos privados. Sus eventos suelen extenderse aproximadamente de 02:00 a 09:00.", location: { lat: -34.91542, lng: -56.168337 } },
+  { name: "Viejo Barreiro", zone: "Parque Rodó", type: "boliche", address: "José Enrique Rodó 1995", location: { lat: -34.903383, lng: -56.173925 } },
+  { name: "IL Tempo", zone: "Parque Rodó", type: "boliche", address: "Av. Gonzalo Ramírez 2121", location: { lat: -34.911441, lng: -56.168731 } },
   { name: "Malafama", zone: "Cordón", type: "cerveceria", address: "Dr. Joaquín Requena 2100", location: { lat: -34.910022, lng: -56.168206 } },
   { name: "Vintage Pool Pub", zone: "Cordón", type: "pub", address: "Canelones 2049", location: { lat: -34.907186, lng: -56.170962 } },
   { name: "Bar Rodó Boulevard", zone: "Parque Rodó", type: "bar", address: "Bulevar España 2246", location: { lat: -34.909673, lng: -56.16733 } },
@@ -34,7 +37,6 @@ export const PILOT_VENUES: PilotVenue[] = [
   { name: "Paullier y Guaná", zone: "Cordón", type: "pub", address: "Juan Paullier 1252", location: { lat: -34.904778, lng: -56.167627 } },
   { name: "La Comuna Resto Pub", zone: "Cordón", type: "pub", address: "Soriano 1401", location: { lat: -34.907255, lng: -56.185137 } },
   { name: "Mercado Ferrando", zone: "Cordón", type: "bar", address: "Chaná 2120", location: { lat: -34.904213, lng: -56.170688 } },
-  { name: "Friendly Small Club", zone: "Cordón", type: "boliche", address: "Brandzen 2172", location: { lat: -34.899202, lng: -56.16771 } },
   { name: "Cain Dance", zone: "Cordón", type: "boliche", address: "Cerro Largo 1833", location: { lat: -34.897309, lng: -56.178427 } },
   { name: "El Barzón", zone: "Cordón", type: "bar", address: "18 de Julio 2040", location: { lat: -34.90031, lng: -56.171531 } },
   { name: "Bar Papiros", zone: "Cordón", type: "bar", address: "18 de Julio 2092", location: { lat: -34.899695, lng: -56.169966 } },
@@ -50,7 +52,6 @@ export const PILOT_VENUES: PilotVenue[] = [
   { name: "Casitanno", zone: "Parque Rodó", type: "pub", address: "Maldonado 2051", location: { lat: -34.908108, lng: -56.170584 } },
   { name: "Oye Como Va", zone: "Parque Rodó", type: "pub", address: "Maldonado 1938", location: { lat: -34.908461, lng: -56.173427 } },
   { name: "Barbacana", zone: "Parque Rodó", type: "pub", address: "Joaquín Requena 1120", location: { lat: -34.904639, lng: -56.168827 } },
-  { name: "Lucas Terry", zone: "Parque Rodó", type: "boliche", address: "Juan Manuel Blanes 1188", location: { lat: -34.907621, lng: -56.171881 } },
   { name: "La Vaca Azul", zone: "Cordón", type: "pub", address: "Maldonado 1855", location: { lat: -34.908418, lng: -56.175018 } },
   { name: "El Farolito", zone: "Parque Rodó", type: "pub", address: "Bulevar Artigas 1079", location: { lat: -34.909368, lng: -56.163613 } },
   { name: "Zoba Club", zone: "Parque Rodó", type: "boliche", address: "Bulevar España 2218", location: { lat: -34.909496, lng: -56.16789 } },
@@ -109,6 +110,22 @@ export const PILOT_VENUES: PilotVenue[] = [
   { name: "Sala Zitarrosa", zone: "Centro", type: "concierto", address: "18 de Julio 1012", location: { lat: -34.906255, lng: -56.19446 } },
   { name: "Cine Teatro Plaza", zone: "Centro", type: "concierto", address: "Plaza de Cagancha 1129", location: { lat: -34.906219, lng: -56.191339 } },
   { name: "La Bodeguita del Sur", zone: "Centro", type: "boliche", address: "Soriano 840", location: { lat: -34.908379, lng: -56.198226 } },
+  { name: "Lotus Club", zone: "Pocitos", type: "boliche", address: "Luis E. Lecueder 3536", location: { lat: -34.90434, lng: -56.13628 } },
+  { name: "Garrison Smart Bar", zone: "Pocitos", type: "boliche", address: "Av. Luis Alberto de Herrera 1573", location: { lat: -34.897777, lng: -56.141113 } },
+  { name: "El Rancho Bar", zone: "Pocitos", type: "boliche", address: "Francisco Joaquín Muñoz 3177", location: { lat: -34.904988, lng: -56.146496 } },
+  { name: "Macarena Disco", zone: "Centro", type: "boliche", address: "Río Branco 1623", location: { lat: -34.901086, lng: -56.196509 } },
+  { name: "Baires", zone: "Centro", type: "boliche", address: "San José 872", location: { lat: -34.907408, lng: -56.197466 } },
+  { name: "Viajeros Disco Pub", zone: "Centro", type: "boliche", address: "Soriano 1340", location: { lat: -34.90758, lng: -56.187081 } },
+  { name: "Emile Club", zone: "Cordón", type: "boliche", address: "Mercedes 1820", location: { lat: -34.900701, lng: -56.177957 } },
+  { name: "Latinos Disco", zone: "Cordón", type: "boliche", address: "Constituyente 1711", location: { lat: -34.906179, lng: -56.179334 } },
+  { name: "Phonotheque", zone: "Centro", type: "boliche", address: "Piedra Alta 1781", location: { lat: -34.897782, lng: -56.185165 } },
+  { name: "Oceano Montevideo Club", zone: "Centro / Barrio Sur", type: "boliche", address: "Maldonado 1334", location: { lat: -34.909436, lng: -56.186922 } },
+  { name: "L'Club Montevideo", zone: "Centro", type: "boliche", address: "Av. Uruguay 1136", location: { lat: -34.903188, lng: -56.19194 } },
+  { name: "Club de Anita", zone: "Aguada", type: "boliche", address: "Av. Agraciada 2385", location: { lat: -34.887754, lng: -56.189655 } },
+  { name: "West Club Prado", zone: "Prado", type: "boliche", address: "Av. Atilio Pelosi 1969", location: { lat: -34.86111, lng: -56.20556 } },
+  { name: "Son Habana", zone: "Ciudad Vieja", type: "boliche", address: "Juan Carlos Gómez 1327", location: { lat: -34.907232, lng: -56.20272 } },
+  { name: "El Chamuyo", zone: "Ciudad Vieja", type: "boliche", address: "25 de Mayo 591", location: { lat: -34.90521, lng: -56.203851 } },
+  { name: "Ibiza Mega Disco", zone: "Centro", type: "boliche", address: "Av. Gral. Rondeau 1493", location: { lat: -34.903314, lng: -56.191787 } },
   { name: "La Trastienda", zone: "Cordón", type: "concierto", address: "Fernández Crespo 1763", location: { lat: -34.898699, lng: -56.17792 } },
 ];
 

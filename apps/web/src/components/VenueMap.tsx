@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { NoctaLoading } from "./NoctaLoading";
+import { CARTO_ATTRIBUTION, CARTO_DARK_TILE_URL } from "../lib/cartoBasemap";
 
 type Coords = { lat: number; lon: number };
 
@@ -9,6 +10,7 @@ type VenueMapProps = {
   name: string;
   address: string;
   city: string;
+  country?: string;
   location?: { lat: number; lng: number } | null;
 };
 
@@ -60,6 +62,7 @@ export function VenueMap({
   name,
   address,
   city,
+  country,
   location,
 }: VenueMapProps) {
   const initialCoords = fromApiLocation(location);
@@ -69,7 +72,7 @@ export function VenueMap({
   );
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const query = [address, city].filter(Boolean).join(", ");
+  const query = [address, city, country].filter(Boolean).join(", ");
 
   useEffect(() => {
     const apiCoords = fromApiLocation(location);
@@ -121,17 +124,14 @@ export function VenueMap({
       attributionControl: true,
       scrollWheelZoom: false,
     }).setView([coords.lat, coords.lon], 16);
+    map.attributionControl.setPrefix(false);
 
     L.control.zoom({ position: "topright" }).addTo(map);
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 20,
-      }
-    ).addTo(map);
+    L.tileLayer(CARTO_DARK_TILE_URL, {
+      attribution: CARTO_ATTRIBUTION,
+      subdomains: "abcd",
+      maxZoom: 20,
+    }).addTo(map);
     L.marker([coords.lat, coords.lon], { icon: noctaPinIcon })
       .addTo(map)
       .bindPopup(name);

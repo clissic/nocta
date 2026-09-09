@@ -16,6 +16,7 @@ import { ChatPage } from "./pages/ChatPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { VenueRequestPage } from "./pages/VenueRequestPage";
 import { VenueManagePage } from "./pages/VenueManagePage";
+import { VenueEditPage } from "./pages/VenueEditPage";
 import { MyPromosPage } from "./pages/MyPromosPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
@@ -25,8 +26,13 @@ import { AdminVenueCreatePage } from "./pages/admin/AdminVenueCreatePage";
 import { AdminContentPage } from "./pages/admin/AdminContentPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "./pages/admin/AdminReportsPage";
+import { AdminTransactionsPage } from "./pages/admin/AdminTransactionsPage";
+import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
 import { AdminVenueRequestPage } from "./pages/AdminVenueRequestPage";
 import { NoctaLoading } from "./components/NoctaLoading";
+import { UserReportPage } from "./pages/UserReportPage";
+import { ReportResolutionPage } from "./pages/ReportResolutionPage";
+import { BlockedUsersPage } from "./pages/BlockedUsersPage";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -109,14 +115,20 @@ export default function App() {
         />
         <Route path="venues" element={<VenuesPage />} />
         <Route path="venues/:id/manage" element={<VenueManagePage />} />
+        <Route path="venues/:id/edit" element={<VenueEditPage />} />
         <Route path="venues/:id" element={<VenueDetailPage />} />
         <Route path="likes" element={<LikesPage />} />
         <Route path="muro" element={<Navigate to="/venues" replace />} />
         <Route path="discover" element={<DiscoverPage />} />
+        <Route path="report/:userId" element={<UserReportPage />} />
+        <Route path="reports/:reportId" element={<ReportResolutionPage />} />
         <Route path="matches" element={<MatchesPage />} />
         <Route path="matches/:id" element={<ChatPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile">
+          <Route index element={<ProfilePage />} />
+          <Route path="blocked" element={<BlockedUsersPage />} />
+        </Route>
         <Route path="profile/promos" element={<MyPromosPage />} />
         <Route path="profile/venue-request" element={<VenueRequestPage />} />
         <Route
@@ -135,6 +147,8 @@ export default function App() {
           <Route path="content" element={<AdminContentPage />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="reports" element={<AdminReportsPage />} />
+          <Route path="transactions" element={<AdminTransactionsPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
           <Route path="venue-requests/:id" element={<AdminVenueRequestPage />} />
         </Route>
       </Route>

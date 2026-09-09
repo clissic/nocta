@@ -1,33 +1,20 @@
 import { useEffect, useState } from "react";
-import type {
-  AuthUser,
-  FollowRequestItem,
-  FollowRequestProfile,
-} from "@nocta/shared";
+import type { AuthUser } from "@nocta/shared";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
-import { FollowRequestProfileModal } from "./FollowRequestProfileModal";
 import { OverflowFade } from "./OverflowFade";
 import { useToast } from "./ToastProvider";
 
 type Props = {
   user: AuthUser;
-  followRequests: FollowRequestItem[];
-  requestBusyId: string | null;
   onClose: () => void;
   onUserUpdated: (user: AuthUser) => void;
-  onRespondRequest: (
-    requestId: string,
-    action: "accept" | "reject"
-  ) => Promise<void>;
 };
 
 export function ProfileSettingsModal({
   user,
-  followRequests,
-  requestBusyId,
   onClose,
   onUserUpdated,
-  onRespondRequest,
 }: Props) {
   const toast = useToast();
   const [autoAccept, setAutoAccept] = useState(user.autoAcceptFollowRequests);
@@ -37,12 +24,6 @@ export function ProfileSettingsModal({
   const [busyKey, setBusyKey] = useState<
     "autoAcceptFollowRequests" | "showActivityToFollowers" | null
   >(null);
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
-    null
-  );
-  const [requestProfile, setRequestProfile] =
-    useState<FollowRequestProfile | null>(null);
-  const [requestProfileLoading, setRequestProfileLoading] = useState(false);
 
   useEffect(() => {
     setAutoAccept(user.autoAcceptFollowRequests);
@@ -50,41 +31,17 @@ export function ProfileSettingsModal({
   }, [user.autoAcceptFollowRequests, user.showActivityToFollowers]);
 
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (selectedRequestId) {
-        setSelectedRequestId(null);
-        setRequestProfile(null);
-      } else {
-        onClose();
-      }
+      if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
     };
-  }, [onClose, selectedRequestId]);
-
-  async function openRequestProfile(request: FollowRequestItem) {
-    setSelectedRequestId(request.id);
-    setRequestProfile(null);
-    setRequestProfileLoading(true);
-    try {
-      const response = await api<{ profile: FollowRequestProfile }>(
-        `/api/me/follow-requests/${request.id}/profile`
-      );
-      setRequestProfile(response.profile);
-    } catch (err) {
-      setSelectedRequestId(null);
-      toast.error(
-        err instanceof ApiError ? err.message : "No se pudo cargar el perfil"
-      );
-    } finally {
-      setRequestProfileLoading(false);
-    }
-  }
+  }, [onClose]);
 
   async function patchSetting(
     key: "autoAcceptFollowRequests" | "showActivityToFollowers",
@@ -177,95 +134,23 @@ export function ProfileSettingsModal({
             </label>
           </div>
 
-          <section
-            className="profile-settings-requests"
-            aria-labelledby="profile-settings-requests-title"
-          >
-            <div className="profile-settings-section-head">
-              <h3 id="profile-settings-requests-title">
-                Solicitudes de seguimiento
-              </h3>
-              {followRequests.length > 0 && (
-                <span className="profile-settings-count">
-                  {followRequests.length}
-                </span>
-              )}
-            </div>
-
-            {followRequests.length === 0 ? (
-              <p className="text-secondary small mb-0">
-                No tenés solicitudes pendientes.
-              </p>
-            ) : (
-              <ul className="profile-follow-request-list">
-                {followRequests.map((request) => (
-                  <li
-                    key={request.id}
-                    className="profile-follow-request-item"
-                  >
-                    <div className="profile-follow-request-user">
-                      {request.fromUser.photo ? (
-                        <img src={request.fromUser.photo} alt="" />
-                      ) : (
-                        <span aria-hidden="true">
-                          {request.fromUser.name.slice(0, 1).toUpperCase()}
-                        </span>
-                      )}
-                      <div className="min-w-0">
-                        <button
-                          type="button"
-                          className="profile-follow-request-name"
-                          onClick={() => void openRequestProfile(request)}
-                        >
-                          {request.fromUser.name}
-                        </button>
-                        {typeof request.fromUser.age === "number" && (
-                          <span className="text-secondary small">
-                            {" "}
-                            · {request.fromUser.age}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="profile-follow-request-actions">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        disabled={requestBusyId === request.id}
-                        onClick={() =>
-                          void onRespondRequest(request.id, "accept")
-                        }
-                      >
-                        Aceptar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-light"
-                        disabled={requestBusyId === request.id}
-                        onClick={() =>
-                          void onRespondRequest(request.id, "reject")
-                        }
-                      >
-                        Rechazar
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <section className="profile-settings-privacy">
+            <h3>Privacidad y seguridad</h3>
+            <Link
+              className="profile-settings-link"
+              to="/profile/blocked"
+            >
+              <i className="bi bi-slash-circle" aria-hidden="true" />
+              <span>
+                <strong>Usuarios bloqueados</strong>
+                <small>Consultá y administrá tus bloqueos</small>
+              </span>
+              <i className="bi bi-chevron-right" aria-hidden="true" />
+            </Link>
           </section>
+
         </OverflowFade>
       </div>
-      {selectedRequestId && (
-        <FollowRequestProfileModal
-          profile={requestProfile}
-          loading={requestProfileLoading}
-          onClose={() => {
-            setSelectedRequestId(null);
-            setRequestProfile(null);
-          }}
-        />
-      )}
     </div>
   );
 }

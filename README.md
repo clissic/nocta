@@ -25,7 +25,7 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 | Rol | Qué puede hacer |
 |-----|-----------------|
 | **user** | Registro → código email → onboarding (≥ `MIN_PHOTOS` fotos), Espacios, Likes recibidos, publicar presencia, Discover, match, chat, follows, solicitar integración de espacio, gestionar noticias/promos de espacios donde sea `ownerId` |
-| **admin** | Panel por secciones: resumen, solicitudes, espacios, contenido (promos/noticias), usuarios y denuncias. Al entrar a `/` se redirige a `/admin/overview` |
+| **admin** | Dashboard por secciones: resumen operativo, solicitudes, Espacios, contenido, usuarios, denuncias, transacciones y auditoría preparada. Al entrar a `/` se redirige a `/admin/overview` |
 
 **Organizador de espacio:** no es un rol. Es `Venue.ownerId → User`. Un usuario puede ser organizador de varios espacios; aparecen en su perfil.
 
@@ -40,7 +40,7 @@ Nav principal (mobile + tablet/desktop): **Espacios → Likes → Discover → M
 
 Regla de negocio: **una sola presencia activa** a la vez; el deck es por `venueId`.
 
-Ciudad piloto: **Montevideo**. El catálogo de seed tiene 98 Espacios reales (bar / pub / boliche / cervecería / concierto) con dirección y coordenadas; ninguno nace con organizador (`ownerId` vacío hasta que Admin asigne o se apruebe el formulario de perfil).
+Ciudad piloto: **Montevideo**. El catálogo de seed tiene 113 Espacios reales (bar / pub / boliche / cervecería / concierto) con dirección y coordenadas; ninguno nace con organizador (`ownerId` vacío hasta que Admin asigne o se apruebe el formulario de perfil).
 
 ---
 
@@ -68,6 +68,7 @@ Requisitos: **Node 20+**.
 ```bash
 npm install
 cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
 ```
 
 Dos terminales:
@@ -131,7 +132,7 @@ En login hay atajos visuales para cargar estas cuentas (demo).
 - Path: `apps/api`
 - Health: `GET /health` → `{ ok, service, db }`
 - Estáticos: `GET /uploads/*` (fotos en `apps/api/uploads/`)
-- Gates: `requireVerified` / `requireProfileComplete`; `optionalAuth` en perfiles públicos y detalle de Espacio
+- Gates: `requireVerified` / `requireProfileComplete`; perfiles requieren autenticación y detalle de Espacio admite `optionalAuth`
 
 ### Estructura (`apps/api/src`)
 
@@ -172,9 +173,9 @@ Los mails de verificación y recuperación usan plantilla responsive dark de Noc
 | Método | Ruta | Notas |
 |--------|------|--------|
 | `POST` | `/api/auth/register` | `emailVerified:false` + código; JWT con flag |
-| `POST` | `/api/auth/login` | Sin verificar → `403 EMAIL_NOT_VERIFIED` |
-| `GET` | `/api/auth/me` | Usuario del Bearer (sesión) |
-| `POST` | `/api/auth/verify-email` | `{ email, code }` o `{ code }` + Bearer |
+| `POST` | `/api/auth/login` | Sin verificar → `403 EMAIL_NOT_VERIFIED`; suspensión → `403 ACCOUNT_*_SUSPENDED` con fechas/duración |
+| `GET` | `/api/auth/me` | Usuario del Bearer; controla suspensión y versión de sesión en cada request |
+| `POST` | `/api/auth/verify-email` | `{ email, code }` o `{ code }` + Bearer; una cuenta ya verificada no emite JWT sin sesión propia |
 | `POST` | `/api/auth/resend-verification` | Nuevo código; rate-limit 60s |
 | `POST` | `/api/auth/forgot-password` / `reset-password` | Reset por link (API lista; **sin pantalla dedicada en el web aún**) |
 
@@ -201,9 +202,12 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `GET` | `/api/users/:id` · `.../followers` · `.../following` | Público; `isFollowing` / `isFollowRequested` si hay viewer |
+| `GET` | `/api/users/:id` | Perfil autenticado; devuelve 404 si existe bloqueo en cualquier dirección |
+| `GET` | `/api/users/:id/followers` · `.../following` | Listas sociales públicas |
 | `POST` | `/api/users/:id/follow` | Solicitud (pendiente) o follow inmediato si `autoAcceptFollowRequests` |
 | `DELETE` | `/api/users/:id/follow` | Cancela solicitud o deja de seguir |
+| `POST` | `/api/users/:id/block` | Bloqueo idempotente: invisibilidad mutua, elimina vínculos/solicitudes, disuelve matches y neutraliza swipes |
+| `POST` | `/api/users/:id/report` | Denuncia directa de perfil con `{ reason, details? }` |
 | `GET` | `/api/me/follow-requests` | Solicitudes entrantes pendientes |
 | `GET` | `/api/me/follow-requests/:id/profile` | Vista mínima del solicitante |
 | `POST` | `/api/me/follow-requests/:id/accept` · `.../reject` | Aceptar / rechazar |
@@ -213,6 +217,10 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 | `GET` | `/api/me/promo-purchases` · `/api/me/promo-purchases/:id` | Promos compradas (QR). **No hay** endpoint de compra/canje en el MVP; las compras demo se crean en seed |
 | `GET` | `/api/me/reviews` | Mis reseñas (`page`, `limit` default `MY_REVIEWS_PAGE_SIZE` = 5, `q`) |
 | `PATCH` | `/api/me/settings` | `autoAcceptFollowRequests`, `showActivityToFollowers` (parcial; default `true`; legado `hideActivityFromFollowers` se interpreta al leer) |
+| `GET` | `/api/me/blocked-users` | Usuarios bloqueados por la cuenta, paginados (`page`, `limit`) |
+| `DELETE` | `/api/me/blocked-users/:id` | Desbloquea al usuario indicado |
+| `GET` | `/api/me/reports/:id` | Resultado de una denuncia propia (solo el denunciante) |
+| `DELETE` | `/api/me/account` | Eliminación definitiva con `{ confirmation: "Eliminar" }`; limpia datos y archivos asociados, desasigna Espacios y protege a la última cuenta administradora |
 | `POST`/`DELETE` | `/api/venues/:id/follow` | Follow de Espacios (instantáneo) |
 | `GET` | `/api/venues/:id/followers` | Seguidores del Espacio |
 | `GET` | `/api/users/:id/venues` | Espacios públicos del organizador |
@@ -222,8 +230,9 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 1. `GET /api/auth/oauth/:provider` → redirect al IdP (`google` \| `apple` \| `microsoft`)
 2. Callback `GET` (Google/Microsoft) o `POST` (Apple) en `/api/auth/oauth/:provider/callback`
 3. Exchange del `code` → **`upsertOAuthUser`** (`emailVerified: true`)
-4. JWT → `{CLIENT_ORIGIN}/auth/callback?token=...`
-5. Error → `{CLIENT_ORIGIN}/login?error=...`
+4. Si la cuenta está suspendida → `/login` con código y fechas de bloqueo
+5. JWT → `{CLIENT_ORIGIN}/auth/callback?token=...`
+6. Error → `{CLIENT_ORIGIN}/login?error=...`
 
 En login, Apple y Microsoft están deshabilitados en UI (toast “próximamente”); las rutas backend siguen existiendo.
 
@@ -235,17 +244,22 @@ Modelo: `passwordHash` opcional; `oauthAccounts[]` `{ provider, providerUserId }
 |--------|------|------|--------|
 | `GET` | `/api/venues` | — | Paginado `page`, `limit` (default/máx `VENUES_PAGE_SIZE` = 9), `type`, `q` |
 | `GET` | `/api/venues/:id` | — / optionalAuth | Activo + últimas 3 promos vigentes + 3 noticias + `ratingAvg`/`ratingCount`/`myReview?`/`isFollowing?`/`owner?` |
-| `GET` | `/api/venues/admin/all` | admin | Incluye inactivos; `owner` cuando hay `ownerId` |
-| `POST` | `/api/venues` | admin | Alta con `ownerId` (rol `user`) obligatorio |
+| `GET` | `/api/venues/:id/manage` | admin o organizador | Datos administrables; también funciona si está inactivo |
+| `GET` | `/api/venues/admin/all` | admin | Incluye inactivos; paginado (`page`, `limit` mínimo 10, `q`) y con `owner` |
+| `POST` | `/api/venues` | admin | Multipart: mismos datos de una recomendación (nombre, tipo, país/ciudad, mapa, dirección, portada WebP, descripción, contacto opcional) + `ownerId` obligatorio; crea el Espacio activo de inmediato |
 | `PATCH` | `/api/venues/:id` | admin | Edición / `active` / reasignar `ownerId` |
+| `PATCH` | `/api/venues/:id/manage` | admin o organizador | multipart; edita datos, ubicación y reemplaza opcionalmente la portada |
 | `DELETE` | `/api/venues/:id` | admin | Soft-delete (`active: false`) |
-| `POST` | `/api/venues/requests` | user | multipart; email interno + foto + link de revisión |
+| `POST` | `/api/venues/requests` | user | multipart; portada WebP 1600×1200 + `wantsToManage`; si es `true`, exige `managementMessage?` y 1–3 `evidenceFiles` privados |
+| `GET` | `/api/venues/claimable` | user | Espacios activos sin Organizador; búsqueda `q`, máximo 30 |
+| `POST` | `/api/venues/claims` | user | Reclama un Espacio existente; multipart con `venueId`, `message?` y 1–3 `evidenceFiles` privados (PDF/JPG/PNG/WebP, 2 MB c/u) |
 | `GET` | `/api/venues/requests/mine` | user | Mis solicitudes |
+| `GET` | `/api/venues/geocode/search` | user | `?address=&city=&country=` → geocodificación directa y dirección normalizada |
 | `GET` | `/api/venues/geocode/reverse` | user | `?lat=&lng=` → Nominatim |
 | `POST` | `/api/venues/:id/promotions` | admin o organizador | `title`, `description`, `priceUyu`, `validFrom`/`validUntil` (`YYYY-MM-DD` en zona del perfil) |
-| `GET` | `/api/venues/:id/promotions` | admin o organizador | Listado (incluye inactivas) |
+| `GET` | `/api/venues/:id/promotions` | admin o organizador | Incluye inactivas; acepta `page`/`limit` (mínimo 10) para Dashboard |
 | `PATCH`/`DELETE` | `/api/venues/:id/promotions/:promoId` | admin o organizador | Editar / soft-delete |
-| `GET` | `/api/venues/:id/news` | — / manage | Activas; organizador/admin ven todas |
+| `GET` | `/api/venues/:id/news` | — / manage | Activas; organizador/admin ven todas; acepta `page`/`limit` (mínimo 10) |
 | `POST` | `/api/venues/:id/news` | admin o organizador | multipart `photo` obligatorio (1 imagen) |
 | `PATCH`/`DELETE` | `/api/venues/:id/news/:newsId` | admin o organizador | Editar / soft-delete |
 | `GET` | `/api/venues/:id/reviews` | — | Paginadas (`REVIEWS_PAGE_SIZE`) + agregados |
@@ -286,8 +300,8 @@ Presets UI: `PRESENCE_PRESETS` — 24h / 48h / 1 semana / permanente.
 |--------|------|--------|
 | `GET` | `/api/discover/feed` | Deck del `venueId` activo + `likeAllowance`; sin presencia → `400` `NO_PRESENCE`. Cards con `isFollowing` / `isFollowRequested`. Acepta `?userId=` para priorizar esa persona si quien consulta es Premium |
 | `GET` | `/api/discover/likes` | Likes **recibidos** pendientes. Excluye bloqueados y devuelve `viewerPremium`. Sin Premium **no** envía `user.id`, `name` ni `photo`. Con Premium sí. Cada ítem trae `canRespond` si tenés presencia en ese `venueId` |
-| `POST` | `/api/discover/swipe` | `{ toUserId, direction }` → `{ ok, match, likeAllowance }`; sin cuota → `429 LIKES_EXHAUSTED` |
-| `POST` | `/api/discover/rewind` | Deshace el último swipe del espacio activo; si era like, borra match+mensajes y `refundLike` → `{ ok, card?, likeAllowance }` |
+| `POST` | `/api/discover/swipe` | `{ toUserId, direction }` → `{ ok, match, likeAllowance }`; rechaza pares bloqueados; sin cuota → `429 LIKES_EXHAUSTED` |
+| `POST` | `/api/discover/rewind` | Deshace el último swipe del espacio activo; si era like, borra match+mensajes y `refundLike`; nunca restaura perfiles bloqueados |
 
 ### Notificaciones
 
@@ -328,17 +342,23 @@ Match: like mutuo en el mismo `venueId`; par ordenado + índice unique.
 ### Admin
 
 Todas bajo `requireAuth` + `requireAdmin`.
+Las listas del Dashboard muestran 10 registros por página: usuarios, Espacios,
+solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticias.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `GET` | `/api/admin/stats` | users, venues activos, presencias, matches, solicitudes pendientes |
-| `GET` | `/api/admin/users` | Hasta 100 users (rol `user`) |
-| `GET` | `/api/admin/venue-requests` | `?status=` pending/approved/rejected |
-| `GET` | `/api/admin/venue-requests/:id` | Detalle |
-| `POST` | `/api/admin/venue-requests/:id/approve` | Crea venue con `ownerId = requester`; email al solicitante |
+| `GET` | `/api/admin/stats` | Usuarios, administradores, Espacios activos/sin Organizador, presencias, matches, solicitudes/denuncias pendientes y métricas de compras de promos |
+| `GET` | `/api/admin/users` | Cuentas paginadas (`page`, `limit` mínimo 10, `q`, `role?`), incluidos usuarios y administradores |
+| `GET` | `/api/admin/users/:id` | Ficha completa de una cuenta para consultas administrativas |
+| `PATCH` | `/api/admin/users/:id` | Edita rol, email, verificación, Premium y datos del perfil; impide degradar al último administrador |
+| `GET` | `/api/admin/venue-requests` | Paginado (`page`, `limit` mínimo 10) + `status?` pending/approved/rejected |
+| `GET` | `/api/admin/venue-requests/:id` | Detalle de alta o reclamación |
+| `GET` | `/api/admin/venue-requests/:id/evidence/:fileId` | Descarga autenticada de un comprobante privado |
+| `POST` | `/api/admin/venue-requests/:id/approve` | Alta: crea Espacio; reclamación: asigna atómicamente `ownerId`; email al solicitante |
 | `POST` | `/api/admin/venue-requests/:id/reject` | Rechazo (+ `adminNote`?); email al solicitante |
-| `GET` | `/api/admin/reports` | Denuncias |
-| `PATCH` | `/api/admin/reports/:id` | open/reviewed/dismissed |
+| `GET` | `/api/admin/reports` | Denuncias paginadas (`page`, `limit` mínimo 10, `status?`) |
+| `POST` | `/api/admin/reports/:id/actions` | Resolución única con explicación obligatoria: descartar o suspender 30/90/180/360 días o permanentemente; revoca sesiones/presencia y envía emails |
+| `GET` | `/api/admin/promo-purchases` | Compras internas de promos, read-only y paginadas (`page`, `limit`; default/mínimo 10) |
 | `PATCH`/`DELETE` | `/api/admin/promotions/:id` | Editar / soft-delete promo |
 | `PATCH`/`DELETE` | `/api/admin/news/:id` | Editar / soft-delete noticia |
 
@@ -347,12 +367,12 @@ Todas bajo `requireAuth` + `requireAdmin`.
 | Modelo | Campos clave |
 |--------|----------------|
 | **User** | email, passwordHash?, role, profile, profileComplete, emailVerified, premium, remainingLikes, likesRechargeAt, oauthAccounts, authProvider, followersCount, followingUsersCount, followingVenuesCount, autoAcceptFollowRequests, showActivityToFollowers (legado hideActivityFromFollowers), tokens de verificación/reset |
-| **Venue** | name, type, address, city, description, photos, location?, ownerId?, followersCount, ratingAvg, ratingCount, active |
+| **Venue** | name, type, address, country, city, description, photos, location?, ownerId?, followersCount, ratingAvg, ratingCount, active |
 | **VenueReview** | venueId, userId, rating (1–5), body?, photos (≤3), active — unique `(userId, venueId)` |
 | **ActivityEvent** | actorId, type (`venue_review_created`\|`venue_review_updated`\|`venue_followed`\|`user_post_created`), venueId?, reviewId?, postId?, payload, active |
 | **UserPost** | authorId, venueId, body (1–200), photos (0–3), active |
 | **VenueNews** | venueId, title, body, photos, publishedAt, active |
-| **VenueRequest** | requesterId, name, type, address, city, geocodedAddress?, location?, description?, photos, contactEmail?, contactPhone?, status, adminNote?, reviewedBy?, venueId? |
+| **VenueRequest** | requesterId, requestType, targetVenueId?, wantsToManage, managementMessage?, evidenceFiles, name, type, address, country, city, geocodedAddress?, location?, description?, photos, contactEmail?, contactPhone?, status, adminNote?, reviewedBy?, venueId? |
 | **Promotion** | venueId, title, description, priceUyu?, validFrom?, validUntil?, active |
 | **PromoPurchase** | userId, venueId, promotionId, code, title, priceUyu?, status (`valid`/`redeemed`/`expired`/`refunded`), purchasedAt, validUntil?, redeemedAt? |
 | **Follow** | followerId, targetType (`user`\|`venue`), targetId — unique compuesto |
@@ -369,8 +389,8 @@ Todas bajo `requireAuth` + `requireAdmin`.
 
 `apps/api/src/seedData.ts` + `apps/api/src/pilotVenues.ts` (también `npm run seed`):
 
-- Admin + **98 Espacios de Montevideo** (bar, pub, boliche, cervecería, concierto) con calle y pin geocodificado; promo “Promo Nocta” en **Jackson Bar**
-- `syncPilotVenues()` en cada boot: borra Espacios que no están en el catálogo (p. ej. Niceto) y hace upsert de los 98 **sin pisar `ownerId`**
+- Admin + **113 Espacios de Montevideo** (bar, pub, boliche, cervecería, concierto) con calle y pin geocodificado; promo “Promo Nocta” en **Jackson Bar**
+- `syncPilotVenues()` en cada boot: limpia entradas antiguas sin organizador y hace upsert de los 113. Nunca borra Espacios registrados ni pisa datos editados por un Organizador.
 - Dirección visible = calle; `location` queda en el catálogo (sin Nominatim en cada boot)
 - Fotos de catálogo: la UI lee `apps/web/public/images/venues/{NombreEspacio}Img.webp` (URL `/images/venues/…`) a partir del nombre. Convención: PascalCase sin acentos ni signos + `Img.webp` (`Jackson Bar` → `JacksonBarImg.webp`, `Negroni` → `NegroniImg.webp`). Si falta el archivo, cae al placeholder. Una foto subida a `/uploads/` (organizador) pisa esa portada.
 - Users demo Sofía (premium) / Mateo / Valentina con perfil completo y presencia 48h en **Jackson Bar**
@@ -409,6 +429,7 @@ Todas bajo `requireAuth` + `requireAdmin`.
 - Bootstrap 5 + Bootstrap Icons
 - Path: `apps/web`
 - Estilos tema: `src/theme.css` (dark + lima; anillos de foco de `.btn` en lima, sin flash azul default de Bootstrap)
+- Mapas: CARTO raster `dark_all` + Leaflet; configurar `VITE_CARTO_BASEMAPS_API_KEY` en `apps/web/.env.local` (las atribuciones OSM/CARTO permanecen visibles)
 - Assets: `public/images/` — logos Nocta (`nocta-logo-limaneon-nobg.png`, blanco/negro); fotos de Espacios en `public/images/venues/{Nombre}Img.webp` (listado y detalle las piden por nombre). Si falta el archivo, caen al placeholder. `index.html` puede referenciar favicon
 
 ### UX / responsive
@@ -417,46 +438,57 @@ Todas bajo `requireAuth` + `requireAdmin`.
 - Mobile: tab bar inferior; UI tipo dating app
 - Tablet/desktop: top nav; grids de espacios; Discover centrado
 - Footer mínimo (`AppFooter` / wordmark + ©) **solo en `/profile`**, todas las resoluciones
-- Admin: top + drawer (mobile/tablet) + sidebar desktop (`AdminLayout`)
+- Admin: top + drawer (mobile/tablet) + sidebar desktop (`AdminLayout`); Perfil muestra acceso de ancho completo al dashboard solo para administradores
+- Listas Admin: paginación responsive estandarizada en bloques de 10 registros
 - Pocas cajas anidadas; `fade-in` / `fade-in-up`; `prefers-reduced-motion` en pulsos/overlays
 - Carga: `NoctaLoading` (luna limaneon como “C” de Cargando, Syne 800, anillos; `screen` / `block` / `inline`)
 - Iconos solo en botones / menús / tabs (nunca en títulos). Excepción: `VenueTrustBadge` al lado del nombre del Espacio (estado de organizador, no decoración)
+- Búsquedas: `ManualSearchInput`; el texto se aplica únicamente con Enter o el botón de lupa, y limpiar restablece los resultados inmediatamente
 - Feedback de interacción: `useToast()` (ver `.cursor/rules/toasts.mdc`); formularios largos pueden mostrar error inline
 
 Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `espacios.mdc`, `fullstack-agent.mdc`.
 
 ### Componentes clave (además de páginas)
 
-- Perfil: `ProfileSettingsModal`, `ProfileConnectionsModal`, `ProfileMyReviewsAccordion`, `FollowRequestProfileModal`
-- Discover / venues: `DiscoverProfileDetail`, `VenueReviewsSection`, `VenueMap`, `LocationPickerMap`, `VenueTrustBadge`
-- Misc: `AuthAtmosphere`, `PromoQrCode`, `PhotoLightbox`, `ToastProvider`, `NoctaWordmark`, `NoctaLoading` (Cargando con luna limaneon + anillos), `AppFooter`, `NotificationsBell`, `PremiumPackagesModal`
+- Perfil: `ProfileActionButtons`, `ProfileSettingsModal` (solo preferencias), `FollowRequestsModal`, `ProfileConnectionsModal`, `ProfileMyReviewsAccordion`, `FollowRequestProfileModal`, `DeleteAccountModal`
+- Discover / venues: `DiscoverProfileDetail`, `VenueReviewsSection`, `VenueMap`, `LocationPickerMap`, `VenueTrustBadge`, `VenueFormFields`, `VenueClaimForm`, `VenueEvidenceFields`
+- Misc: `AuthAtmosphere`, `PromoQrCode`, `PhotoLightbox`, `ToastProvider`, `NoctaWordmark`, `NoctaLoading` (Cargando con luna limaneon + anillos), `AppFooter`, `NotificationsBell`, `PremiumPackagesModal`, `AdminSearchSelect` (desplegable administrativo con búsqueda interna)
 
 ### Rutas UI
 
 | Ruta | Pantalla |
 |------|----------|
-| `/login` · `/register` | Auth con escena Nocta; login con atajos demo + OAuth Google; Apple/Microsoft deshabilitados (toast); registro con nombre, confirmación y reglas de password en vivo |
+| `/login` · `/register` | Auth con escena Nocta; login local/OAuth informa suspensiones temporales o permanentes con fecha de inicio/fin; Apple/Microsoft deshabilitados (toast) |
 | `/verify-email` | OTP 6 dígitos, pegado y reenvío con cooldown |
 | `/auth/callback` | Recibe `?token=` post-OAuth |
 | `/onboarding` | 5 pasos: datos + identidad + ubicación → estilo de vida → trabajo → búsqueda (1) + gustos → fotos |
 | `/` | Redirect a `/venues` (user) o `/admin/overview` (admin) |
-| `/venues` | Home de usuario. Cards 1/2/3 cols; strip “Publicado” 24h + CTA Discover; ícono verificado si hay `ownerId` (la interrogación “por reclamar” solo en el detalle) |
+| `/venues` | Home de usuario. Cards 1/2/3 cols; strip “Publicado” 24h + CTA Discover; CTA para solicitar un Espacio faltante; ícono verificado si hay `ownerId` |
 | `/venues/:id` | Foto + mapa (`col-12` / `col-md-5`); reseñas y CTA (`col-12` / `col-md-7`); ícono de organizador al lado del nombre |
-| `/venues/:id/manage` | Organizador: noticias (foto obligatoria), promos (UYU + vigencia), Mercado Pago “próximamente” |
+| `/venues/:id/manage` | Organizador: descripción, seguidores, acceso a edición, noticias, promos y Mercado Pago “próximamente” |
+| `/venues/:id/edit` | Edición separada del Espacio: identidad, País/Ciudad, mapa, descripción y reemplazo opcional de portada |
 | `/likes` | Likes recibidos pendientes: Premium ve foto/nombre + Discover; sin Premium placeholder (sin name/foto/id) + modal; grilla 2 cols en mobile |
 | `/muro` | Redirect a `/venues` (pantalla retirada) |
-| `/discover` | Sin presencia: portada. Con presencia: swipe + rewind/pass/like/follow; overlays por foto; expand glass |
+| `/discover` | Sin presencia: portada. Con presencia: swipe + rewind/pass/like/follow; detalle ampliado con compartir (próximamente), bloquear y denunciar |
+| `/report/:userId` | Formulario protegido para denunciar un perfil por motivo y detalles |
+| `/reports/:reportId` | Resultado de una denuncia propia (descarte o medidas aplicadas) |
 | `/matches` | Vacío animado o lista/grilla; menú eliminar / denunciar / bloquear |
 | `/matches/:id` | Chat. En desktop (≥992): perfil a la izquierda (carrusel de fotos, datos, bloquear/denunciar al final del scroll) y conversación a la derecha |
 | `/notifications` | Inbox completo (10 por página); campana muestra las últimas 5 + Ver más |
-| `/profile` | Hero + galería; Mis reseñas; settings; contadores; Mis promos / Mis espacios; **único sitio con footer** |
+| `/profile` | Hero + galería; Mis reseñas; contadores; Mis promos / Mis espacios; cuatro acciones con popover (configuración, solicitudes, editar y eliminar); borrado con confirmación escrita; acceso al dashboard si es admin; **único sitio con footer** |
+| `/profile/blocked` | Lista paginada de usuarios bloqueados con opción para desbloquear |
 | `/profile/promos` | Mis promos + QR |
-| `/profile/venue-request` | Solicitud de espacio |
-| `/admin`… | Igual que antes (overview, requests, venues, content, users, reports) |
+| `/profile/venue-request` | Pestañas Registrar/Reclamar: el alta puede ser sugerencia sin Organizador o pedir administración con 1–3 comprobantes privados; la dirección manual se geocodifica tras 3 s sin escritura y mueve el pin; reclamación usa la misma acreditación |
+| `/admin/overview` | KPIs operativos y accesos a todos los módulos |
+| `/admin/requests` · `/admin/venues` · `/admin/content` | Gestión de solicitudes, Espacios y contenido |
+| `/admin/users` | Usuarios y administradores; modal para editar cuenta/perfil, asignar rol y consultar suspensiones |
+| `/admin/reports` | Denuncias paginadas; fichas de ambas personas y modal Acciones para descartar con motivo o suspender por duración |
+| `/admin/transactions` | Compras internas de promos, read-only y paginadas; conciliación externa pendiente |
+| `/admin/audit` | Estado vacío estructurado; registro real de auditoría pendiente |
 
 ### Consumo API
 
-- Cliente: `src/lib/api.ts` (Bearer JWT en `localStorage`; JSON y `FormData`)
+- Cliente: `src/lib/api.ts` (Bearer JWT en `localStorage`; revocación automática y aviso de suspensión persistido en la sesión del navegador)
 - Proxy Vite: `/api` y `/uploads` → `http://localhost:4000`
 - Espacios: `page` / `limit` / `type` / `q` + IntersectionObserver
 - Matches: `DELETE /api/matches/:id`, `POST .../report`, `POST .../block`
@@ -469,15 +501,15 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 
 Tipos y catálogos usados por API y Web:
 
-- Catálogos: `LOOKING_FOR`, `INTERESTS`, `INTEREST_CATEGORIES`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `SEXUAL_ORIENTATIONS`, `LANGUAGES`, `ZODIAC_SIGNS`, `EDUCATION_LEVELS`, `PETS`, `DRINKING`, `FITNESS`, `SOCIAL_NETWORKS`, `URUGUAY_CITIES`, `PROFILE_COUNTRIES`, `OAUTH_PROVIDERS`, `REPORT_REASONS`, `VENUE_REQUEST_STATUSES`, `FOLLOW_TARGET_TYPES`, `FOLLOW_REQUEST_STATUSES`, `PROMO_PURCHASE_STATUSES` (+ labels)
-- Límites: `VENUES_PAGE_SIZE` (9), `REVIEWS_PAGE_SIZE`, `MY_REVIEWS_PAGE_SIZE` (5), `MIN/MAX_VENUE_RATING`, `MAX_REVIEW_BODY_LENGTH`, `MAX_REVIEW_PHOTOS` (3), `MAX_POST_BODY_LENGTH` (200), `MAX_POST_PHOTOS` (3), `MIN/MAX_PHOTOS`, `MIN/MAX_AGE`, `DAILY_LIKE_LIMIT` (50), `LIKE_RECHARGE_HOURS` (8)
+- Catálogos: `LOOKING_FOR`, `INTERESTS`, `INTEREST_CATEGORIES`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `SEXUAL_ORIENTATIONS`, `LANGUAGES`, `ZODIAC_SIGNS`, `EDUCATION_LEVELS`, `PETS`, `DRINKING`, `FITNESS`, `SOCIAL_NETWORKS`, `VENUE_COUNTRIES`, `VENUE_CITIES_BY_COUNTRY`, `PROFILE_COUNTRIES`, `OAUTH_PROVIDERS`, `REPORT_REASONS`, `VENUE_REQUEST_STATUSES`, `FOLLOW_TARGET_TYPES`, `FOLLOW_REQUEST_STATUSES`, `PROMO_PURCHASE_STATUSES` (+ labels)
+- Límites: `VENUES_PAGE_SIZE` (9), `REVIEWS_PAGE_SIZE`, `MY_REVIEWS_PAGE_SIZE` (5), `MIN/MAX_VENUE_RATING`, `MAX_REVIEW_BODY_LENGTH`, `MAX_REVIEW_PHOTOS` (3), portada de Espacio WebP (`VENUE_COVER_WIDTH/HEIGHT` = 1600×1200), `MAX_POST_BODY_LENGTH` (200), `MAX_POST_PHOTOS` (3), `MIN/MAX_PHOTOS`, `MIN/MAX_AGE`, `DAILY_LIKE_LIMIT` (50), `LIKE_RECHARGE_HOURS` (8)
 - Actividad: `ACTIVITY_TYPES` + `ACTIVITY_TYPE_LABELS` (incluye `user_post_created`)
 - Notificaciones: `NOTIFICATION_TYPES` + `NOTIFICATION_TYPE_LABELS`, `NOTIFICATION_READ_TTL_DAYS` (30), `NOTIFICATIONS_PREVIEW_LIMIT` (5), `NOTIFICATIONS_PAGE_SIZE` (10)
 - Presencia: `PRESENCE_PRESETS` (24h / 48h / 1 semana / permanente)
-- Zodíaco editorial: `ZODIAC_INSIGHTS`; ciudad default: `DEFAULT_URUGUAY_CITY`; `DISPLAY_ADDRESS_HINT`
+- Zodíaco editorial: `ZODIAC_INSIGHTS`; geografía de Espacios: Uruguay, Argentina y Brasil habilitados; `DISPLAY_ADDRESS_HINT`
 - Password / verify / upload: `PASSWORD_RULES`, `PASSWORD_HINT`, constantes de mail y multipart
 - Timezone (`timezone.ts`): `timezoneFromCountry`, anclas de día civil para vigencia de promos
-- Tipos: `AuthUser`, `FollowListUser`, `FollowRequestItem`, `FollowRequestProfile`, `Venue`, `VenueReview`, `UserPost`, `ActivityItem`, `ReceivedLike`, `ReceivedLikesResponse`, `VenueNews`, `VenueRequest`, `Promotion`, `PromoPurchase`, `MuroFeedResponse`, `PaginationMeta`, `PaginatedVenuesResponse`, `PaginatedReviewsResponse`, `DiscoverCard`, `LikeAllowance`, `DiscoverFeedResponse`, `DiscoverSwipeResponse`, `DiscoverRewindResponse`, `MatchSummary`, `ChatMessage`, `NotificationItem`, `NotificationsResponse`, `NotificationsUnreadResponse`, `AdminStats`, `AdminReport`, etc.
+- Tipos: `AuthUser`, `SuspensionDuration`, `ModerationStatus`, `FollowListUser`, `FollowRequestItem`, `Venue`, `VenueReview`, `DiscoverCard`, `AdminReport`, etc.
 
 Tras cambiar shared: `npm run build:shared` (o `postinstall`).
 

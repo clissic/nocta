@@ -201,6 +201,7 @@ export function VenueDetailPage() {
             name={venue.name}
             address={venue.address}
             city={venue.city}
+            country={venue.country}
             location={venue.location}
           />
         </div>

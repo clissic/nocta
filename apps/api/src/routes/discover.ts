@@ -22,6 +22,8 @@ import {
 } from "../utils/likeAllowance.js";
 import { isDemoUserEmail } from "../seedData.js";
 import { createNotification } from "../utils/notify.js";
+import { areBlocked } from "../utils/follows.js";
+import { moderationVisibleUserFilter } from "../utils/moderation.js";
 
 const router = Router();
 
@@ -138,6 +140,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   const users = await User.find({
     _id: { $in: userIds },
     profileComplete: true,
+    ...moderationVisibleUserFilter(),
   });
 
   const myInterestedIn = (user.profile.interestedIn ?? [])
@@ -244,6 +247,9 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
 
   if (parsed.data.toUserId === user._id.toString()) {
     return res.status(400).json({ error: "No podés swiparte a vos mismo" });
+  }
+  if (await areBlocked(user._id.toString(), parsed.data.toUserId)) {
+    return res.status(404).json({ error: "Usuario no encontrado" });
   }
 
   await expireStalePresences({ venueId: myPresence.venueId.toString() });
@@ -388,6 +394,7 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
 
   const toUserId = lastSwipe.toUserId.toString();
   const wasLike = lastSwipe.direction === "like";
+  const blocked = await areBlocked(user._id.toString(), toUserId);
 
   await Swipe.deleteOne({ _id: lastSwipe._id });
 
@@ -415,7 +422,8 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
   if (
     targetUser?.profileComplete &&
     targetUser.profile &&
-    theirPresence
+    theirPresence &&
+    !blocked
   ) {
     try {
       card = serializeCard(targetUser, theirPresence._id.toString());
@@ -465,6 +473,7 @@ router.get("/likes", async (req: AuthedRequest, res) => {
       ? User.find({
           _id: { $in: userIds },
           profileComplete: true,
+          ...moderationVisibleUserFilter(),
         }).select("profile")
       : Promise.resolve([]),
     venueIds.length

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   REPORT_REASON_LABELS,
   REPORT_STATUS_LABELS,
@@ -8,6 +8,12 @@ import {
 import { api, ApiError } from "../../lib/api";
 import { OverflowFade } from "../../components/OverflowFade";
 import { NoctaLoading } from "../../components/NoctaLoading";
+import {
+  ADMIN_PAGE_SIZE,
+  AdminPagination,
+} from "../../components/admin/AdminPagination";
+import { AdminUserDetailsModal } from "../../components/admin/AdminUserDetailsModal";
+import { AdminReportActionsModal } from "../../components/admin/AdminReportActionsModal";
 
 const FILTERS: { value: ReportStatus | "all"; label: string; icon: string }[] = [
   { value: "open", label: "Abiertas", icon: "bi-envelope-open" },
@@ -19,37 +25,52 @@ const FILTERS: { value: ReportStatus | "all"; label: string; icon: string }[] = 
 export function AdminReportsPage() {
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [filter, setFilter] = useState<ReportStatus | "all">("open");
+  const [page, setPage] = useState(1);
+  const [totalReports, setTotalReports] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedReport, setSelectedReport] = useState<AdminReport | null>(
+    null
+  );
+  const closeUserDetails = useCallback(() => setSelectedUserId(null), []);
+  const closeReportActions = useCallback(() => setSelectedReport(null), []);
 
   useEffect(() => {
-    void api<{ reports: AdminReport[] }>("/api/admin/reports")
-      .then((res) => setReports(res.reports))
+    setLoading(true);
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(ADMIN_PAGE_SIZE),
+    });
+    if (filter !== "all") params.set("status", filter);
+    void api<{
+      reports: AdminReport[];
+      pagination: { total: number };
+    }>(`/api/admin/reports?${params}`)
+      .then((res) => {
+        setReports(res.reports);
+        setTotalReports(res.pagination.total);
+      })
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [filter, page]);
 
-  const visible =
-    filter === "all" ? reports : reports.filter((r) => r.status === filter);
+  const visible = reports;
 
-  async function setStatus(report: AdminReport, status: ReportStatus) {
-    setBusyId(report.id);
-    setError("");
-    try {
-      await api(`/api/admin/reports/${report.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      setReports((prev) =>
-        prev.map((r) => (r.id === report.id ? { ...r, status } : r))
-      );
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo actualizar");
-    } finally {
-      setBusyId(null);
+  function handleResolved(updated: AdminReport) {
+    const leavesCurrentFilter =
+      filter !== "all" && updated.status !== filter;
+    setReports((current) =>
+      leavesCurrentFilter
+        ? current.filter((report) => report.id !== updated.id)
+        : current.map((report) =>
+            report.id === updated.id ? updated : report
+          )
+    );
+    if (leavesCurrentFilter) {
+      setTotalReports((total) => Math.max(0, total - 1));
     }
   }
 
@@ -60,10 +81,18 @@ export function AdminReportsPage() {
           <p className="admin-page-eyebrow">Administración</p>
           <h1 className="app-title h3 mb-1">Denuncias</h1>
           <p className="text-secondary small mb-0">
-            Moderación de reportes entre usuarios.
+            Moderación de denuncias de perfiles y conversaciones.
           </p>
         </div>
       </header>
+
+      <div className="admin-panel mb-3">
+        <p className="small mb-0">
+          Las denuncias pueden originarse en un perfil o en una conversación
+          vinculada a un match. La inspección detallada de conversaciones se
+          incorporará más adelante.
+        </p>
+      </div>
 
       <OverflowFade
         axis="x"
@@ -78,7 +107,10 @@ export function AdminReportsPage() {
             role="tab"
             aria-selected={filter === f.value}
             className={`admin-filter-chip${filter === f.value ? " is-active" : ""}`}
-            onClick={() => setFilter(f.value)}
+            onClick={() => {
+              setFilter(f.value);
+              setPage(1);
+            }}
           >
             <i className={`bi ${f.icon}`} aria-hidden="true" />
             <span>{f.label}</span>
@@ -92,7 +124,8 @@ export function AdminReportsPage() {
       ) : visible.length === 0 ? (
         <p className="text-secondary small mb-0">No hay denuncias en este filtro.</p>
       ) : (
-        <div className="admin-list">
+        <>
+          <div className="admin-list">
           {visible.map((r) => (
             <div key={r.id} className="admin-list-row admin-list-row-stack">
               <div className="admin-list-body min-w-0">
@@ -103,7 +136,27 @@ export function AdminReportsPage() {
                   </span>
                 </div>
                 <div className="text-secondary small">
-                  {r.reporter.name} → {r.reportedUser.name}
+                  <button
+                    className="admin-report-user-link"
+                    type="button"
+                    onClick={() => setSelectedUserId(r.reporter.id)}
+                  >
+                    {r.reporter.name}
+                  </button>
+                  <span aria-hidden="true"> → </span>
+                  <button
+                    className="admin-report-user-link"
+                    type="button"
+                    onClick={() => setSelectedUserId(r.reportedUser.id)}
+                  >
+                    {r.reportedUser.name}
+                  </button>
+                </div>
+                <div className="text-secondary small">
+                  Origen:{" "}
+                  {r.source === "match"
+                    ? `conversación${r.matchId ? ` · match ${r.matchId}` : ""}`
+                    : "perfil"}
                 </div>
                 {r.details && (
                   <div className="small mt-1">{r.details}</div>
@@ -113,43 +166,49 @@ export function AdminReportsPage() {
                 </div>
               </div>
               <div className="admin-list-actions">
-                {r.status !== "reviewed" && (
-                  <button
-                    className="btn btn-sm btn-primary"
-                    type="button"
-                    disabled={busyId === r.id}
-                    onClick={() => void setStatus(r, "reviewed")}
-                  >
-                    <i className="bi bi-check2" aria-hidden="true" />
-                    <span>Revisada</span>
-                  </button>
-                )}
-                {r.status !== "dismissed" && (
-                  <button
-                    className="btn btn-sm btn-outline-light"
-                    type="button"
-                    disabled={busyId === r.id}
-                    onClick={() => void setStatus(r, "dismissed")}
-                  >
-                    <i className="bi bi-x-lg" aria-hidden="true" />
-                    <span>Descartar</span>
-                  </button>
-                )}
-                {r.status !== "open" && (
-                  <button
-                    className="btn btn-sm btn-outline-secondary"
-                    type="button"
-                    disabled={busyId === r.id}
-                    onClick={() => void setStatus(r, "open")}
-                  >
-                    <i className="bi bi-arrow-counterclockwise" aria-hidden="true" />
-                    <span>Reabrir</span>
-                  </button>
-                )}
+                <button
+                  className={
+                    r.status !== "open"
+                      ? "btn btn-sm btn-outline-light"
+                      : "btn btn-sm btn-primary"
+                  }
+                  type="button"
+                  onClick={() => setSelectedReport(r)}
+                >
+                  <i
+                    className={`bi ${
+                      r.status !== "open" ? "bi-eye" : "bi-three-dots"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {r.status !== "open" ? "Ver resolución" : "Acciones"}
+                  </span>
+                </button>
               </div>
             </div>
           ))}
-        </div>
+          </div>
+          <AdminPagination
+            page={page}
+            totalItems={totalReports}
+            onPageChange={setPage}
+            label="Páginas de denuncias"
+          />
+        </>
+      )}
+      {selectedUserId && (
+        <AdminUserDetailsModal
+          userId={selectedUserId}
+          onClose={closeUserDetails}
+        />
+      )}
+      {selectedReport && (
+        <AdminReportActionsModal
+          report={selectedReport}
+          onClose={closeReportActions}
+          onResolved={handleResolved}
+        />
       )}
     </div>
   );

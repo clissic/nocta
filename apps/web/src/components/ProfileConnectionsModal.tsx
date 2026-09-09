@@ -11,6 +11,7 @@ import { OverflowFade } from "./OverflowFade";
 import { NoctaLoading } from "./NoctaLoading";
 import { useToast } from "./ToastProvider";
 import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { ManualSearchInput } from "./ManualSearchInput";
 
 export type ProfileConnectionsMode = "followers" | "following" | "venues";
 
@@ -39,6 +40,7 @@ export function ProfileConnectionsModal({
   const [users, setUsers] = useState<FollowListUser[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export function ProfileConnectionsModal({
     setUsers([]);
     setVenues([]);
     setQuery("");
+    setSubmittedQuery("");
     setSelectedUserId(null);
     setReducedProfile(null);
 
@@ -94,24 +97,24 @@ export function ProfileConnectionsModal({
   }, [onClose, selectedUserId]);
 
   const visibleUsers = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("es");
+    const normalized = submittedQuery.toLocaleLowerCase("es");
     const filtered = normalized
       ? users.filter((user) =>
           user.name.toLocaleLowerCase("es").includes(normalized)
         )
       : users;
     return filtered.slice(0, 10);
-  }, [query, users]);
+  }, [submittedQuery, users]);
 
   const visibleVenues = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("es");
+    const normalized = submittedQuery.toLocaleLowerCase("es");
     const filtered = normalized
       ? venues.filter((venue) =>
           venue.name.toLocaleLowerCase("es").includes(normalized)
         )
       : venues;
     return filtered.slice(0, 10);
-  }, [query, venues]);
+  }, [submittedQuery, venues]);
 
   async function openReducedProfile(user: FollowListUser) {
     setSelectedUserId(user.id);
@@ -188,7 +191,7 @@ export function ProfileConnectionsModal({
         ? "Seguidos"
         : "Espacios";
 
-  const emptyCopy = query.trim()
+  const emptyCopy = submittedQuery
     ? "No hay resultados para esa búsqueda."
     : mode === "followers"
       ? "Todavía no tenés seguidores."
@@ -228,19 +231,14 @@ export function ProfileConnectionsModal({
         </header>
 
         <OverflowFade className="profile-connections-body">
-          <label
-            className="visually-hidden"
-            htmlFor="profile-connections-search"
-          >
-            Buscar por nombre
-          </label>
-          <input
+          <ManualSearchInput
             id="profile-connections-search"
-            type="search"
-            className="form-control profile-connections-search"
+            className="profile-connections-search"
             placeholder={`Buscar en ${title.toLocaleLowerCase("es")}…`}
+            ariaLabel="Buscar por nombre"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onValueChange={setQuery}
+            onSearch={setSubmittedQuery}
           />
 
           {loading ? (

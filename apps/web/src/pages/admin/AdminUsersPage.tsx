@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DRINKING_LABELS,
   EDUCATION_LEVEL_LABELS,
@@ -31,8 +31,13 @@ import {
 import { api, ApiError } from "../../lib/api";
 import { OverflowFade } from "../../components/OverflowFade";
 import { NoctaLoading } from "../../components/NoctaLoading";
+import { ManualSearchInput } from "../../components/ManualSearchInput";
 import { useToast } from "../../components/ToastProvider";
 import { LOOKING_FOR_ICONS } from "../../lib/lookingForIcons";
+import {
+  ADMIN_PAGE_SIZE,
+  AdminPagination,
+} from "../../components/admin/AdminPagination";
 
 function UserAvatar({
   name,
@@ -161,30 +166,81 @@ function activeSocials(profile: NonNullable<AuthUser["profile"]>) {
   });
 }
 
+type UserEditState = {
+  email: string;
+  isAdmin: boolean;
+  premium: boolean;
+  emailVerified: boolean;
+  name: string;
+  birthDate: string;
+  heightCm: string;
+  bio: string;
+  country: string;
+  city: string;
+  jobTitle: string;
+  company: string;
+  studiedAt: string;
+};
+
+function editStateFromUser(user: AuthUser): UserEditState {
+  const profile = user.profile;
+  return {
+    email: user.email,
+    isAdmin: user.role === "admin",
+    premium: user.premium,
+    emailVerified: user.emailVerified,
+    name: profile?.name ?? "",
+    birthDate: profile?.birthDate?.slice(0, 10) ?? "",
+    heightCm: profile?.heightCm ? String(profile.heightCm) : "",
+    bio: profile?.bio ?? "",
+    country: profile?.livesIn?.country ?? "",
+    city: profile?.livesIn?.city ?? "",
+    jobTitle: profile?.jobTitle ?? "",
+    company: profile?.company ?? "",
+    studiedAt: profile?.studiedAt ?? "",
+  };
+}
+
 export function AdminUsersPage() {
   const toast = useToast();
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AuthUser | null>(null);
+  const [edit, setEdit] = useState<UserEditState | null>(null);
+  const [saving, setSaving] = useState(false);
   const [modalNow, setModalNow] = useState(Date.now());
 
   useEffect(() => {
-    void api<{ users: AuthUser[] }>("/api/admin/users")
-      .then((res) => setUsers(res.users))
+    setLoading(true);
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(ADMIN_PAGE_SIZE),
+    });
+    if (submittedQuery) params.set("q", submittedQuery);
+    void api<{
+      users: AuthUser[];
+      pagination: { total: number };
+    }>(`/api/admin/users?${params}`)
+      .then((res) => {
+        setUsers(res.users);
+        setTotalUsers(res.pagination.total);
+      })
       .catch((err) =>
         toast.error(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cargar una vez al montar
-  }, []);
+  }, [page, submittedQuery]);
 
   useEffect(() => {
     if (!selected) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected(null);
+      if (event.key === "Escape" && !saving) closeUser();
     };
     window.addEventListener("keydown", onKey);
     setModalNow(Date.now());
@@ -194,16 +250,7 @@ export function AdminUsersPage() {
       window.removeEventListener("keydown", onKey);
       window.clearInterval(interval);
     };
-  }, [selected]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) => {
-      const name = u.profile?.name?.toLowerCase() ?? "";
-      return u.email.toLowerCase().includes(q) || name.includes(q);
-    });
-  }, [users, query]);
+  }, [selected, saving]);
 
   async function copyUserId(user: AuthUser) {
     try {
@@ -213,6 +260,70 @@ export function AdminUsersPage() {
       );
     } catch {
       toast.error("No se pudo copiar el ID");
+    }
+  }
+
+  function openUser(user: AuthUser) {
+    setSelected(user);
+    setEdit(editStateFromUser(user));
+  }
+
+  function closeUser() {
+    if (saving) return;
+    setSelected(null);
+    setEdit(null);
+  }
+
+  function updateEdit<K extends keyof UserEditState>(
+    key: K,
+    value: UserEditState[K]
+  ) {
+    setEdit((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  async function saveUser() {
+    if (!selected || !edit) return;
+    setSaving(true);
+    try {
+      const hasLocation = Boolean(edit.country.trim() && edit.city.trim());
+      const response = await api<{ user: AuthUser }>(
+        `/api/admin/users/${selected.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            email: edit.email.trim(),
+            role: edit.isAdmin ? "admin" : "user",
+            premium: edit.premium,
+            emailVerified: edit.emailVerified,
+            profile: {
+              ...(edit.name.trim() ? { name: edit.name.trim() } : {}),
+              birthDate: edit.birthDate || null,
+              heightCm: edit.heightCm ? Number(edit.heightCm) : null,
+              bio: edit.bio.trim() || null,
+              livesIn: hasLocation
+                ? { country: edit.country.trim(), city: edit.city.trim() }
+                : null,
+              jobTitle: edit.jobTitle.trim() || null,
+              company: edit.company.trim() || null,
+              studiedAt: edit.studiedAt.trim() || null,
+            },
+          }),
+        }
+      );
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === response.user.id ? response.user : user
+        )
+      );
+      setSelected(response.user);
+      setEdit(editStateFromUser(response.user));
+      toast.success("Usuario actualizado");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo actualizar el usuario"
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -247,34 +358,36 @@ export function AdminUsersPage() {
           <p className="admin-page-eyebrow">Administración</p>
           <h1 className="app-title h3 mb-1">Usuarios</h1>
           <p className="text-secondary small mb-0">
-            Listado de cuentas con rol usuario.
+            Gestión de cuentas de usuarios y administradores.
           </p>
         </div>
       </header>
 
-      <div className="admin-toolbar">
-        <i className="bi bi-search" aria-hidden="true" />
-        <input
-          className="form-control"
-          type="search"
-          placeholder="Buscar por email o nombre…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
+      <ManualSearchInput
+        className="admin-toolbar"
+        placeholder="Buscar por email o nombre…"
+        ariaLabel="Buscar usuarios"
+        value={query}
+        onValueChange={setQuery}
+        onSearch={(value) => {
+          setSubmittedQuery(value);
+          setPage(1);
+        }}
+      />
 
       {loading ? (
         <NoctaLoading variant="block" />
-      ) : filtered.length === 0 ? (
+      ) : users.length === 0 ? (
         <p className="text-secondary small mb-0">Sin resultados.</p>
       ) : (
-        <div className="admin-list">
-          {filtered.map((u) => (
+        <>
+          <div className="admin-list">
+          {users.map((u) => (
             <button
               key={u.id}
               type="button"
               className="admin-list-row admin-list-row-button"
-              onClick={() => setSelected(u)}
+              onClick={() => openUser(u)}
             >
               <div className="admin-list-media">
                 <UserAvatar
@@ -291,8 +404,14 @@ export function AdminUsersPage() {
                 </span>
               </div>
               <div className="admin-list-body min-w-0 text-start">
-                <strong className="text-truncate d-block">
-                  {u.profile?.name ?? "Sin nombre"}
+                <strong className="admin-user-name text-truncate">
+                  <span>{u.profile?.name ?? "Sin nombre"}</span>
+                  {u.role === "admin" && (
+                    <i
+                      className="bi bi-shield-check admin-user-role-icon"
+                      aria-label="Administrador"
+                    />
+                  )}
                 </strong>
                 <div className="text-secondary small text-truncate">{u.email}</div>
                 <div
@@ -302,11 +421,26 @@ export function AdminUsersPage() {
                 >
                   {u.premium ? "Premium" : "Sin premium"}
                 </div>
+                {u.moderationStatus === "suspended" && (
+                  <div className="admin-user-suspended small">
+                    Suspendido ·{" "}
+                    {u.suspension?.duration === "permanent"
+                      ? "Permanente"
+                      : `${u.suspension?.duration ?? "—"} días`}
+                  </div>
+                )}
               </div>
               <i className="bi bi-chevron-right admin-list-chevron" aria-hidden="true" />
             </button>
           ))}
-        </div>
+          </div>
+          <AdminPagination
+            page={page}
+            totalItems={totalUsers}
+            onPageChange={setPage}
+            label="Páginas de usuarios"
+          />
+        </>
       )}
 
       {selected && (
@@ -315,7 +449,7 @@ export function AdminUsersPage() {
             type="button"
             className="admin-modal-backdrop"
             aria-label="Cerrar ficha de usuario"
-            onClick={() => setSelected(null)}
+            onClick={closeUser}
           />
           <div
             className="admin-modal-dialog"
@@ -333,23 +467,211 @@ export function AdminUsersPage() {
                 <div className="min-w-0">
                   <h2 id="admin-user-modal-title" className="app-title h4 mb-1">
                     {profile?.name ?? "Sin nombre"}
+                    {selected.role === "admin" && (
+                      <i
+                        className="bi bi-shield-check admin-user-role-icon ms-2"
+                        aria-label="Administrador"
+                      />
+                    )}
                   </h2>
                   <p className="text-secondary small mb-0 text-truncate">
                     {selected.email}
                   </p>
+                  {selected.moderationStatus === "suspended" && (
+                    <p className="admin-user-suspended small mb-0">
+                      Cuenta suspendida ·{" "}
+                      {selected.suspension?.duration === "permanent"
+                        ? "Permanente"
+                        : `${selected.suspension?.duration ?? "—"} días`}
+                    </p>
+                  )}
                 </div>
               </div>
               <button
                 type="button"
                 className="admin-modal-close"
                 aria-label="Cerrar"
-                onClick={() => setSelected(null)}
+                disabled={saving}
+                onClick={closeUser}
               >
                 <i className="bi bi-x-lg" aria-hidden="true" />
               </button>
             </header>
 
             <OverflowFade className="admin-modal-body">
+              {edit && (
+                <section className="admin-modal-section">
+                  <h3 className="admin-review-label">Editar usuario</h3>
+                  <form
+                    className="admin-user-edit-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void saveUser();
+                    }}
+                  >
+                    <label className="admin-field">
+                      <span>Email</span>
+                      <input
+                        className="form-control"
+                        type="email"
+                        required
+                        value={edit.email}
+                        onChange={(event) => updateEdit("email", event.target.value)}
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>Nombre</span>
+                      <input
+                        className="form-control"
+                        type="text"
+                        minLength={2}
+                        maxLength={60}
+                        value={edit.name}
+                        onChange={(event) => updateEdit("name", event.target.value)}
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>Fecha de nacimiento</span>
+                      <input
+                        className="form-control"
+                        type="date"
+                        value={edit.birthDate}
+                        onChange={(event) =>
+                          updateEdit("birthDate", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>Altura (cm)</span>
+                      <input
+                        className="form-control"
+                        type="number"
+                        min={100}
+                        max={250}
+                        value={edit.heightCm}
+                        onChange={(event) =>
+                          updateEdit("heightCm", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="admin-field admin-user-edit-wide">
+                      <span>Biografía</span>
+                      <textarea
+                        className="form-control"
+                        rows={3}
+                        maxLength={500}
+                        value={edit.bio}
+                        onChange={(event) => updateEdit("bio", event.target.value)}
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>País</span>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={60}
+                        value={edit.country}
+                        onChange={(event) =>
+                          updateEdit("country", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>Ciudad</span>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={80}
+                        value={edit.city}
+                        onChange={(event) => updateEdit("city", event.target.value)}
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>Puesto</span>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={80}
+                        value={edit.jobTitle}
+                        onChange={(event) =>
+                          updateEdit("jobTitle", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="admin-field">
+                      <span>Compañía</span>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={80}
+                        value={edit.company}
+                        onChange={(event) =>
+                          updateEdit("company", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="admin-field admin-user-edit-wide">
+                      <span>Estudió en</span>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={120}
+                        value={edit.studiedAt}
+                        onChange={(event) =>
+                          updateEdit("studiedAt", event.target.value)
+                        }
+                      />
+                    </label>
+
+                    <div className="admin-user-switches admin-user-edit-wide">
+                      <label className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={edit.isAdmin}
+                          onChange={(event) =>
+                            updateEdit("isAdmin", event.target.checked)
+                          }
+                        />
+                        <span className="form-check-label">Administrador</span>
+                      </label>
+                      <label className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={edit.premium}
+                          onChange={(event) =>
+                            updateEdit("premium", event.target.checked)
+                          }
+                        />
+                        <span className="form-check-label">Premium</span>
+                      </label>
+                      <label className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={edit.emailVerified}
+                          onChange={(event) =>
+                            updateEdit("emailVerified", event.target.checked)
+                          }
+                        />
+                        <span className="form-check-label">Email verificado</span>
+                      </label>
+                    </div>
+
+                    <div className="admin-user-edit-actions admin-user-edit-wide">
+                      <button
+                        className="btn btn-primary"
+                        type="submit"
+                        disabled={saving}
+                      >
+                        {saving ? "Guardando…" : "Guardar cambios"}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              )}
+
               <section className="admin-modal-section">
                 <h3 className="admin-review-label">Cuenta</h3>
                 <div className="admin-modal-grid">

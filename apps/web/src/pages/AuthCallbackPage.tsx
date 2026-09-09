@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { AuthUser } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
-import { api, ApiError, setToken } from "../lib/api";
+import {
+  api,
+  ApiError,
+  clearSuspensionNotice,
+  setToken,
+} from "../lib/api";
 
 export function AuthCallbackPage() {
   const [params] = useSearchParams();
@@ -23,6 +28,7 @@ export function AuthCallbackPage() {
         setToken(token);
         const data = await api<{ user: AuthUser }>("/api/auth/me");
         if (!alive) return;
+        clearSuspensionNotice();
         setUser(data.user);
         navigate(
           data.user.role === "admin"

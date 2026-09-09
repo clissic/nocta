@@ -8,7 +8,13 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthUser } from "@nocta/shared";
-import { api, getToken, setToken } from "../lib/api";
+import {
+  AUTH_SESSION_INVALIDATED_EVENT,
+  api,
+  clearSuspensionNotice,
+  getToken,
+  setToken,
+} from "../lib/api";
 
 interface AuthState {
   user: AuthUser | null;
@@ -54,11 +60,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    const handleSuspension = () => setUser(null);
+    window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, handleSuspension);
+    return () =>
+      window.removeEventListener(
+        AUTH_SESSION_INVALIDATED_EVENT,
+        handleSuspension
+      );
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const data = await api<{ token: string; user: AuthUser }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
+    clearSuspensionNotice();
     setToken(data.token);
     setUser(data.user);
     return data.user;
@@ -74,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ...(extra?.name ? { name: extra.name.trim() } : {}),
         }),
       });
+      clearSuspensionNotice();
       setToken(data.token);
       setUser(data.user);
       return data.user;
@@ -86,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify({ code, ...(email ? { email } : {}) }),
     });
+    clearSuspensionNotice();
     setToken(data.token);
     setUser(data.user);
     return data.user;

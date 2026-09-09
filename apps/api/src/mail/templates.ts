@@ -142,6 +142,8 @@ export function passwordResetEmailHtml(opts: {
 }
 
 export function venueRequestNotificationHtml(opts: {
+  requestType?: "create" | "claim";
+  wantsToManage?: boolean;
   requestId: string;
   venueName: string;
   venueType: string;
@@ -149,12 +151,14 @@ export function venueRequestNotificationHtml(opts: {
   city: string;
   geocodedAddress?: string;
   description?: string;
+  managementMessage?: string;
   requesterName?: string;
   requesterEmail: string;
   contactEmail?: string;
   contactPhone?: string;
   adminUrl: string;
   hasPhoto: boolean;
+  evidenceCount?: number;
 }): string {
   const row = (label: string, value?: string) =>
     value
@@ -169,13 +173,20 @@ export function venueRequestNotificationHtml(opts: {
     opts.requesterEmail,
   ].filter(Boolean).join(" · ");
 
+  const isClaim = opts.requestType === "claim";
+  const requestsManagement = isClaim || opts.wantsToManage !== false;
+  const requestLabel = isClaim
+    ? "Nueva reclamación"
+    : requestsManagement
+      ? "Nueva solicitud de administración"
+      : "Nueva sugerencia de Espacio";
   return layout(
-    `Nueva solicitud de Espacio — ${opts.venueName}`,
+    `${requestLabel} — ${opts.venueName}`,
     `
-    <p style="margin:0 0 10px;color:${COLORS.primary};font-size:13px;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">Nueva solicitud</p>
+    <p style="margin:0 0 10px;color:${COLORS.primary};font-size:13px;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">${requestLabel}</p>
     <h1 class="email-title" style="margin:0 0 16px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">${escapeHtml(opts.venueName)}</h1>
     <p class="email-copy" style="margin:0 0 24px;color:${COLORS.muted};font-size:17px;line-height:1.55;">
-      Hay un nuevo Espacio esperando revisión. Los datos ya quedaron guardados en Nocta.
+      ${isClaim ? "Un usuario solicita administrar este Espacio." : requestsManagement ? "Un usuario propone un nuevo Espacio y solicita administrarlo." : "Un usuario propone agregar un nuevo Espacio."} Los datos ya quedaron guardados en Nocta.
     </p>
 
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid ${COLORS.border};border-radius:12px;overflow:hidden;background:${COLORS.panelAlt};">
@@ -184,10 +195,17 @@ export function venueRequestNotificationHtml(opts: {
       ${row("Ciudad", opts.city)}
       ${row("Dirección detectada", opts.geocodedAddress)}
       ${row("Descripción", opts.description)}
+      ${row("Información de administración", opts.managementMessage)}
       ${row("Solicitante", requester)}
       ${row("Email de contacto", opts.contactEmail)}
       ${row("Teléfono", opts.contactPhone)}
       ${row("Foto", opts.hasPhoto ? "Incluida como archivo adjunto" : "Sin foto")}
+      ${row(
+        "Comprobantes",
+        requestsManagement
+          ? `${opts.evidenceCount ?? 0} archivos privados`
+          : undefined
+      )}
       ${row("ID", opts.requestId)}
     </table>
 
@@ -201,6 +219,8 @@ export function venueRequestNotificationHtml(opts: {
 }
 
 export function venueRequestRejectedHtml(opts: {
+  requestType?: "create" | "claim";
+  wantsToManage?: boolean;
   venueName: string;
   venueType: string;
   city: string;
@@ -208,6 +228,8 @@ export function venueRequestRejectedHtml(opts: {
   adminNote?: string;
   profileUrl: string;
 }): string {
+  const isClaim = opts.requestType === "claim";
+  const isSuggestion = !isClaim && opts.wantsToManage === false;
   const greet = opts.requesterName
     ? `Hola ${escapeHtml(opts.requesterName)}`
     : "Hola";
@@ -223,10 +245,10 @@ export function venueRequestRejectedHtml(opts: {
     `;
 
   return layout(
-    `Solicitud de Espacio rechazada — ${opts.venueName}`,
+    `${isClaim ? "Reclamación rechazada" : isSuggestion ? "Sugerencia rechazada" : "Solicitud de Espacio rechazada"} — ${opts.venueName}`,
     `
     <p style="margin:0 0 10px;color:${COLORS.primary};font-size:13px;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">Solicitud revisada</p>
-    <h1 class="email-title" style="margin:0 0 16px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">No pudimos aprobar tu Espacio</h1>
+    <h1 class="email-title" style="margin:0 0 16px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">No pudimos aprobar ${isClaim ? "tu reclamación" : isSuggestion ? "tu sugerencia" : "tu Espacio"}</h1>
     <p class="email-copy" style="margin:0 0 20px;color:${COLORS.muted};font-size:17px;line-height:1.55;">
       ${greet}, revisamos tu solicitud para <strong style="color:${COLORS.text};">${escapeHtml(opts.venueName)}</strong>
       (${escapeHtml(opts.venueType)} · ${escapeHtml(opts.city)}) y por ahora no la aprobamos.
@@ -242,6 +264,8 @@ export function venueRequestRejectedHtml(opts: {
 }
 
 export function venueRequestApprovedHtml(opts: {
+  requestType?: "create" | "claim";
+  wantsToManage?: boolean;
   venueName: string;
   venueType: string;
   city: string;
@@ -250,6 +274,8 @@ export function venueRequestApprovedHtml(opts: {
   adminNote?: string;
   venueUrl: string;
 }): string {
+  const isClaim = opts.requestType === "claim";
+  const isSuggestion = !isClaim && opts.wantsToManage === false;
   const greet = opts.requesterName
     ? `Hola ${escapeHtml(opts.requesterName)}`
     : "Hola";
@@ -261,13 +287,13 @@ export function venueRequestApprovedHtml(opts: {
     : "";
 
   return layout(
-    `Tu Espacio fue autorizado — ${opts.venueName}`,
+    `${isSuggestion ? "Sugerencia aprobada" : "Administración autorizada"} — ${opts.venueName}`,
     `
     <p style="margin:0 0 10px;color:${COLORS.primary};font-size:13px;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">Solicitud aprobada</p>
-    <h1 class="email-title" style="margin:0 0 16px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">¡Tu Espacio ya está en Nocta!</h1>
+    <h1 class="email-title" style="margin:0 0 16px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">${isSuggestion ? "¡El Espacio ya está en Nocta!" : "¡Ya podés administrar este Espacio!"}</h1>
     <p class="email-copy" style="margin:0 0 20px;color:${COLORS.muted};font-size:17px;line-height:1.55;">
       ${greet}, autorizamos <strong style="color:${COLORS.text};">${escapeHtml(opts.venueName)}</strong>
-      (${escapeHtml(opts.venueType)} · ${escapeHtml(opts.city)}). Ya figurás como organizador y el espacio quedó publicado.
+      (${escapeHtml(opts.venueType)} · ${escapeHtml(opts.city)}). ${isSuggestion ? "El Espacio quedó publicado y disponible para que su Organizador lo reclame." : "Ya figurás como Organizador y el Espacio quedó publicado."}
     </p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;border:1px solid ${COLORS.border};border-radius:12px;overflow:hidden;background:${COLORS.panelAlt};">
       <tr>
@@ -281,10 +307,70 @@ export function venueRequestApprovedHtml(opts: {
     </table>
     ${noteBlock}
     <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:16px;line-height:1.55;">
-      Entrá a ver la ficha y empezá a gestionar tu Espacio.
+      ${isSuggestion ? "Entrá a ver la ficha publicada." : "Entrá a ver la ficha y empezá a gestionar tu Espacio."}
     </p>
-    <div style="text-align:center;">${ctaButton(opts.venueUrl, "Ver mi Espacio")}</div>
+    <div style="text-align:center;">${ctaButton(opts.venueUrl, isSuggestion ? "Ver Espacio" : "Ver mi Espacio")}</div>
     `,
     `Te escribimos porque enviaste una solicitud de Espacio en Nocta.<br/>© Nocta`
+  );
+}
+
+export function reportResolutionEmailHtml(opts: {
+  reporterName?: string;
+  reportId: string;
+  action: "dismiss" | "suspend";
+  resolutionReason: string;
+}): string {
+  const greet = opts.reporterName
+    ? `Hola ${escapeHtml(opts.reporterName)}`
+    : "Hola";
+  const result =
+    opts.action === "dismiss"
+      ? `<p class="email-copy" style="margin:18px 0 0;color:${COLORS.muted};font-size:17px;line-height:1.55;">
+          La denuncia fue descartada por el siguiente motivo:
+          <strong style="display:block;margin-top:10px;color:${COLORS.text};">${escapeHtml(opts.resolutionReason)}</strong>
+        </p>`
+      : `<p class="email-copy" style="margin:18px 0 0;color:${COLORS.muted};font-size:17px;line-height:1.55;">
+          Revisamos la denuncia y tomamos medidas sobre la cuenta reportada.
+          <strong style="display:block;margin-top:10px;color:${COLORS.text};">${escapeHtml(opts.resolutionReason)}</strong>
+        </p>`;
+  return layout(
+    "Resultado de tu denuncia — Nocta",
+    `
+      <h1 class="email-title" style="margin:0 0 20px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">Resultado de tu denuncia</h1>
+      <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:17px;line-height:1.55;">
+        ${greet}. Finalizamos la revisión de la denuncia <strong style="color:${COLORS.text};">#${escapeHtml(opts.reportId)}</strong>.
+      </p>
+      ${result}
+    `,
+    "Este mensaje corresponde a una acción de moderación de Nocta.<br/>© Nocta"
+  );
+}
+
+export function accountSuspendedEmailHtml(opts: {
+  userName?: string;
+  suspendedAt: string;
+  suspendedUntil?: string;
+  durationLabel: string;
+  resolutionReason: string;
+}): string {
+  const greet = opts.userName ? `Hola ${escapeHtml(opts.userName)}` : "Hola";
+  const until = opts.suspendedUntil
+    ? `<p style="margin:10px 0 0;color:${COLORS.muted};font-size:16px;">Podrás volver a ingresar a partir del <strong style="color:${COLORS.text};">${escapeHtml(opts.suspendedUntil)}</strong>.</p>`
+    : `<p style="margin:10px 0 0;color:${COLORS.muted};font-size:16px;">El bloqueo es permanente.</p>`;
+  return layout(
+    "Tu cuenta fue suspendida — Nocta",
+    `
+      <h1 class="email-title" style="margin:0 0 20px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">Cuenta suspendida</h1>
+      <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:17px;line-height:1.55;">
+        ${greet}. Tu cuenta fue suspendida por <strong style="color:${COLORS.text};">${escapeHtml(opts.durationLabel)}</strong> desde el <strong style="color:${COLORS.text};">${escapeHtml(opts.suspendedAt)}</strong>.
+      </p>
+      <p style="margin:18px 0 0;color:${COLORS.muted};font-size:16px;line-height:1.55;">
+        Explicación de la medida:
+        <strong style="display:block;margin-top:10px;color:${COLORS.text};">${escapeHtml(opts.resolutionReason)}</strong>
+      </p>
+      ${until}
+    `,
+    "Si necesitás asistencia, respondé este correo.<br/>© Nocta"
   );
 }

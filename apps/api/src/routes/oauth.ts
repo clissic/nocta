@@ -10,6 +10,10 @@ import {
   resolveOAuthProfile,
 } from "../oauth/providers.js";
 import { upsertOAuthUser } from "../oauth/upsert.js";
+import {
+  refreshExpiredSuspension,
+  suspensionError,
+} from "../utils/moderation.js";
 
 const router = Router();
 
@@ -49,6 +53,22 @@ function frontendErrorRedirect(message: string) {
 function frontendSuccessRedirect(token: string) {
   const url = new URL("/auth/callback", config.clientOrigin);
   url.searchParams.set("token", token);
+  return url.toString();
+}
+
+function frontendSuspensionRedirect(
+  suspension: NonNullable<
+    Awaited<ReturnType<typeof refreshExpiredSuspension>>
+  >
+) {
+  const data = suspensionError(suspension);
+  const url = new URL("/login", config.clientOrigin);
+  url.searchParams.set("code", data.code);
+  url.searchParams.set("suspendedAt", data.suspendedAt);
+  url.searchParams.set("duration", String(data.duration));
+  if (data.suspendedUntil) {
+    url.searchParams.set("suspendedUntil", data.suspendedUntil);
+  }
   return url.toString();
 }
 
@@ -97,6 +117,10 @@ async function handleCallback(
     const profile = await resolveOAuthProfile(provider, code);
     // Persistencia: falla si Mongo/Atlas no está disponible o mal configurado.
     const user = await upsertOAuthUser(profile);
+    const suspension = await refreshExpiredSuspension(user);
+    if (suspension) {
+      return res.redirect(frontendSuspensionRedirect(suspension));
+    }
     const token = signToken(user);
     return res.redirect(frontendSuccessRedirect(token));
   } catch (err) {

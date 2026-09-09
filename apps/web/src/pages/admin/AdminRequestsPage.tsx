@@ -8,6 +8,10 @@ import {
 import { api, ApiError } from "../../lib/api";
 import { OverflowFade } from "../../components/OverflowFade";
 import { NoctaLoading } from "../../components/NoctaLoading";
+import {
+  ADMIN_PAGE_SIZE,
+  AdminPagination,
+} from "../../components/admin/AdminPagination";
 
 const FILTERS: { value: VenueRequestStatus | "all"; label: string; icon: string }[] = [
   { value: "pending", label: "Pendientes", icon: "bi-hourglass-split" },
@@ -25,20 +29,32 @@ const STATUS_LABEL: Record<VenueRequestStatus, string> = {
 export function AdminRequestsPage() {
   const [status, setStatus] = useState<VenueRequestStatus | "all">("pending");
   const [requests, setRequests] = useState<VenueRequest[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalRequests, setTotalRequests] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     setLoading(true);
     setError("");
-    const qs = status === "all" ? "" : `?status=${status}`;
-    void api<{ requests: VenueRequest[] }>(`/api/admin/venue-requests${qs}`)
-      .then((res) => setRequests(res.requests))
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(ADMIN_PAGE_SIZE),
+    });
+    if (status !== "all") params.set("status", status);
+    void api<{
+      requests: VenueRequest[];
+      pagination: { total: number };
+    }>(`/api/admin/venue-requests?${params}`)
+      .then((res) => {
+        setRequests(res.requests);
+        setTotalRequests(res.pagination.total);
+      })
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-  }, [status]);
+  }, [status, page]);
 
   return (
     <div className="admin-page">
@@ -47,7 +63,7 @@ export function AdminRequestsPage() {
           <p className="admin-page-eyebrow">Administración</p>
           <h1 className="app-title h3 mb-1">Solicitudes</h1>
           <p className="text-secondary small mb-0">
-            Cola de altas de Espacios enviadas por usuarios.
+            Cola de altas y reclamaciones de Espacios enviadas por usuarios.
           </p>
         </div>
       </header>
@@ -65,7 +81,10 @@ export function AdminRequestsPage() {
             role="tab"
             aria-selected={status === f.value}
             className={`admin-filter-chip${status === f.value ? " is-active" : ""}`}
-            onClick={() => setStatus(f.value)}
+            onClick={() => {
+              setStatus(f.value);
+              setPage(1);
+            }}
           >
             <i className={`bi ${f.icon}`} aria-hidden="true" />
             <span>{f.label}</span>
@@ -79,7 +98,8 @@ export function AdminRequestsPage() {
       ) : requests.length === 0 ? (
         <p className="text-secondary small mb-0">No hay solicitudes en este filtro.</p>
       ) : (
-        <div className="admin-list">
+        <>
+          <div className="admin-list">
           {requests.map((r) => (
             <Link
               key={r.id}
@@ -99,9 +119,17 @@ export function AdminRequestsPage() {
                   <span className={`admin-badge is-${r.status}`}>
                     {STATUS_LABEL[r.status]}
                   </span>
+                  <span className="admin-badge">
+                    {r.requestType === "claim"
+                      ? "Reclamación"
+                      : r.wantsToManage
+                        ? "Alta con administración"
+                        : "Sugerencia"}
+                  </span>
                 </div>
                 <div className="text-secondary small text-truncate">
-                  {VENUE_TYPE_LABELS[r.type]} · {r.address}, {r.city}
+                  {VENUE_TYPE_LABELS[r.type]} · {r.address}, {r.city},{" "}
+                  {r.country}
                 </div>
                 <div className="text-secondary small text-truncate">
                   {r.requester?.name
@@ -112,7 +140,14 @@ export function AdminRequestsPage() {
               <i className="bi bi-chevron-right admin-list-chevron" aria-hidden="true" />
             </Link>
           ))}
-        </div>
+          </div>
+          <AdminPagination
+            page={page}
+            totalItems={totalRequests}
+            onPageChange={setPage}
+            label="Páginas de solicitudes"
+          />
+        </>
       )}
     </div>
   );

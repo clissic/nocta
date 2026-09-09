@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { CARTO_ATTRIBUTION, CARTO_DARK_TILE_URL } from "../lib/cartoBasemap";
 
 export type MapCoords = { lat: number; lng: number };
 
@@ -41,17 +42,14 @@ export function LocationPickerMap({
       attributionControl: true,
       scrollWheelZoom: true,
     }).setView([center.lat, center.lng], 13);
+    map.attributionControl.setPrefix(false);
 
     L.control.zoom({ position: "topright" }).addTo(map);
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 20,
-      }
-    ).addTo(map);
+    L.tileLayer(CARTO_DARK_TILE_URL, {
+      attribution: CARTO_ATTRIBUTION,
+      subdomains: "abcd",
+      maxZoom: 20,
+    }).addTo(map);
 
     map.on("click", (event: L.LeafletMouseEvent) => {
       onPickRef.current({

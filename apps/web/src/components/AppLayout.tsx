@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { ADMIN_NAV } from "./admin/AdminLayout";
@@ -21,6 +22,7 @@ export function AppLayout() {
   const location = useLocation();
   const isAdmin = user?.role === "admin";
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   useEffect(() => {
     setAdminMenuOpen(false);
@@ -40,6 +42,20 @@ export function AppLayout() {
     };
   }, [adminMenuOpen]);
 
+  useEffect(() => {
+    if (!logoutOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLogoutOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [logoutOpen]);
+
   function isAdminItemActive(to: string, end?: boolean) {
     if (to === "/admin/requests" && location.pathname.startsWith("/admin/venue-requests/")) {
       return true;
@@ -48,14 +64,63 @@ export function AppLayout() {
     return location.pathname === to || location.pathname.startsWith(`${to}/`);
   }
 
+  function confirmLogout() {
+    logout();
+    navigate("/login");
+  }
+
+  const logoutModal =
+    logoutOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div className="logout-confirm-layer" role="presentation">
+            <button
+              type="button"
+              className="logout-confirm-backdrop"
+              aria-label="Cancelar cierre de sesión"
+              onClick={() => setLogoutOpen(false)}
+            />
+            <section
+              className="logout-confirm-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="logout-confirm-title"
+              aria-describedby="logout-confirm-description"
+            >
+              <div className="logout-confirm-icon" aria-hidden="true">
+                <i className="bi bi-box-arrow-right" />
+              </div>
+              <h2 id="logout-confirm-title">¿Cerrar sesión?</h2>
+              <p id="logout-confirm-description">
+                Tendrás que volver a ingresar tus datos para acceder a Nocta.
+              </p>
+              <div className="logout-confirm-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline-light"
+                  onClick={() => setLogoutOpen(false)}
+                  autoFocus
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={confirmLogout}
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            </section>
+          </div>,
+          document.body
+        )
+      : null;
+
   const logoutBtn = (
     <button
       className="btn btn-sm btn-link link-light text-decoration-none p-0 app-top-logout"
       type="button"
-      onClick={() => {
-        logout();
-        navigate("/login");
-      }}
+      onClick={() => setLogoutOpen(true)}
       aria-label="Salir"
     >
       <i className="bi bi-box-arrow-right fs-5" aria-hidden="true"></i>
@@ -65,26 +130,23 @@ export function AppLayout() {
   if (isAdmin) {
     return (
       <div className="app-shell">
+        {logoutModal}
         <div className="app-frame">
-          <header className="app-top admin-top">
-            <NavLink className="brand admin-brand" to="/admin/overview" aria-label="Nocta Admin">
-              <span className="admin-brand-wordmark">
-                <NoctaWordmark />
-              </span>
-              <img
-                className="admin-brand-moon"
-                src="/images/nocta-logo-limaneon-nobg.png"
-                alt=""
-                aria-hidden="true"
-              />
+          <header className="app-top">
+            <NavLink className="brand" to="/admin/overview">
+              <NoctaWordmark />
             </NavLink>
-            <span className="nav-discover admin-role-pill">
-              <i className="bi bi-shield-check" aria-hidden="true" />
-              Admin
-            </span>
-            <span className="admin-top-end">
+
+            <nav className="top-nav" aria-label="Navegación principal">
+              <NavLink className="nav-discover active" to="/admin/overview">
+                <i className="bi bi-shield-check" aria-hidden="true" />
+                Admin
+              </NavLink>
+            </nav>
+
+            <div className="app-top-actions">
               <NotificationsBell />
-              <span className="admin-desktop-logout">{logoutBtn}</span>
+              {logoutBtn}
               <button
                 className="admin-menu-toggle"
                 type="button"
@@ -95,7 +157,7 @@ export function AppLayout() {
               >
                 <i className="bi bi-list" aria-hidden="true" />
               </button>
-            </span>
+            </div>
           </header>
           <button
             className={`admin-drawer-backdrop${adminMenuOpen ? " is-open" : ""}`}
@@ -148,16 +210,17 @@ export function AppLayout() {
               type="button"
               tabIndex={adminMenuOpen ? 0 : -1}
               onClick={() => {
-                logout();
-                navigate("/login");
+                setAdminMenuOpen(false);
+                setLogoutOpen(true);
               }}
             >
               <i className="bi bi-box-arrow-right" aria-hidden="true" />
               <span>Cerrar sesión</span>
             </button>
           </aside>
-          <main className="app-main admin-main px-3 px-md-4">
+          <main className="app-main">
             <Outlet />
+            {location.pathname === "/profile" && <AppFooter />}
           </main>
         </div>
       </div>
@@ -166,6 +229,7 @@ export function AppLayout() {
 
   return (
     <div className="app-shell">
+      {logoutModal}
       <div className="app-frame">
         <header className="app-top">
           <NavLink className="brand" to="/venues">

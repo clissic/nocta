@@ -17,9 +17,10 @@ const NOMINATIM_HEADERS = {
  */
 export async function geocodeAddress(
   address: string,
-  city?: string
+  city?: string,
+  country?: string
 ): Promise<GeoPoint | null> {
-  const query = [address, city].filter(Boolean).join(", ");
+  const query = [address, city, country].filter(Boolean).join(", ");
   if (!query.trim()) return null;
 
   const url = new URL("https://nominatim.openstreetmap.org/search");
@@ -120,6 +121,7 @@ export async function reverseGeocode(
 export async function resolveVenueLocation(input: {
   address: string;
   city?: string;
+  country?: string;
   location?: GeoPoint | null;
 }): Promise<GeoPoint | undefined> {
   if (
@@ -132,6 +134,6 @@ export async function resolveVenueLocation(input: {
       lng: input.location.lng,
     };
   }
-  const found = await geocodeAddress(input.address, input.city);
+  const found = await geocodeAddress(input.address, input.city, input.country);
   return found ?? undefined;
 }

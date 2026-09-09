@@ -16,12 +16,14 @@ import { Message } from "./models/Message.js";
 import { followTarget } from "./utils/follows.js";
 import { recomputeVenueRatings } from "./utils/venueRatings.js";
 import { recordActivity } from "./utils/activity.js";
+import { getActiveSuspension } from "./utils/moderation.js";
 import { Follow } from "./models/Follow.js";
 import { UserPost } from "./models/UserPost.js";
 import { ActivityEvent } from "./models/ActivityEvent.js";
 import { VenueRequest } from "./models/VenueRequest.js";
 import {
   PILOT_CITY,
+  PILOT_COUNTRY,
   PILOT_DEMO_VENUE_NAME,
   PILOT_VENUES,
   venuePhotoUrl,
@@ -198,9 +200,10 @@ async function deleteVenueDependents(venueIds: Types.ObjectId[]) {
 /** Reemplaza el catálogo BA por los Espacios de Montevideo. No pisa ownerId. */
 export async function syncPilotVenues() {
   const keptNames = new Set(PILOT_VENUES.map((item) => item.name));
-  const stale = await Venue.find({ name: { $nin: [...keptNames] } }).select(
-    "_id name"
-  );
+  const stale = await Venue.find({
+    name: { $nin: [...keptNames] },
+    ownerId: { $exists: false },
+  }).select("_id name");
   if (stale.length > 0) {
     await deleteVenueDependents(stale.map((v) => v._id));
     console.log(
@@ -215,17 +218,29 @@ export async function syncPilotVenues() {
       name: item.name,
       type: item.type,
       address: item.address,
+      country: PILOT_COUNTRY,
       city: PILOT_CITY,
+      ...(item.description ? { description: item.description } : {}),
       photos: [venuePhotoUrl(item.name)],
       location: item.location,
       active: true,
     };
     const venue = existing
-      ? await Venue.findByIdAndUpdate(
-          existing._id,
-          { $set: payload },
-          { new: true }
-        )
+      ? existing.ownerId
+        ? await Venue.findByIdAndUpdate(
+            existing._id,
+            {
+              $set: {
+                country: existing.country ?? PILOT_COUNTRY,
+              },
+            },
+            { new: true }
+          )
+        : await Venue.findByIdAndUpdate(
+            existing._id,
+            { $set: payload },
+            { new: true }
+          )
       : await Venue.create(payload);
     if (venue) venues.push(venue);
   }
@@ -323,6 +338,8 @@ export async function seedDemoData() {
       { userId: user._id, status: "active" },
       { $set: { status: "revoked" } }
     );
+
+    if (getActiveSuspension(user)) continue;
 
     await Presence.create({
       userId: user._id,
@@ -573,7 +590,7 @@ export async function ensureDemoAccounts() {
     const user = await User.findOne({ email: target.email });
     if (!user) continue;
 
-    if (isDemoUserEmail(user.email)) {
+    if (isDemoUserEmail(user.email) && !getActiveSuspension(user)) {
       demoIds.push(user._id);
     }
 

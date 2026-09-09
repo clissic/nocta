@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import Popover from "bootstrap/js/dist/popover";
 import {
   GENDER_LABELS,
   INTEREST_CATEGORIES,
@@ -16,13 +17,20 @@ type DiscoverProfileDetailProps = {
   card: DiscoverCard;
   photoIndex: number;
   onCollapse?: () => void;
+  onShare: () => void;
+  onBlock: () => void;
+  onReport: () => void;
 };
 
 export function DiscoverProfileDetail({
   card,
   photoIndex,
   onCollapse,
+  onShare,
+  onBlock,
+  onReport,
 }: DiscoverProfileDetailProps) {
+  const actionsRef = useRef<HTMLDivElement>(null);
   const { profile, age } = card;
   const photos = profile.photos.filter(Boolean);
   const activePhoto = photos[photoIndex] ?? photos[0];
@@ -43,6 +51,22 @@ export function DiscoverProfileDetail({
       interests: category.interests.filter((interest) => selected.has(interest)),
     })).filter((category) => category.interests.length > 0);
   }, [profile.interests]);
+
+  useEffect(() => {
+    const elements =
+      actionsRef.current?.querySelectorAll<HTMLElement>(
+        "[data-bs-toggle='popover']"
+      );
+    const popovers = [...(elements ?? [])].map(
+      (element) =>
+        new Popover(element, {
+          container: "body",
+          placement: "top",
+          trigger: "hover focus",
+        })
+    );
+    return () => popovers.forEach((popover) => popover.dispose());
+  }, []);
 
   return (
     <div className="discover-detail">
@@ -161,6 +185,38 @@ export function DiscoverProfileDetail({
             <p className="profile-value mb-0">{profile.heightCm} cm</p>
           </section>
         )}
+
+        <div className="discover-detail-safety-actions" ref={actionsRef}>
+          <button
+            type="button"
+            aria-label="Compartir perfil"
+            data-bs-toggle="popover"
+            data-bs-content="Compartir perfil"
+            onClick={onShare}
+          >
+            <i className="bi bi-share" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="is-block"
+            aria-label="Bloquear perfil"
+            data-bs-toggle="popover"
+            data-bs-content="Bloquear perfil"
+            onClick={onBlock}
+          >
+            <i className="bi bi-slash-circle" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="is-danger"
+            aria-label="Denunciar perfil"
+            data-bs-toggle="popover"
+            data-bs-content="Denunciar perfil"
+            onClick={onReport}
+          >
+            <i className="bi bi-flag" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </div>
   );

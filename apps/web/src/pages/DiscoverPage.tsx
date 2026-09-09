@@ -3,7 +3,7 @@ import type {
   CSSProperties,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   DRINKING_LABELS,
   EDUCATION_LEVEL_LABELS,
@@ -40,6 +40,10 @@ import { OverflowFade } from "../components/OverflowFade";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
 import { NoctaLoading } from "../components/NoctaLoading";
+import {
+  DiscoverSafetyModal,
+  type DiscoverSafetyAction,
+} from "../components/DiscoverSafetyModal";
 
 type MatchFlash = {
   matchId: string;
@@ -221,6 +225,7 @@ const SWIPE_EXIT_MS = 240;
 
 export function DiscoverPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const focusedUserId = searchParams.get("userId");
   const [cards, setCards] = useState<DiscoverCard[]>([]);
@@ -253,7 +258,12 @@ export function DiscoverPage() {
     null
   );
   const [rewindBusy, setRewindBusy] = useState(false);
-  const lastSwipedRef = useRef<DiscoverCard | null>(null);
+  const [safetyBusy, setSafetyBusy] = useState(false);
+  const [safetyDialog, setSafetyDialog] = useState<{
+    action: DiscoverSafetyAction;
+    userId: string;
+    name: string;
+  } | null>(null);
   const followPulseTimer = useRef<number | null>(null);
   const dragStartX = useRef(0);
   const dragStartY = useRef(0);
@@ -291,7 +301,6 @@ export function DiscoverPage() {
       );
       setPhotoIdx(0);
       setDetailOpen(false);
-      lastSwipedRef.current = null;
       setCanRewind(false);
     } catch (err) {
       if (err instanceof ApiError && err.code === "NO_PRESENCE") {
@@ -367,7 +376,6 @@ export function DiscoverPage() {
         body: JSON.stringify({ toUserId: swiped.userId, direction }),
       });
       setLikeAllowance(res.likeAllowance);
-      lastSwipedRef.current = swiped;
       setCanRewind(true);
       if (res.match) {
         setMatchFlash({
@@ -400,7 +408,7 @@ export function DiscoverPage() {
         method: "POST",
       });
       setLikeAllowance(res.likeAllowance);
-      const restored = res.card ?? lastSwipedRef.current;
+      const restored = res.card;
       if (restored) {
         setCards((prev) => {
           if (prev.some((c) => c.userId === restored.userId)) return prev;
@@ -409,7 +417,6 @@ export function DiscoverPage() {
         setPhotoIdx(0);
         setDetailOpen(false);
       }
-      lastSwipedRef.current = null;
       setCanRewind(false);
     } catch (err) {
       toast.error(
@@ -496,6 +503,65 @@ export function DiscoverPage() {
       );
     } finally {
       setFollowingBusy(false);
+    }
+  }
+
+  function openSafetyAction(action: DiscoverSafetyAction) {
+    if (!current) return;
+    setSafetyDialog({
+      action,
+      userId: current.userId,
+      name: current.profile.name,
+    });
+  }
+
+  const closeSafetyDialog = useCallback(() => {
+    if (!safetyBusy) setSafetyDialog(null);
+  }, [safetyBusy]);
+
+  async function confirmSafetyAction() {
+    if (!safetyDialog || safetyBusy) return;
+    if (safetyDialog.action === "share") {
+      setSafetyDialog(null);
+      return;
+    }
+    if (safetyDialog.action === "report") {
+      const userId = safetyDialog.userId;
+      setSafetyDialog(null);
+      navigate(`/report/${userId}`);
+      return;
+    }
+
+    setSafetyBusy(true);
+    try {
+      await api(`/api/users/${safetyDialog.userId}/block`, {
+        method: "POST",
+      });
+      const blockedUserId = safetyDialog.userId;
+      setCards((prev) =>
+        prev.filter((card) => card.userId !== blockedUserId)
+      );
+      setFollowingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(blockedUserId);
+        return next;
+      });
+      setRequestedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(blockedUserId);
+        return next;
+      });
+      setDetailOpen(false);
+      setPhotoIdx(0);
+      setCanRewind(false);
+      setSafetyDialog(null);
+      toast.success("Usuario bloqueado");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo bloquear"
+      );
+    } finally {
+      setSafetyBusy(false);
     }
   }
 
@@ -833,6 +899,9 @@ export function DiscoverPage() {
                     <DiscoverProfileDetail
                       card={current}
                       photoIndex={photoIdx}
+                      onShare={() => openSafetyAction("share")}
+                      onBlock={() => openSafetyAction("block")}
+                      onReport={() => openSafetyAction("report")}
                       onCollapse={() => {
                         setDetailOpen(false);
                         if (cardScrollRef.current) {
@@ -1035,6 +1104,16 @@ export function DiscoverPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {safetyDialog && (
+        <DiscoverSafetyModal
+          action={safetyDialog.action}
+          personName={safetyDialog.name}
+          busy={safetyBusy}
+          onClose={closeSafetyDialog}
+          onConfirm={() => void confirmSafetyAction()}
+        />
       )}
 
       {likeLimitOpen && likeAllowance && (

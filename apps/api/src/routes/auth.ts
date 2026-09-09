@@ -21,6 +21,10 @@ import {
   hashToken,
   rateLimit,
 } from "../utils/tokens.js";
+import {
+  refreshExpiredSuspension,
+  suspensionError,
+} from "../utils/moderation.js";
 
 const router = Router();
 
@@ -140,6 +144,11 @@ router.post("/login", async (req, res) => {
     return res.status(401).json({ error: "Credenciales incorrectas" });
   }
 
+  const suspension = await refreshExpiredSuspension(user);
+  if (suspension) {
+    return res.status(403).json(suspensionError(suspension));
+  }
+
   if (!user.emailVerified && user.role !== "admin") {
     return res.status(403).json({
       error: "Confirmá tu email con el código que te enviamos",
@@ -223,6 +232,16 @@ router.post("/verify-email", optionalAuth, async (req: AuthedRequest, res) => {
   }
 
   if (user.emailVerified) {
+    if (req.user?._id.toString() !== user._id.toString()) {
+      return res.status(400).json({
+        error: "La cuenta ya está verificada. Iniciá sesión.",
+        code: "ALREADY_VERIFIED",
+      });
+    }
+    const suspension = await refreshExpiredSuspension(user);
+    if (suspension) {
+      return res.status(403).json(suspensionError(suspension));
+    }
     return res.json({
       ok: true,
       alreadyVerified: true,
@@ -253,6 +272,11 @@ router.post("/verify-email", optionalAuth, async (req: AuthedRequest, res) => {
   user.emailVerificationToken = undefined;
   user.emailVerificationExpires = undefined;
   await user.save();
+
+  const suspension = await refreshExpiredSuspension(user);
+  if (suspension) {
+    return res.status(403).json(suspensionError(suspension));
+  }
 
   return res.json({
     ok: true,

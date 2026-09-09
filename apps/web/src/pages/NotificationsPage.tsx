@@ -6,6 +6,7 @@ import {
   type NotificationsResponse,
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
+import { notificationHref } from "../lib/notificationHref";
 import { useToast } from "../components/ToastProvider";
 import { NotificationContent } from "../components/NotificationContent";
 import { NoctaLoading } from "../components/NoctaLoading";
@@ -68,7 +69,8 @@ export function NotificationsPage() {
         // seguir igual
       }
     }
-    if (item.href) navigate(item.href);
+    const href = notificationHref(item);
+    if (href) navigate(href);
   }
 
   function goToPage(next: number) {

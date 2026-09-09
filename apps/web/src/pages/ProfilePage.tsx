@@ -28,6 +28,9 @@ import {
 } from "../components/ProfileConnectionsModal";
 import { ProfileMyReviewsAccordion } from "../components/ProfileMyReviewsAccordion";
 import { ProfileSettingsModal } from "../components/ProfileSettingsModal";
+import { DeleteAccountModal } from "../components/DeleteAccountModal";
+import { FollowRequestsModal } from "../components/FollowRequestsModal";
+import { ProfileActionButtons } from "../components/ProfileActionButtons";
 
 function calcAge(birthDate?: string) {
   if (!birthDate) return null;
@@ -53,8 +56,16 @@ export function ProfilePage() {
   const [connectionsMode, setConnectionsMode] =
     useState<ProfileConnectionsMode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [followRequestsOpen, setFollowRequestsOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const profile = user?.profile;
   const closeConnections = useCallback(() => setConnectionsMode(null), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closeFollowRequests = useCallback(
+    () => setFollowRequestsOpen(false),
+    []
+  );
+  const closeDeleteAccount = useCallback(() => setDeleteAccountOpen(false), []);
 
   useEffect(() => {
     void api<{ presence: Presence | null }>("/api/presence/me")
@@ -181,6 +192,16 @@ export function ProfilePage() {
             )}
             <div className="profile-hero-fade" />
             <div className="profile-hero-caption d-md-none">
+              {user?.role === "admin" && (
+                <Link
+                  className="profile-admin-dashboard-link"
+                  to="/admin/overview"
+                >
+                  <i className="bi bi-speedometer2" aria-hidden="true" />
+                  <span>Dashboard de administrador</span>
+                  <i className="bi bi-arrow-right" aria-hidden="true" />
+                </Link>
+              )}
               <div className="profile-name-row">
                 <div className="min-w-0">
                   <h1 className="app-title h3 mb-0 text-white">{profile.name}</h1>
@@ -192,31 +213,12 @@ export function ProfilePage() {
                     </p>
                   )}
                 </div>
-                <div className="profile-name-actions">
-                  <button
-                    type="button"
-                    className="btn btn-outline-light profile-edit-btn profile-settings-trigger"
-                    aria-label="Configuración"
-                    onClick={() => setSettingsOpen(true)}
-                  >
-                    <i className="bi bi-person-plus" aria-hidden="true" />
-                    {followRequests.length > 0 && (
-                      <span
-                        className="profile-settings-alert"
-                        aria-label={`${followRequests.length} solicitudes pendientes`}
-                      >
-                        {followRequests.length}
-                      </span>
-                    )}
-                  </button>
-                  <Link
-                    className="btn btn-outline-light profile-edit-btn"
-                    to="/onboarding?edit=1"
-                  >
-                    <i className="bi bi-pencil me-1" aria-hidden="true" />
-                    Editar
-                  </Link>
-                </div>
+                <ProfileActionButtons
+                  followRequestCount={followRequests.length}
+                  onOpenSettings={() => setSettingsOpen(true)}
+                  onOpenFollowRequests={() => setFollowRequestsOpen(true)}
+                  onOpenDeleteAccount={() => setDeleteAccountOpen(true)}
+                />
               </div>
             </div>
           </div>
@@ -290,6 +292,16 @@ export function ProfilePage() {
 
         <div className="profile-info">
           <div className="profile-info-top">
+            {user?.role === "admin" && (
+              <Link
+                className="profile-admin-dashboard-link d-none d-md-grid"
+                to="/admin/overview"
+              >
+                <i className="bi bi-speedometer2" aria-hidden="true" />
+                <span>Dashboard de administrador</span>
+                <i className="bi bi-arrow-right" aria-hidden="true" />
+              </Link>
+            )}
             <div className="profile-name-row d-none d-md-flex">
               <div className="min-w-0">
                 <h1 className="app-title h3 mb-0">{profile.name}</h1>
@@ -301,31 +313,12 @@ export function ProfilePage() {
                   </p>
                 )}
               </div>
-              <div className="profile-name-actions">
-                <button
-                  type="button"
-                  className="btn btn-outline-light profile-edit-btn profile-settings-trigger"
-                  aria-label="Configuración"
-                  onClick={() => setSettingsOpen(true)}
-                >
-                  <i className="bi bi-person-plus" aria-hidden="true" />
-                  {followRequests.length > 0 && (
-                    <span
-                      className="profile-settings-alert"
-                      aria-label={`${followRequests.length} solicitudes pendientes`}
-                    >
-                      {followRequests.length}
-                    </span>
-                  )}
-                </button>
-                <Link
-                  className="btn btn-outline-light profile-edit-btn"
-                  to="/onboarding?edit=1"
-                >
-                  <i className="bi bi-pencil me-1" aria-hidden="true" />
-                  Editar
-                </Link>
-              </div>
+              <ProfileActionButtons
+                followRequestCount={followRequests.length}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenFollowRequests={() => setFollowRequestsOpen(true)}
+                onOpenDeleteAccount={() => setDeleteAccountOpen(true)}
+              />
             </div>
 
             <div className="profile-status">
@@ -521,7 +514,11 @@ export function ProfilePage() {
             </Link>
           </section>
 
-          <p className="profile-email text-secondary small mb-0">{user?.email}</p>
+          <div className="profile-account-footer">
+            <p className="profile-email text-secondary small mb-0">
+              {user?.email}
+            </p>
+          </div>
         </div>
       </div>
       {connectionsMode && (
@@ -534,12 +531,20 @@ export function ProfilePage() {
       {settingsOpen && user && (
         <ProfileSettingsModal
           user={user}
-          followRequests={followRequests}
-          requestBusyId={requestBusyId}
-          onClose={() => setSettingsOpen(false)}
+          onClose={closeSettings}
           onUserUpdated={setUser}
-          onRespondRequest={respondFollowRequest}
         />
+      )}
+      {followRequestsOpen && (
+        <FollowRequestsModal
+          requests={followRequests}
+          busyRequestId={requestBusyId}
+          onClose={closeFollowRequests}
+          onRespond={respondFollowRequest}
+        />
+      )}
+      {deleteAccountOpen && (
+        <DeleteAccountModal onClose={closeDeleteAccount} />
       )}
     </div>
   );

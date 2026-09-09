@@ -9,13 +9,11 @@ import { Message } from "../models/Message.js";
 import { User } from "../models/User.js";
 import { Venue } from "../models/Venue.js";
 import { Report } from "../models/Report.js";
-import { Block, blockedPeerIds } from "../models/Block.js";
+import { blockedPeerIds } from "../models/Block.js";
 import { isObjectId, paramId } from "../utils/ids.js";
 import { createNotification, notifyMany } from "../utils/notify.js";
-import {
-  dissolveAllMatchesBetween,
-  dissolveMatch,
-} from "../utils/matchActions.js";
+import { dissolveMatch } from "../utils/matchActions.js";
+import { blockUser } from "../utils/userSafety.js";
 
 const router = Router();
 
@@ -191,6 +189,7 @@ router.post("/:id/report", async (req: AuthedRequest, res) => {
     reporterId: req.user!._id,
     reportedUserId,
     matchId: match._id,
+    source: "match",
     reason: parsed.data.reason,
     details: parsed.data.details,
   });
@@ -225,26 +224,11 @@ router.post("/:id/block", async (req: AuthedRequest, res) => {
   if (!match) return res.status(404).json({ error: "Match no encontrado" });
 
   const blockedId = otherUserId(match, userId);
-  try {
-    await Block.create({
-      blockerId: req.user!._id,
-      blockedId,
-    });
-  } catch (err: unknown) {
-    if (
-      !(
-        err &&
-        typeof err === "object" &&
-        "code" in err &&
-        (err as { code: number }).code === 11000
-      )
-    ) {
-      throw err;
-    }
+  const result = await blockUser(userId, blockedId);
+  if ("error" in result) {
+    return res.status(result.status).json({ error: result.error });
   }
-
-  await dissolveAllMatchesBetween(userId, blockedId);
-  return res.json({ ok: true });
+  return res.json(result);
 });
 
 export default router;

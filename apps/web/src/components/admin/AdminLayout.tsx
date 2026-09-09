@@ -7,6 +7,9 @@ export const ADMIN_NAV = [
   { to: "/admin/content", label: "Contenido", icon: "bi-newspaper", end: true },
   { to: "/admin/users", label: "Usuarios", icon: "bi-people", end: true },
   { to: "/admin/reports", label: "Denuncias", icon: "bi-flag", end: true },
+  { to: "/admin/transactions", label: "Transacciones", icon: "bi-receipt", end: true },
+  { to: "/admin/audit", label: "Auditoría", icon: "bi-shield-check", end: true },
+  { to: "/profile", label: "Mi perfil", icon: "bi-person-circle", end: true },
 ] as const;
 
 export function AdminLayout() {
