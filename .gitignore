@@ -7,6 +7,7 @@ build/
 .DS_Store
 coverage/
 .vite/
-uploads/
+# Archivos subidos en runtime (no el código fuente en apps/api/src/uploads/)
+apps/api/uploads/
 private/
 *.tsbuildinfo
