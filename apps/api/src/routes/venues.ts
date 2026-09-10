@@ -708,31 +708,35 @@ router.post(
       deleteLocalUploads(uploaded.map((upload) => upload.url));
       deleteClaimEvidence(rawEvidence);
     };
-    if (uploaded.length !== 1) {
+    if (uploaded.length > 1) {
       cleanup();
       return res.status(400).json({
-        error: "La portada WebP de 1600×1200 píxeles es obligatoria",
-        code: "UPLOAD_REQUIRED",
+        error: "Solo se admite una portada",
+        code: "UPLOAD_INVALID",
       });
     }
-    const checked = assertUploadsAreImages(uploaded);
-    if (!checked.ok) {
-      cleanup();
-      return res
-        .status(400)
-        .json({ error: checked.error, code: "UPLOAD_INVALID" });
-    }
-    const coverCheck = await assertVenueCoverUpload(uploaded[0]);
-    if (!coverCheck.ok) {
-      cleanup();
-      return res
-        .status(400)
-        .json({ error: coverCheck.error, code: "UPLOAD_INVALID" });
+    if (uploaded.length === 1) {
+      const checked = assertUploadsAreImages(uploaded);
+      if (!checked.ok) {
+        cleanup();
+        return res
+          .status(400)
+          .json({ error: checked.error, code: "UPLOAD_INVALID" });
+      }
+      const coverCheck = await assertVenueCoverUpload(uploaded[0]);
+      if (!coverCheck.ok) {
+        cleanup();
+        return res
+          .status(400)
+          .json({ error: coverCheck.error, code: "UPLOAD_INVALID" });
+      }
     }
 
     const body = { ...(req.body as Record<string, unknown>) };
     if (uploaded[0]?.url) {
       body.photos = [uploaded[0].url];
+    } else {
+      body.photos = [];
     }
 
     const parsed = parseRequestBody(body);

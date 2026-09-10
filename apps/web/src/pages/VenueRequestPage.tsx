@@ -15,11 +15,7 @@ import {
   LocationPickerMap,
   type MapCoords,
 } from "../components/LocationPickerMap";
-import {
-  validateVenueCoverFile,
-  VenueCountryCityFields,
-  VenueCoverField,
-} from "../components/VenueFormFields";
+import { VenueCountryCityFields } from "../components/VenueFormFields";
 import { useToast } from "../components/ToastProvider";
 import { VenueClaimForm } from "../components/VenueClaimForm";
 import {
@@ -46,8 +42,6 @@ export function VenueRequestPage() {
   const [description, setDescription] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [wantsToManage, setWantsToManage] = useState(false);
   const [managementMessage, setManagementMessage] = useState("");
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
@@ -73,12 +67,6 @@ export function VenueRequestPage() {
   useEffect(() => {
     void load().catch(() => setMine([]));
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (photoPreview) URL.revokeObjectURL(photoPreview);
-    };
-  }, [photoPreview]);
 
   useEffect(() => {
     setLocation(null);
@@ -170,24 +158,6 @@ export function VenueRequestPage() {
     }
   }
 
-  async function onPhotoChange(file: File) {
-    const validationError = await validateVenueCoverFile(file);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
-    setPhotoFile(file);
-    setPhotoPreview(URL.createObjectURL(file));
-    setError("");
-  }
-
-  function clearPhoto() {
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
-    setPhotoFile(null);
-    setPhotoPreview(null);
-  }
-
   function resetForm() {
     setName("");
     setType("boliche");
@@ -202,7 +172,6 @@ export function VenueRequestPage() {
     setWantsToManage(false);
     setManagementMessage("");
     setEvidenceFiles([]);
-    clearPhoto();
   }
 
   async function submit(e: FormEvent) {
@@ -215,10 +184,6 @@ export function VenueRequestPage() {
     }
     if (displayAddress.trim().length < 5) {
       setError("Completá la dirección para mostrar");
-      return;
-    }
-    if (!photoFile) {
-      setError("Subí una imagen WebP de 1600×1200 píxeles");
       return;
     }
     if (wantsToManage) {
@@ -246,7 +211,6 @@ export function VenueRequestPage() {
       if (wantsToManage && managementMessage.trim()) {
         form.append("managementMessage", managementMessage.trim());
       }
-      form.append("photo", photoFile);
       if (wantsToManage) {
         evidenceFiles.forEach((file) => form.append("evidenceFiles", file));
       }
@@ -310,7 +274,7 @@ export function VenueRequestPage() {
         </div>
         <p className="venue-request-lead mb-0">
           {activeTab === "create"
-            ? "Contanos qué Espacio falta y marcá dónde está en el mapa. También podés solicitar ser su Organizador."
+            ? "Contanos qué Espacio falta y marcá dónde está en el mapa. La portada la carga el equipo de Nocta al publicar. También podés solicitar ser su Organizador."
             : "Elegí un Espacio existente y acreditá que estás habilitado para administrarlo. El equipo de Nocta revisará la documentación."}
         </p>
       </header>
@@ -403,12 +367,6 @@ export function VenueRequestPage() {
               />
               <small className="venue-request-hint">{DISPLAY_ADDRESS_HINT}</small>
             </label>
-            <VenueCoverField
-              previewSrc={photoPreview}
-              required
-              onFileSelected={onPhotoChange}
-              onClear={clearPhoto}
-            />
           </div>
         </section>
 

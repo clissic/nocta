@@ -461,6 +461,7 @@ export function serializeVenueRequest(
       : undefined,
     geocodedAddress: request.geocodedAddress ?? undefined,
     status: request.status,
+    rejectionReason: request.rejectionReason ?? undefined,
     adminNote: request.adminNote ?? undefined,
     reviewedBy: request.reviewedBy
       ? request.reviewedBy.toString()

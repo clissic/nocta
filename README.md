@@ -253,7 +253,7 @@ Modelo: `passwordHash` opcional; `oauthAccounts[]` `{ provider, providerUserId }
 | `PATCH` | `/api/venues/:id` | admin | Edición / `active` / reasignar `ownerId` |
 | `PATCH` | `/api/venues/:id/manage` | admin o organizador | multipart; edita datos, ubicación y reemplaza opcionalmente la portada |
 | `DELETE` | `/api/venues/:id` | admin | Soft-delete (`active: false`) |
-| `POST` | `/api/venues/requests` | user | multipart; portada WebP 1600×1200 + `wantsToManage`; si es `true`, exige `managementMessage?` y 1–3 `evidenceFiles` privados |
+| `POST` | `/api/venues/requests` | user | multipart; **sin portada** (la carga el admin al aprobar); `wantsToManage`; si es `true`, exige `managementMessage?` y 1–3 `evidenceFiles` privados |
 | `GET` | `/api/venues/claimable` | user | Espacios activos sin Organizador; búsqueda `q`, máximo 30 |
 | `POST` | `/api/venues/claims` | user | Reclama un Espacio existente; multipart con `venueId`, `message?` y 1–3 `evidenceFiles` privados (PDF/JPG/PNG/WebP, 2 MB c/u) |
 | `GET` | `/api/venues/requests/mine` | user | Mis solicitudes |
@@ -357,8 +357,8 @@ solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticia
 | `GET` | `/api/admin/venue-requests` | Paginado (`page`, `limit` mínimo 10) + `status?` pending/approved/rejected |
 | `GET` | `/api/admin/venue-requests/:id` | Detalle de alta o reclamación |
 | `GET` | `/api/admin/venue-requests/:id/evidence/:fileId` | Descarga autenticada de un comprobante privado |
-| `POST` | `/api/admin/venue-requests/:id/approve` | Alta: crea Espacio; reclamación: asigna atómicamente `ownerId`; email al solicitante |
-| `POST` | `/api/admin/venue-requests/:id/reject` | Rechazo (+ `adminNote`?); email al solicitante |
+| `POST` | `/api/admin/venue-requests/:id/approve` | **Create:** multipart con datos editables + portada WebP obligatoria; crea Venue. **Claim:** JSON `{ adminNote? }`; asigna `ownerId`. Email + notif al solicitante |
+| `POST` | `/api/admin/venue-requests/:id/reject` | `{ reason }` (`VENUE_REQUEST_REJECT_REASONS`) + `adminNote?` (obligatoria si `other`); email + notif |
 | `GET` | `/api/admin/reports` | Denuncias paginadas (`page`, `limit` mínimo 10, `status?`) |
 | `POST` | `/api/admin/reports/:id/actions` | Resolución única con explicación obligatoria: descartar o suspender 30/90/180/360 días o permanentemente; revoca sesiones/presencia y envía emails |
 | `GET` | `/api/admin/promo-purchases` | Compras internas de promos, read-only y paginadas (`page`, `limit`; default/mínimo 10) |
@@ -481,9 +481,9 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 | `/profile` | Hero + galería; Mis reseñas; contadores; Mis promos / Mis espacios; cuatro acciones con popover (configuración, solicitudes, editar y eliminar); borrado con confirmación escrita; acceso al dashboard si es admin; **único sitio con footer** |
 | `/profile/blocked` | Lista paginada de usuarios bloqueados con opción para desbloquear |
 | `/profile/promos` | Mis promos + QR |
-| `/profile/venue-request` | Pestañas Registrar/Reclamar: el alta puede ser sugerencia sin Organizador o pedir administración con 1–3 comprobantes privados; la dirección manual se geocodifica tras 3 s sin escritura y mueve el pin; reclamación usa la misma acreditación |
+| `/profile/venue-request` | Pestañas Registrar/Reclamar: el alta **no** pide portada (la publica el admin); sugerencia u Organizador con comprobantes; reclamación sin cambios |
 | `/admin/overview` | KPIs operativos y accesos a todos los módulos |
-| `/admin/requests` · `/admin/venues` · `/admin/content` | Gestión de solicitudes, Espacios y contenido |
+| `/admin/requests` · `/admin/venues` · `/admin/content` | Pendientes create → modal Aceptar/Rechazar (+ WebP al aprobar); reclamaciones → detalle; Espacios y contenido |
 | `/admin/users` | Usuarios y administradores; modal para editar cuenta/perfil, asignar rol y consultar suspensiones |
 | `/admin/reports` | Denuncias paginadas; fichas de ambas personas y modal Acciones para descartar con motivo o suspender por duración |
 | `/admin/transactions` | Compras internas de promos, read-only y paginadas; conciliación externa pendiente |
@@ -508,7 +508,7 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 
 Tipos y catálogos usados por API y Web:
 
-- Catálogos: `LOOKING_FOR`, `INTERESTS`, `INTEREST_CATEGORIES`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `SEXUAL_ORIENTATIONS`, `LANGUAGES`, `ZODIAC_SIGNS`, `EDUCATION_LEVELS`, `PETS`, `DRINKING`, `FITNESS`, `SOCIAL_NETWORKS`, `VENUE_COUNTRIES`, `VENUE_CITIES_BY_COUNTRY`, `PROFILE_COUNTRIES`, `OAUTH_PROVIDERS`, `REPORT_REASONS`, `VENUE_REQUEST_STATUSES`, `FOLLOW_TARGET_TYPES`, `FOLLOW_REQUEST_STATUSES`, `PROMO_PURCHASE_STATUSES` (+ labels)
+- Catálogos: `LOOKING_FOR`, `INTERESTS`, `INTEREST_CATEGORIES`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `SEXUAL_ORIENTATIONS`, `LANGUAGES`, `ZODIAC_SIGNS`, `EDUCATION_LEVELS`, `PETS`, `DRINKING`, `FITNESS`, `SOCIAL_NETWORKS`, `VENUE_COUNTRIES`, `VENUE_CITIES_BY_COUNTRY`, `PROFILE_COUNTRIES`, `OAUTH_PROVIDERS`, `REPORT_REASONS`, `VENUE_REQUEST_STATUSES`, `VENUE_REQUEST_REJECT_REASONS`, `FOLLOW_TARGET_TYPES`, `FOLLOW_REQUEST_STATUSES`, `PROMO_PURCHASE_STATUSES` (+ labels)
 - Límites: `VENUES_PAGE_SIZE` (9), `REVIEWS_PAGE_SIZE`, `MY_REVIEWS_PAGE_SIZE` (5), `MIN/MAX_VENUE_RATING`, `MAX_REVIEW_BODY_LENGTH`, `MAX_REVIEW_PHOTOS` (3), portada de Espacio WebP (`VENUE_COVER_WIDTH/HEIGHT` = 1600×1200), `MAX_POST_BODY_LENGTH` (200), `MAX_POST_PHOTOS` (3), `MIN/MAX_PHOTOS`, `MIN/MAX_AGE`, `DAILY_LIKE_LIMIT` (50), `LIKE_RECHARGE_HOURS` (8)
 - Actividad: `ACTIVITY_TYPES` + `ACTIVITY_TYPE_LABELS` (incluye `user_post_created`)
 - Notificaciones: `NOTIFICATION_TYPES` + `NOTIFICATION_TYPE_LABELS`, `NOTIFICATION_READ_TTL_DAYS` (30), `NOTIFICATIONS_PREVIEW_LIMIT` (5), `NOTIFICATIONS_PAGE_SIZE` (10)

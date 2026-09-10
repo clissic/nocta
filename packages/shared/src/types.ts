@@ -17,6 +17,7 @@ import type {
   SOCIAL_NETWORKS,
   VENUE_REQUEST_STATUSES,
   VENUE_REQUEST_TYPES,
+  VENUE_REQUEST_REJECT_REASONS,
   PROMO_PURCHASE_STATUSES,
   ACTIVITY_TYPES,
   FOLLOW_REQUEST_STATUSES,
@@ -44,6 +45,8 @@ export type FollowTargetType = (typeof FOLLOW_TARGET_TYPES)[number];
 export type FollowRequestStatus = (typeof FOLLOW_REQUEST_STATUSES)[number];
 export type VenueRequestStatus = (typeof VENUE_REQUEST_STATUSES)[number];
 export type VenueRequestType = (typeof VENUE_REQUEST_TYPES)[number];
+export type VenueRequestRejectReason =
+  (typeof VENUE_REQUEST_REJECT_REASONS)[number];
 export type PromoPurchaseStatus = (typeof PROMO_PURCHASE_STATUSES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type ReportReason = (typeof REPORT_REASONS)[number];
@@ -259,6 +262,7 @@ export interface VenueRequest {
   /** Dirección detectada por el mapa (geocoding inverso). */
   geocodedAddress?: string;
   status: VenueRequestStatus;
+  rejectionReason?: VenueRequestRejectReason;
   adminNote?: string;
   reviewedBy?: string;
   venueId?: string;

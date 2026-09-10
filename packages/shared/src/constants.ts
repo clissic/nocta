@@ -333,6 +333,27 @@ export const VENUE_REQUEST_STATUSES = [
 ] as const;
 
 export const VENUE_REQUEST_TYPES = ["create", "claim"] as const;
+
+/** Motivos predefinidos al rechazar una solicitud de Espacio. */
+export const VENUE_REQUEST_REJECT_REASONS = [
+  "incomplete_data",
+  "duplicate_venue",
+  "not_suitable",
+  "location_unverifiable",
+  "other",
+] as const;
+
+export const VENUE_REQUEST_REJECT_REASON_LABELS: Record<
+  (typeof VENUE_REQUEST_REJECT_REASONS)[number],
+  string
+> = {
+  incomplete_data: "Datos incompletos o incorrectos",
+  duplicate_venue: "Espacio duplicado",
+  not_suitable: "No corresponde a Nocta",
+  location_unverifiable: "Ubicación no verificable",
+  other: "Otro",
+};
+
 export const MAX_VENUE_CLAIM_FILES = 3;
 export const MAX_VENUE_CLAIM_FILE_BYTES = 2 * 1024 * 1024;
 export const VENUE_CLAIM_FILE_MIME_TYPES = [

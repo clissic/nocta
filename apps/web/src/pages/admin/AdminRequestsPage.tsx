@@ -12,6 +12,7 @@ import {
   ADMIN_PAGE_SIZE,
   AdminPagination,
 } from "../../components/admin/AdminPagination";
+import { AdminCreateVenueRequestModal } from "../../components/admin/AdminCreateVenueRequestModal";
 
 const FILTERS: { value: VenueRequestStatus | "all"; label: string; icon: string }[] = [
   { value: "pending", label: "Pendientes", icon: "bi-hourglass-split" },
@@ -33,6 +34,8 @@ export function AdminRequestsPage() {
   const [totalRequests, setTotalRequests] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activeCreate, setActiveCreate] = useState<VenueRequest | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -54,7 +57,12 @@ export function AdminRequestsPage() {
         setError(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-  }, [status, page]);
+  }, [status, page, reloadKey]);
+
+  function openCreate(request: VenueRequest) {
+    if (request.status !== "pending") return;
+    setActiveCreate(request);
+  }
 
   return (
     <div className="admin-page">
@@ -100,46 +108,99 @@ export function AdminRequestsPage() {
       ) : (
         <>
           <div className="admin-list">
-          {requests.map((r) => (
-            <Link
-              key={r.id}
-              className="admin-list-row admin-list-row-link"
-              to={`/admin/venue-requests/${r.id}`}
-            >
-              {r.photos[0] ? (
-                <img src={r.photos[0]} alt="" className="admin-list-thumb" />
-              ) : (
-                <div className="admin-list-thumb is-empty" aria-hidden="true">
-                  <i className="bi bi-building" />
-                </div>
-              )}
-              <div className="admin-list-body min-w-0">
-                <div className="d-flex flex-wrap align-items-center gap-2">
-                  <strong className="text-truncate">{r.name}</strong>
-                  <span className={`admin-badge is-${r.status}`}>
-                    {STATUS_LABEL[r.status]}
-                  </span>
-                  <span className="admin-badge">
-                    {r.requestType === "claim"
-                      ? "Reclamación"
-                      : r.wantsToManage
-                        ? "Alta con administración"
-                        : "Sugerencia"}
-                  </span>
-                </div>
-                <div className="text-secondary small text-truncate">
-                  {VENUE_TYPE_LABELS[r.type]} · {r.address}, {r.city},{" "}
-                  {r.country}
-                </div>
-                <div className="text-secondary small text-truncate">
-                  {r.requester?.name
-                    ? `${r.requester.name} · ${r.requester.email}`
-                    : r.requester?.email ?? r.requesterId}
-                </div>
-              </div>
-              <i className="bi bi-chevron-right admin-list-chevron" aria-hidden="true" />
-            </Link>
-          ))}
+            {requests.map((r) => {
+              const isCreate = (r.requestType ?? "create") !== "claim";
+              const canModal = isCreate && r.status === "pending";
+
+              if (canModal) {
+                return (
+                  <div key={r.id} className="admin-list-row admin-list-row-actions">
+                    <button
+                      type="button"
+                      className="admin-list-row-main"
+                      onClick={() => openCreate(r)}
+                    >
+                      <div className="admin-list-thumb is-empty" aria-hidden="true">
+                        <i className="bi bi-building" />
+                      </div>
+                      <div className="admin-list-body min-w-0">
+                        <div className="d-flex flex-wrap align-items-center gap-2">
+                          <strong className="text-truncate">{r.name}</strong>
+                          <span className={`admin-badge is-${r.status}`}>
+                            {STATUS_LABEL[r.status]}
+                          </span>
+                          <span className="admin-badge">
+                            {r.wantsToManage
+                              ? "Alta con administración"
+                              : "Sugerencia"}
+                          </span>
+                        </div>
+                        <div className="text-secondary small text-truncate">
+                          {VENUE_TYPE_LABELS[r.type]} · {r.address}, {r.city},{" "}
+                          {r.country}
+                        </div>
+                        <div className="text-secondary small text-truncate">
+                          {r.requester?.name
+                            ? `${r.requester.name} · ${r.requester.email}`
+                            : r.requester?.email ?? r.requesterId}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-light"
+                      onClick={() => openCreate(r)}
+                    >
+                      Acciones
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <Link
+                  key={r.id}
+                  className="admin-list-row admin-list-row-link"
+                  to={`/admin/venue-requests/${r.id}`}
+                >
+                  {r.photos[0] ? (
+                    <img src={r.photos[0]} alt="" className="admin-list-thumb" />
+                  ) : (
+                    <div className="admin-list-thumb is-empty" aria-hidden="true">
+                      <i className="bi bi-building" />
+                    </div>
+                  )}
+                  <div className="admin-list-body min-w-0">
+                    <div className="d-flex flex-wrap align-items-center gap-2">
+                      <strong className="text-truncate">{r.name}</strong>
+                      <span className={`admin-badge is-${r.status}`}>
+                        {STATUS_LABEL[r.status]}
+                      </span>
+                      <span className="admin-badge">
+                        {r.requestType === "claim"
+                          ? "Reclamación"
+                          : r.wantsToManage
+                            ? "Alta con administración"
+                            : "Sugerencia"}
+                      </span>
+                    </div>
+                    <div className="text-secondary small text-truncate">
+                      {VENUE_TYPE_LABELS[r.type]} · {r.address}, {r.city},{" "}
+                      {r.country}
+                    </div>
+                    <div className="text-secondary small text-truncate">
+                      {r.requester?.name
+                        ? `${r.requester.name} · ${r.requester.email}`
+                        : r.requester?.email ?? r.requesterId}
+                    </div>
+                  </div>
+                  <i
+                    className="bi bi-chevron-right admin-list-chevron"
+                    aria-hidden="true"
+                  />
+                </Link>
+              );
+            })}
           </div>
           <AdminPagination
             page={page}
@@ -148,6 +209,14 @@ export function AdminRequestsPage() {
             label="Páginas de solicitudes"
           />
         </>
+      )}
+
+      {activeCreate && (
+        <AdminCreateVenueRequestModal
+          request={activeCreate}
+          onClose={() => setActiveCreate(null)}
+          onResolved={() => setReloadKey((n) => n + 1)}
+        />
       )}
     </div>
   );

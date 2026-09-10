@@ -1,5 +1,6 @@
 import mongoose, { Schema, type HydratedDocument, type InferSchemaType } from "mongoose";
 import {
+  VENUE_REQUEST_REJECT_REASONS,
   VENUE_REQUEST_STATUSES,
   VENUE_REQUEST_TYPES,
   VENUE_TYPES,
@@ -60,6 +61,10 @@ const venueRequestSchema = new Schema(
       enum: VENUE_REQUEST_STATUSES,
       default: "pending",
       index: true,
+    },
+    rejectionReason: {
+      type: String,
+      enum: VENUE_REQUEST_REJECT_REASONS,
     },
     adminNote: { type: String, maxlength: 500 },
     reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },

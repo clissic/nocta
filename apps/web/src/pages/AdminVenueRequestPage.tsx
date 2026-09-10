@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import {
+  VENUE_REQUEST_REJECT_REASON_LABELS,
+  VENUE_REQUEST_REJECT_REASONS,
   VENUE_TYPE_LABELS,
   type Venue,
   type VenueRequest,
+  type VenueRequestRejectReason,
 } from "@nocta/shared";
 import { VenueMap } from "../components/VenueMap";
 import { api, ApiError, downloadApiFile } from "../lib/api";
@@ -23,6 +26,8 @@ export function AdminVenueRequestPage() {
   const [request, setRequest] = useState<VenueRequest | null>(null);
   const [targetVenue, setTargetVenue] = useState<Venue | null>(null);
   const [note, setNote] = useState("");
+  const [rejectReason, setRejectReason] =
+    useState<VenueRequestRejectReason>("incomplete_data");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -46,7 +51,7 @@ export function AdminVenueRequestPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  async function review(action: "approve" | "reject") {
+  async function approveClaim() {
     if (!request) return;
     setBusy(true);
     setError("");
@@ -54,12 +59,43 @@ export function AdminVenueRequestPage() {
       const response = await api<{
         request: VenueRequest;
         venue?: Venue;
-      }>(`/api/admin/venue-requests/${request.id}/${action}`, {
+      }>(`/api/admin/venue-requests/${request.id}/approve`, {
         method: "POST",
         body: JSON.stringify({ adminNote: note.trim() || undefined }),
       });
       setRequest(response.request);
       setCreatedVenue(response.venue ?? null);
+      toast.success("Reclamación aprobada");
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "No se pudo revisar la solicitud"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rejectClaim() {
+    if (!request) return;
+    if (rejectReason === "other" && !note.trim()) {
+      setError("Agregá una explicación para el motivo «Otro»");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await api<{ request: VenueRequest }>(
+        `/api/admin/venue-requests/${request.id}/reject`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            reason: rejectReason,
+            adminNote: note.trim() || undefined,
+          }),
+        }
+      );
+      setRequest(response.request);
+      toast.success("Reclamación rechazada");
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "No se pudo revisar la solicitud"
@@ -111,6 +147,10 @@ export function AdminVenueRequestPage() {
   }
 
   const isClaim = request.requestType === "claim";
+  if (!isClaim && request.status === "pending") {
+    return <Navigate to="/admin/requests" replace />;
+  }
+
   const requestsManagement = isClaim || request.wantsToManage;
   const reviewVenue = targetVenue ?? createdVenue;
 
@@ -242,59 +282,79 @@ export function AdminVenueRequestPage() {
             <section>
               <h2 className="admin-review-label">Contacto privado</h2>
               <p className="mb-0">
-                {[request.contactEmail, request.contactPhone].filter(Boolean).join(" · ")}
+                {[request.contactEmail, request.contactPhone]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
             </section>
           )}
 
-          <section>
-            <label className="admin-review-label" htmlFor="admin-note">
-              Motivo / nota de revisión
-            </label>
-            <textarea
-              id="admin-note"
-              className="form-control mt-2"
-              rows={3}
-              maxLength={500}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              disabled={request.status !== "pending"}
-              placeholder="Si rechazás o aprobás, este texto puede ir en el email al solicitante"
-            />
-          </section>
-
-          {request.status === "pending" ? (
-            <div className="admin-venue-review-actions">
-              <button
-                className="btn btn-primary"
-                type="button"
-                disabled={busy}
-                onClick={() => void review("approve")}
-              >
-                <i className="bi bi-check-lg" aria-hidden="true" />
-                <span>
-                  {busy
-                    ? "Procesando…"
-                    : isClaim
-                      ? "Autorizar administración"
-                      : requestsManagement
-                        ? "Autorizar, crear y asignar"
-                        : "Autorizar y publicar"}
-                </span>
-              </button>
-              <button
-                className="btn btn-outline-light"
-                type="button"
-                disabled={busy}
-                onClick={() => void review("reject")}
-              >
-                <i className="bi bi-x-lg" aria-hidden="true" />
-                <span>Rechazar</span>
-              </button>
-            </div>
+          {request.status === "pending" && isClaim ? (
+            <>
+              <section>
+                <label className="admin-review-label" htmlFor="reject-reason">
+                  Motivo de rechazo
+                </label>
+                <select
+                  id="reject-reason"
+                  className="form-select mt-2"
+                  value={rejectReason}
+                  onChange={(e) =>
+                    setRejectReason(e.target.value as VenueRequestRejectReason)
+                  }
+                >
+                  {VENUE_REQUEST_REJECT_REASONS.map((value) => (
+                    <option key={value} value={value}>
+                      {VENUE_REQUEST_REJECT_REASON_LABELS[value]}
+                    </option>
+                  ))}
+                </select>
+              </section>
+              <section>
+                <label className="admin-review-label" htmlFor="admin-note">
+                  Nota / explicación
+                  {rejectReason === "other" ? " (obligatoria al rechazar)" : ""}
+                </label>
+                <textarea
+                  id="admin-note"
+                  className="form-control mt-2"
+                  rows={3}
+                  maxLength={500}
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder="Opcional al aprobar; al rechazar con «Otro» es obligatoria"
+                />
+              </section>
+              <div className="admin-venue-review-actions">
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void approveClaim()}
+                >
+                  <i className="bi bi-check-lg" aria-hidden="true" />
+                  <span>
+                    {busy ? "Procesando…" : "Autorizar administración"}
+                  </span>
+                </button>
+                <button
+                  className="btn btn-outline-light"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void rejectClaim()}
+                >
+                  <i className="bi bi-x-lg" aria-hidden="true" />
+                  <span>Rechazar</span>
+                </button>
+              </div>
+            </>
           ) : (
             <div className="admin-review-result">
-              Esta solicitud ya fue {request.status === "approved" ? "aprobada" : "rechazada"}.
+              Esta solicitud ya fue{" "}
+              {request.status === "approved" ? "aprobada" : "rechazada"}.
+              {request.adminNote && (
+                <p className="small mt-2 mb-0">Nota: {request.adminNote}</p>
+              )}
               {createdVenue && (
                 <Link to={`/venues/${createdVenue.id}`}> Ver Espacio</Link>
               )}

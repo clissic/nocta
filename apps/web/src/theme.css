@@ -9267,6 +9267,39 @@ button.venue-claim-file-slot.is-empty:hover {
   text-decoration: none;
 }
 
+.admin-list-row-actions {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.admin-list-row-main {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-list-row-main:hover strong {
+  color: var(--bs-primary);
+}
+
+.admin-create-request-dialog {
+  max-width: min(720px, 100%);
+  width: 100%;
+}
+
+.admin-create-request-dialog .venue-request-form {
+  margin: 0;
+}
+
 .admin-list-row-button {
   width: 100%;
   border: 0;

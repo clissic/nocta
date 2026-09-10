@@ -3,17 +3,24 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 import {
   DAILY_LIKE_LIMIT,
+  DEFAULT_URUGUAY_CITY,
+  DEFAULT_VENUE_COUNTRY,
   DRINKING,
   EDUCATION_LEVELS,
+  ENABLED_VENUE_COUNTRIES,
   FITNESS,
   INTERESTS,
+  isVenueCity,
   LANGUAGES,
   LOOKING_FOR,
   PETS,
   SEXUAL_ORIENTATIONS,
   SOCIAL_NETWORKS,
   SUSPENSION_DURATION_LABELS,
+  VENUE_REQUEST_REJECT_REASON_LABELS,
+  VENUE_REQUEST_REJECT_REASONS,
   VENUE_REQUEST_STATUSES,
+  VENUE_TYPES,
   WORK_STATUS,
   ZODIAC_SIGNS,
 } from "@nocta/shared";
@@ -44,7 +51,15 @@ import {
   sendVenueRequestRejectedEmail,
 } from "../mail/mailer.js";
 import { createNotification } from "../utils/notify.js";
-import { safeClaimEvidencePath } from "../uploads/index.js";
+import {
+  assertUploadsAreImages,
+  assertVenueCoverUpload,
+  collectUploadedFiles,
+  deleteLocalUploads,
+  handleMulterError,
+  safeClaimEvidencePath,
+  uploadSinglePhoto,
+} from "../uploads/index.js";
 import {
   parsePromoValidityRange,
   resolveUserTimeZone,
@@ -145,6 +160,104 @@ const photoUrlSchema = z
     (v) => v.startsWith("/uploads/") || /^https?:\/\//i.test(v),
     "URL de foto inválida"
   );
+
+const enabledVenueCountries = [...ENABLED_VENUE_COUNTRIES] as [
+  string,
+  ...string[],
+];
+
+const approveCreateLocationSchema = z.object({
+  lat: z.number().finite().min(-90).max(90),
+  lng: z.number().finite().min(-180).max(180),
+});
+
+const approveCreateSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    type: z.enum(VENUE_TYPES),
+    address: z.string().trim().min(5).max(200),
+    country: z.enum(enabledVenueCountries).default(DEFAULT_VENUE_COUNTRY),
+    city: z.string().trim().min(2).default(DEFAULT_URUGUAY_CITY.label),
+    description: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() ? v.trim() : undefined),
+      z.string().max(1000).optional()
+    ),
+    contactEmail: z.preprocess(
+      (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+      z.string().email().optional()
+    ),
+    contactPhone: z.preprocess(
+      (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+      z.string().trim().max(40).optional()
+    ),
+    location: approveCreateLocationSchema,
+    geocodedAddress: z.string().trim().min(3).max(300),
+    adminNote: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 500) : undefined),
+      z.string().max(500).optional()
+    ),
+  })
+  .superRefine((data, ctx) => {
+    if (!isVenueCity(data.country, data.city)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["city"],
+        message: "La ciudad no corresponde al país seleccionado",
+      });
+    }
+  });
+
+function parseApproveCreateBody(raw: Record<string, unknown>) {
+  let location: unknown = raw.location;
+  if (typeof location === "string") {
+    try {
+      location = JSON.parse(location);
+    } catch {
+      location = undefined;
+    }
+  }
+  return approveCreateSchema.safeParse({
+    name: raw.name,
+    type: raw.type,
+    address: raw.address,
+    country: raw.country,
+    city: raw.city,
+    description: raw.description,
+    contactEmail: raw.contactEmail,
+    contactPhone: raw.contactPhone,
+    location,
+    geocodedAddress: raw.geocodedAddress,
+    adminNote: raw.adminNote,
+  });
+}
+
+const rejectVenueRequestSchema = z
+  .object({
+    reason: z.enum(VENUE_REQUEST_REJECT_REASONS),
+    adminNote: z.preprocess(
+      (v) =>
+        typeof v === "string" && v.trim() ? v.trim().slice(0, 500) : undefined,
+      z.string().max(500).optional()
+    ),
+  })
+  .superRefine((data, ctx) => {
+    if (data.reason === "other" && !data.adminNote) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["adminNote"],
+        message: "Agregá una explicación para el motivo «Otro»",
+      });
+    }
+  });
+
+function formatRejectionMessage(
+  reason: (typeof VENUE_REQUEST_REJECT_REASONS)[number],
+  adminNote?: string
+) {
+  const label = VENUE_REQUEST_REJECT_REASON_LABELS[reason];
+  const extra = adminNote?.trim();
+  return extra ? `${label}\n\n${extra}` : label;
+}
 
 router.get("/stats", async (_req: AuthedRequest, res) => {
   await expireStalePresences();
@@ -422,27 +535,49 @@ router.get(
 
 router.post(
   "/venue-requests/:id/approve",
+  (req: AuthedRequest, res, next) => {
+    const contentType = String(req.headers["content-type"] ?? "");
+    if (!contentType.includes("multipart/form-data")) {
+      next();
+      return;
+    }
+    uploadSinglePhoto(req, res, (err) => {
+      if (err) return handleMulterError(err, req, res, next);
+      next();
+    });
+  },
   async (req: AuthedRequest, res) => {
     const id = paramId(req.params.id);
+    const uploaded = collectUploadedFiles(req);
+    const cleanup = () =>
+      deleteLocalUploads(uploaded.map((item) => item.url));
+
     if (!isObjectId(id)) {
+      cleanup();
       return res.status(400).json({ error: "Id inválido" });
     }
 
     const request = await VenueRequest.findById(id);
     if (!request) {
+      cleanup();
       return res.status(404).json({ error: "Solicitud no encontrada" });
     }
     if (request.status !== "pending") {
+      cleanup();
       return res.status(400).json({ error: "La solicitud ya fue revisada" });
     }
 
     const owner = await User.findById(request.requesterId);
     if (!owner || !["user", "admin"].includes(owner.role)) {
+      cleanup();
       return res.status(400).json({ error: "Solicitante inválido" });
     }
 
+    const isClaim = (request.requestType ?? "create") === "claim";
+
     let venue: VenueDocument;
-    if ((request.requestType ?? "create") === "claim") {
+    if (isClaim) {
+      cleanup();
       if (!request.targetVenueId) {
         return res
           .status(400)
@@ -463,43 +598,88 @@ router.post(
         });
       }
       venue = claimed;
+      if (typeof req.body?.adminNote === "string" && req.body.adminNote.trim()) {
+        request.adminNote = req.body.adminNote.trim().slice(0, 500);
+      }
     } else {
+      if (uploaded.length !== 1) {
+        cleanup();
+        return res.status(400).json({
+          error: "La portada WebP de 1600×1200 píxeles es obligatoria",
+          code: "UPLOAD_REQUIRED",
+        });
+      }
+      const checked = assertUploadsAreImages(uploaded);
+      if (!checked.ok) {
+        cleanup();
+        return res
+          .status(400)
+          .json({ error: checked.error, code: "UPLOAD_INVALID" });
+      }
+      const coverCheck = await assertVenueCoverUpload(uploaded[0]);
+      if (!coverCheck.ok) {
+        cleanup();
+        return res
+          .status(400)
+          .json({ error: coverCheck.error, code: "UPLOAD_INVALID" });
+      }
+
+      const parsed = parseApproveCreateBody(
+        req.body as Record<string, unknown>
+      );
+      if (!parsed.success) {
+        cleanup();
+        return res.status(400).json({
+          error: "Datos inválidos",
+          details: parsed.error.flatten(),
+        });
+      }
+
       const location = await resolveVenueLocation({
-        address: request.address,
-        country: request.country ?? "Uruguay",
-        city: request.city,
-        location:
-          request.location &&
-          typeof (request.location as { lat?: number }).lat === "number" &&
-          typeof (request.location as { lng?: number }).lng === "number"
-            ? {
-                lat: (request.location as { lat: number }).lat,
-                lng: (request.location as { lng: number }).lng,
-              }
-            : null,
+        address: parsed.data.address,
+        country: parsed.data.country,
+        city: parsed.data.city,
+        location: parsed.data.location,
       });
 
-      venue = await Venue.create({
-        name: request.name,
-        type: request.type,
-        address: request.address,
-        country: request.country ?? "Uruguay",
-        city: request.city,
-        description: request.description,
-        photos: request.photos ?? [],
-        location,
-        ownerId: request.wantsToManage !== false ? owner._id : undefined,
-        followersCount: 0,
-        active: true,
-      });
+      try {
+        venue = await Venue.create({
+          name: parsed.data.name,
+          type: parsed.data.type,
+          address: parsed.data.address,
+          country: parsed.data.country,
+          city: parsed.data.city,
+          description: parsed.data.description,
+          photos: [uploaded[0].url],
+          location,
+          ownerId: request.wantsToManage !== false ? owner._id : undefined,
+          followersCount: 0,
+          active: true,
+        });
+      } catch (err) {
+        cleanup();
+        throw err;
+      }
+
+      request.name = parsed.data.name;
+      request.type = parsed.data.type;
+      request.address = parsed.data.address;
+      request.country = parsed.data.country;
+      request.city = parsed.data.city;
+      request.description = parsed.data.description;
+      request.contactEmail = parsed.data.contactEmail;
+      request.contactPhone = parsed.data.contactPhone;
+      request.location = parsed.data.location;
+      request.geocodedAddress = parsed.data.geocodedAddress;
+      request.photos = [uploaded[0].url];
+      if (parsed.data.adminNote) {
+        request.adminNote = parsed.data.adminNote;
+      }
     }
 
     request.status = "approved";
     request.venueId = venue._id;
     request.reviewedBy = req.user!._id;
-    if (typeof req.body?.adminNote === "string") {
-      request.adminNote = req.body.adminNote.slice(0, 500);
-    }
     await request.save();
 
     try {
@@ -546,7 +726,13 @@ router.post(
     });
 
     return res.json({
-      request: serializeVenueRequest(request),
+      request: serializeVenueRequest(request, {
+        requester: {
+          id: owner._id.toString(),
+          email: owner.email,
+          name: owner.profile?.name ?? undefined,
+        },
+      }),
       venue: serializeVenue(venue),
     });
   }
@@ -560,6 +746,14 @@ router.post(
       return res.status(400).json({ error: "Id inválido" });
     }
 
+    const parsed = rejectVenueRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: parsed.error.flatten(),
+      });
+    }
+
     const request = await VenueRequest.findById(id);
     if (!request) {
       return res.status(404).json({ error: "Solicitud no encontrada" });
@@ -568,11 +762,15 @@ router.post(
       return res.status(400).json({ error: "La solicitud ya fue revisada" });
     }
 
+    const rejectionMessage = formatRejectionMessage(
+      parsed.data.reason,
+      parsed.data.adminNote
+    );
+
     request.status = "rejected";
     request.reviewedBy = req.user!._id;
-    if (typeof req.body?.adminNote === "string") {
-      request.adminNote = req.body.adminNote.slice(0, 500);
-    }
+    request.rejectionReason = parsed.data.reason;
+    request.adminNote = rejectionMessage.slice(0, 500);
     await request.save();
 
     try {
@@ -586,7 +784,7 @@ router.post(
           venueName: request.name,
           venueType: request.type,
           city: request.city,
-          adminNote: request.adminNote ?? undefined,
+          adminNote: rejectionMessage,
         });
       }
     } catch (err) {
@@ -602,13 +800,12 @@ router.post(
           : request.wantsToManage !== false
             ? "Solicitud de Espacio rechazada"
             : "Sugerencia de Espacio rechazada",
-      body: request.adminNote?.trim()
-        ? request.adminNote.trim()
-        : `No pudimos aprobar ${request.name} por ahora`,
+      body: rejectionMessage,
       href: "/profile/venue-request",
       data: {
         requestId: request._id.toString(),
         status: "rejected",
+        reason: parsed.data.reason,
       },
     });
 
