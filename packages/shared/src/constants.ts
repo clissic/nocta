@@ -628,14 +628,14 @@ export function isPremiumPlanDowngrade(
   return current >= 0 && candidate >= 0 && candidate < current;
 }
 
-export const MAX_PHOTO_UPLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_PHOTO_UPLOAD_FILES = 6;
 export const ALLOWED_PHOTO_MIME_TYPES = [
   "image/jpeg", "image/jpg", "image/png", "image/webp",
-  "image/gif", "image/heic", "image/heif",
+  "image/avif", "image/heic", "image/heif",
 ] as const;
 export const ALLOWED_PHOTO_EXTENSIONS = [
-  ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif",
+  ".jpg", ".jpeg", ".png", ".webp", ".avif", ".heic", ".heif",
 ] as const;
 
 export const MIN_PASSWORD_LENGTH = 9;

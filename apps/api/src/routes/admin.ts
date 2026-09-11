@@ -37,14 +37,7 @@ import { PromoPurchase } from "../models/PromoPurchase.js";
 import { Report } from "../models/Report.js";
 import { VenueRequest } from "../models/VenueRequest.js";
 import { VenueNews } from "../models/VenueNews.js";
-import {
-  serializeUser,
-  serializePromotion,
-  serializeVenue,
-  serializeVenueRequest,
-  serializeVenueNews,
-  publicAssetUrl,
-} from "../utils/serialize.js";
+import { serializeUser, serializePromotion, serializeVenue, serializeVenueRequest, serializeVenueNews, resolvePublicAssetUrl } from "../utils/serialize.js";
 import { isObjectId, paramId } from "../utils/ids.js";
 import { expireStalePresences, endActivePresences } from "../utils/presence.js";
 import { resolveVenueLocation } from "../utils/geocode.js";
@@ -59,15 +52,23 @@ import {
 import { createNotification } from "../utils/notify.js";
 import {
   assertUploadsAreImages,
-  assertVenueCoverUpload,
   collectUploadedFiles,
-  deleteIdentityVerificationFiles,
-  deleteLocalUploads,
+  deleteCollectedUploads,
   handleMulterError,
   safeClaimEvidencePath,
   safeIdentityVerificationPath,
   uploadSinglePhoto,
 } from "../uploads/index.js";
+import {
+  ingestCollectedPublicUpload,
+  ingestErrorResponse,
+  isAllowedPhotoRef,
+  looksLikeManagedImageId,
+  removeIdentityStoredRef,
+  removePhotoRef,
+  resolveAuthorizedPrivateRead,
+} from "../image-service/index.js";
+import { Types } from "mongoose";
 import {
   parsePromoValidityRange,
   resolveUserTimeZone,
@@ -199,10 +200,7 @@ const adminUserUpdateSchema = z
 const photoUrlSchema = z
   .string()
   .min(1)
-  .refine(
-    (v) => v.startsWith("/uploads/") || /^https?:\/\//i.test(v),
-    "URL de foto inválida"
-  );
+  .refine(isAllowedPhotoRef, "URL de foto inválida");
 
 const enabledVenueCountries = [...ENABLED_VENUE_COUNTRIES] as [
   string,
@@ -434,7 +432,7 @@ router.get("/users/:id", async (req: AuthedRequest, res) => {
   if (!user) {
     return res.status(404).json({ error: "Usuario no encontrado" });
   }
-  return res.json({ user: serializeUser(user) });
+  return res.json({ user: await serializeUser(user) });
 });
 
 router.patch("/users/:id", async (req: AuthedRequest, res) => {
@@ -666,7 +664,7 @@ router.patch("/users/:id", async (req: AuthedRequest, res) => {
     });
   }
 
-  return res.json({ user: serializeUser(result) });
+  return res.json({ user: await serializeUser(result) });
 });
 
 router.post("/users/:id/end-presence", async (req: AuthedRequest, res) => {
@@ -706,7 +704,7 @@ router.post("/users/:id/end-presence", async (req: AuthedRequest, res) => {
   return res.json({
     ok: true,
     ended: ended.length,
-    user: serializeUser(user),
+    user: await serializeUser(user),
   });
 });
 
@@ -806,18 +804,20 @@ router.get("/venue-requests", async (req: AuthedRequest, res) => {
   const byId = new Map(users.map((u) => [u._id.toString(), u]));
 
   return res.json({
-    requests: rows.map((r) => {
-      const u = byId.get(r.requesterId.toString());
-      return serializeVenueRequest(r, {
-        requester: u
-          ? {
-              id: u._id.toString(),
-              email: u.email,
-              name: u.profile?.name ?? undefined,
-            }
-          : undefined,
-      });
-    }),
+    requests: await Promise.all(
+      rows.map(async (r) => {
+        const u = byId.get(r.requesterId.toString());
+        return serializeVenueRequest(r, {
+          requester: u
+            ? {
+                id: u._id.toString(),
+                email: u.email,
+                name: u.profile?.name ?? undefined,
+              }
+            : undefined,
+        });
+      })
+    ),
     pagination: paginationMeta(page, limit, total),
   });
 });
@@ -838,7 +838,7 @@ router.get("/venue-requests/:id", async (req: AuthedRequest, res) => {
     ? await Venue.findById(request.targetVenueId)
     : null;
   return res.json({
-    request: serializeVenueRequest(request, {
+    request: await serializeVenueRequest(request, {
       requester: requester
         ? {
             id: requester._id.toString(),
@@ -847,7 +847,7 @@ router.get("/venue-requests/:id", async (req: AuthedRequest, res) => {
           }
         : undefined,
     }),
-    venue: targetVenue ? serializeVenue(targetVenue) : undefined,
+    venue: targetVenue ? await serializeVenue(targetVenue) : undefined,
   });
 });
 
@@ -867,6 +867,20 @@ router.get(
     );
     if (!file) {
       return res.status(404).json({ error: "Comprobante no encontrado" });
+    }
+    if (looksLikeManagedImageId(file.filename)) {
+      const resolved = await resolveAuthorizedPrivateRead({
+        imageIdOrRef: file.filename,
+        viewer: {
+          id: req.user!._id.toString(),
+          role: req.user!.role,
+        },
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ error: resolved.error });
+      }
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.redirect(302, resolved.url);
     }
     const path = safeClaimEvidencePath(file.filename);
     if (!path || !existsSync(path)) {
@@ -893,7 +907,7 @@ router.post(
     const id = paramId(req.params.id);
     const uploaded = collectUploadedFiles(req);
     const cleanup = () =>
-      deleteLocalUploads(uploaded.map((item) => item.url));
+      deleteCollectedUploads(uploaded);
 
     if (!isObjectId(id)) {
       cleanup();
@@ -948,7 +962,7 @@ router.post(
       if (uploaded.length !== 1) {
         cleanup();
         return res.status(400).json({
-          error: "La portada WebP de 1600×1200 píxeles es obligatoria",
+          error: "La imagen de portada del Espacio es obligatoria",
           code: "UPLOAD_REQUIRED",
         });
       }
@@ -958,13 +972,6 @@ router.post(
         return res
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
-      }
-      const coverCheck = await assertVenueCoverUpload(uploaded[0]);
-      if (!coverCheck.ok) {
-        cleanup();
-        return res
-          .status(400)
-          .json({ error: coverCheck.error, code: "UPLOAD_INVALID" });
       }
 
       const parsed = parseApproveCreateBody(
@@ -991,22 +998,40 @@ router.post(
         location: parsed.data.location,
       });
 
+      const provisionalSpaceId = new Types.ObjectId().toString();
+      let coverRef: string;
+      try {
+        const ingested = await ingestCollectedPublicUpload({
+          upload: uploaded[0],
+          type: "space",
+          ownerId: req.user!._id.toString(),
+          entityType: "space",
+          entityId: provisionalSpaceId,
+          context: { spaceId: provisionalSpaceId },
+        });
+        coverRef = ingested.mediaRef;
+      } catch (err) {
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
+
       try {
         venue = await Venue.create({
+          _id: new Types.ObjectId(provisionalSpaceId),
           name: parsed.data.name,
           type: parsed.data.type,
           address: parsed.data.address,
           country: parsed.data.country,
           city: parsed.data.city,
           description: parsed.data.description,
-          photos: [uploaded[0].url],
+          photos: [coverRef],
           location,
           ownerId: request.wantsToManage !== false ? owner._id : undefined,
           followersCount: 0,
           active: true,
         });
       } catch (err) {
-        cleanup();
+        await removePhotoRef(coverRef);
         throw err;
       }
 
@@ -1020,7 +1045,7 @@ router.post(
       request.contactPhone = parsed.data.contactPhone;
       request.location = parsed.data.location;
       request.geocodedAddress = parsed.data.geocodedAddress;
-      request.photos = [uploaded[0].url];
+      request.photos = [coverRef];
       if (parsed.data.adminNote) {
         request.adminNote = parsed.data.adminNote;
       }
@@ -1075,14 +1100,14 @@ router.post(
     });
 
     return res.json({
-      request: serializeVenueRequest(request, {
+      request: await serializeVenueRequest(request, {
         requester: {
           id: owner._id.toString(),
           email: owner.email,
           name: owner.profile?.name ?? undefined,
         },
       }),
-      venue: serializeVenue(venue),
+      venue: await serializeVenue(venue),
     });
   }
 );
@@ -1158,7 +1183,7 @@ router.post(
       },
     });
 
-    return res.json({ request: serializeVenueRequest(request) });
+    return res.json({ request: await serializeVenueRequest(request) });
   }
 );
 
@@ -1673,7 +1698,7 @@ router.patch("/promotions/:id", async (req: AuthedRequest, res) => {
     new: true,
   });
   if (!promo) return res.status(404).json({ error: "Promo no encontrada" });
-  return res.json({ promotion: serializePromotion(promo) });
+  return res.json({ promotion: await serializePromotion(promo) });
 });
 
 router.delete("/promotions/:id", async (req: AuthedRequest, res) => {
@@ -1687,7 +1712,7 @@ router.delete("/promotions/:id", async (req: AuthedRequest, res) => {
     { new: true }
   );
   if (!promo) return res.status(404).json({ error: "Promo no encontrada" });
-  return res.json({ promotion: serializePromotion(promo) });
+  return res.json({ promotion: await serializePromotion(promo) });
 });
 
 router.patch("/news/:id", async (req: AuthedRequest, res) => {
@@ -1713,7 +1738,7 @@ router.patch("/news/:id", async (req: AuthedRequest, res) => {
   }
   const news = await VenueNews.findByIdAndUpdate(id, update, { new: true });
   if (!news) return res.status(404).json({ error: "Noticia no encontrada" });
-  return res.json({ news: serializeVenueNews(news) });
+  return res.json({ news: await serializeVenueNews(news) });
 });
 
 router.delete("/news/:id", async (req: AuthedRequest, res) => {
@@ -1727,7 +1752,7 @@ router.delete("/news/:id", async (req: AuthedRequest, res) => {
     { new: true }
   );
   if (!news) return res.status(404).json({ error: "Noticia no encontrada" });
-  return res.json({ news: serializeVenueNews(news) });
+  return res.json({ news: await serializeVenueNews(news) });
 });
 
 const identityListSchema = z.object({
@@ -1739,7 +1764,7 @@ const identityListSchema = z.object({
     .default("pending"),
 });
 
-function serializeAdminIdentityVerification(user: InstanceType<typeof User>) {
+async function serializeAdminIdentityVerification(user: InstanceType<typeof User>) {
   const verification = user.identityVerification as
     | {
         status?: string;
@@ -1763,7 +1788,7 @@ function serializeAdminIdentityVerification(user: InstanceType<typeof User>) {
     userId: user._id.toString(),
     email: user.email,
     name: user.profile?.name ?? "Usuario",
-    photo: photo ? publicAssetUrl(photo) : undefined,
+    photo: photo ? await resolvePublicAssetUrl(photo) : undefined,
     status,
     submittedAt: verification?.submittedAt?.toISOString(),
     reviewedAt: verification?.reviewedAt?.toISOString(),
@@ -1804,9 +1829,11 @@ router.get("/identity-verifications", async (req: AuthedRequest, res) => {
   ]);
 
   return res.json({
-    verifications: users
-      .map((user) => serializeAdminIdentityVerification(user))
-      .filter(Boolean),
+    verifications: (
+      await Promise.all(
+        users.map((user) => serializeAdminIdentityVerification(user))
+      )
+    ).filter(Boolean),
     pagination: paginationMeta(page, limit, total),
   });
 });
@@ -1838,6 +1865,20 @@ router.get(
         : verification?.selfieWithDocumentPath;
     if (!filename) {
       return res.status(404).json({ error: "Archivo no encontrado" });
+    }
+    if (looksLikeManagedImageId(filename)) {
+      const resolved = await resolveAuthorizedPrivateRead({
+        imageIdOrRef: filename,
+        viewer: {
+          id: req.user!._id.toString(),
+          role: req.user!.role,
+        },
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ error: resolved.error });
+      }
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.redirect(302, resolved.url);
     }
     const path = safeIdentityVerificationPath(filename);
     if (!path || !existsSync(path)) {
@@ -1909,8 +1950,8 @@ router.post(
     }
 
     return res.json({
-      verification: serializeAdminIdentityVerification(user),
-      user: serializeUser(user),
+      verification: await serializeAdminIdentityVerification(user),
+      user: await serializeUser(user),
     });
   }
 );
@@ -1950,10 +1991,8 @@ router.post(
       });
     }
 
-    deleteIdentityVerificationFiles([
-      verification.documentFrontPath,
-      verification.selfieWithDocumentPath,
-    ]);
+    await removeIdentityStoredRef(verification.documentFrontPath);
+    await removeIdentityStoredRef(verification.selfieWithDocumentPath);
 
     await User.updateOne(
       { _id: user._id },
@@ -1996,8 +2035,8 @@ router.post(
     }
 
     return res.json({
-      verification: serializeAdminIdentityVerification(refreshed),
-      user: serializeUser(refreshed),
+      verification: await serializeAdminIdentityVerification(refreshed),
+      user: await serializeUser(refreshed),
     });
   }
 );

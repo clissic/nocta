@@ -33,7 +33,7 @@ async function serializePresenceWithVenue(
     "name" in (presence.venueId as object)
       ? (presence.venueId as unknown as InstanceType<typeof Venue>)
       : await Venue.findById(presence.venueId);
-  return serializePresence(presence, venue);
+  return await serializePresence(presence, venue);
 }
 
 router.get("/me", requireAuth, requireVerified, async (req: AuthedRequest, res) => {
@@ -112,7 +112,7 @@ router.post("/", requireAuth, requireVerified, async (req: AuthedRequest, res) =
     existingHere.endsAt = endsAt;
     await existingHere.save();
     return res.status(200).json({
-      presence: serializePresence(existingHere, venue),
+      presence: await serializePresence(existingHere, venue),
       slot: null,
       maxPresences,
     });
@@ -166,7 +166,7 @@ router.post("/", requireAuth, requireVerified, async (req: AuthedRequest, res) =
   }
 
   return res.status(201).json({
-    presence: serializePresence(presence, venue),
+    presence: await serializePresence(presence, venue),
     slot,
     maxPresences,
   });

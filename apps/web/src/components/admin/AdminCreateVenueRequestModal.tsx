@@ -218,7 +218,7 @@ export function AdminCreateVenueRequestModal({
       return;
     }
     if (!photoFile) {
-      setError("Subí una imagen WebP de 1600×1200 píxeles");
+      setError("Subí una imagen de portada (JPEG, PNG o WebP)");
       return;
     }
 

@@ -24,8 +24,8 @@ export function normalizePhotoExtension(originalName: string, mime: string): str
       return ".png";
     case "image/webp":
       return ".webp";
-    case "image/gif":
-      return ".gif";
+    case "image/avif":
+      return ".avif";
     case "image/heic":
       return ".heic";
     case "image/heif":
@@ -46,8 +46,7 @@ export function matchesImageMagicBytes(buf: Buffer): boolean {
   ) {
     return true;
   }
-  if (buf.subarray(0, 6).toString("ascii") === "GIF87a") return true;
-  if (buf.subarray(0, 6).toString("ascii") === "GIF89a") return true;
+  // GIF rechazado (Image Service no acepta GIF; Fase 15).
   if (
     buf.subarray(0, 4).toString("ascii") === "RIFF" &&
     buf.subarray(8, 12).toString("ascii") === "WEBP"
@@ -73,6 +72,7 @@ export function safeUploadBasename(urlOrName: string): string | null {
   return name;
 }
 
+/** Borra un archivo legacy en UPLOADS_DIR (refs `/uploads/...` en Mongo). */
 export function deleteLocalUpload(url: string): void {
   const name = safeUploadBasename(url);
   if (!name) return;
@@ -88,6 +88,29 @@ export function deleteLocalUploads(urls: string[]): void {
   for (const url of urls) deleteLocalUpload(url);
 }
 
+/** Borra staging multipart por path absoluto (TEMP_UPLOAD_DIR). */
+export function deleteTempUploadPath(path: string | null | undefined): void {
+  if (!path) return;
+  try {
+    if (existsSync(path)) unlinkSync(path);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function deleteCollectedUploads(
+  uploads: Array<{ path?: string; url?: string }>
+): void {
+  for (const u of uploads) {
+    if (u.path) {
+      deleteTempUploadPath(u.path);
+      continue;
+    }
+    if (u.url) deleteLocalUpload(u.url);
+  }
+}
+
+/** @deprecated Preferí deleteCollectedUploads / mediaRef managed. */
 export function uploadedFileToPublicUrl(file: { filename: string }): string {
   return publicUploadUrl(file.filename);
 }

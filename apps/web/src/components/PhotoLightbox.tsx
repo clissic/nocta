@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { OptimizedImage } from "./OptimizedImage";
 
 type Props = {
   photos: string[];
@@ -89,7 +90,13 @@ export function PhotoLightbox({
           </button>
         )}
 
-        <img src={src} alt="" className="photo-lightbox-image" />
+        <OptimizedImage
+          src={src}
+          alt=""
+          className="photo-lightbox-image"
+          variant="large"
+          sizes="100vw"
+        />
 
         {hasMany && (
           <button

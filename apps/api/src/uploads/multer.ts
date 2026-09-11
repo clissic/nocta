@@ -5,13 +5,13 @@ import {
   MAX_PHOTO_UPLOAD_FILES,
 } from "@nocta/shared";
 import type { AuthedRequest } from "../middleware/auth.js";
-import { ensureUploadsDir } from "./paths.js";
+import { ensureTempUploadDir } from "./paths.js";
 import {
   isAllowedPhotoMime,
   normalizePhotoExtension,
 } from "./validate.js";
 
-ensureUploadsDir();
+ensureTempUploadDir();
 
 function buildFilename(req: AuthedRequest, file: Express.Multer.File): string {
   const userId = req.user?._id?.toString() ?? "anon";
@@ -20,12 +20,13 @@ function buildFilename(req: AuthedRequest, file: Express.Multer.File): string {
   return `${userId}-${Date.now()}-${rand}${ext}`;
 }
 
+/** Staging temporal — nunca UPLOADS_DIR (legacy read-only). */
 const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     try {
-      cb(null, ensureUploadsDir());
+      cb(null, ensureTempUploadDir());
     } catch (err) {
-      cb(err as Error, ensureUploadsDir());
+      cb(err as Error, ensureTempUploadDir());
     }
   },
   filename: (req, file, cb) => {
@@ -45,7 +46,7 @@ function imageFileFilter(
   if (!isAllowedPhotoMime(file.mimetype)) {
     cb(
       new Error(
-        "Formato de imagen no soportado (JPEG, PNG, WebP, GIF o HEIC)"
+        "Formato de imagen no soportado (JPEG, PNG, WebP, AVIF o HEIC)"
       )
     );
     return;

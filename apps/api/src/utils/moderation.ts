@@ -73,12 +73,22 @@ export function suspensionError(suspension: ActiveSuspension) {
 
 export function moderationVisibleUserFilter(now = new Date()) {
   return {
-    $or: [
-      { moderationStatus: { $ne: "suspended" } },
+    $and: [
       {
-        moderationStatus: "suspended",
-        suspensionDuration: { $ne: "permanent" },
-        suspendedUntil: { $lte: now },
+        $or: [
+          { moderationStatus: { $ne: "suspended" } },
+          {
+            moderationStatus: "suspended",
+            suspensionDuration: { $ne: "permanent" },
+            suspendedUntil: { $lte: now },
+          },
+        ],
+      },
+      {
+        $or: [
+          { deletionRequestedAt: null },
+          { deletionRequestedAt: { $exists: false } },
+        ],
       },
     ],
   };

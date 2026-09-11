@@ -1,6 +1,6 @@
 import multer from "multer";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import {
   MAX_VENUE_CLAIM_FILE_BYTES,
@@ -12,11 +12,14 @@ import type { AuthedRequest } from "../middleware/auth.js";
 import {
   CLAIM_EVIDENCE_DIR,
   ensureClaimEvidenceDir,
+  ensureTempUploadDir,
 } from "./paths.js";
+import { deleteTempUploadPath } from "./validate.js";
 
 const MIME_SET = new Set<string>(VENUE_CLAIM_FILE_MIME_TYPES);
 const EXT_SET = new Set<string>(VENUE_CLAIM_FILE_EXTENSIONS);
 
+ensureTempUploadDir();
 ensureClaimEvidenceDir();
 
 function safeOriginalName(name: string) {
@@ -37,9 +40,9 @@ function extensionFor(file: Express.Multer.File) {
 const claimEvidenceStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     try {
-      cb(null, ensureClaimEvidenceDir());
+      cb(null, ensureTempUploadDir());
     } catch (err) {
-      cb(err as Error, CLAIM_EVIDENCE_DIR);
+      cb(err as Error, ensureTempUploadDir());
     }
   },
   filename: (req, file, cb) => {
@@ -150,19 +153,22 @@ export function collectClaimEvidence(req: AuthedRequest):
   };
 }
 
+/** Path legacy en corpus privado (solo lectura residual). */
 export function safeClaimEvidencePath(filename: string) {
   if (!filename || filename.includes("..") || /[\\/]/.test(filename)) return null;
   return join(CLAIM_EVIDENCE_DIR, filename);
 }
 
-export function deleteClaimEvidence(files: Array<{ filename: string }>) {
+export function deleteClaimEvidence(
+  files: Array<{ filename?: string; path?: string }>
+) {
   for (const file of files) {
-    const path = safeClaimEvidencePath(file.filename);
-    if (!path) continue;
-    try {
-      if (existsSync(path)) unlinkSync(path);
-    } catch {
-      /* ignore cleanup errors */
+    if (file.path) {
+      deleteTempUploadPath(file.path);
+      continue;
     }
+    if (!file.filename) continue;
+    const legacy = safeClaimEvidencePath(file.filename);
+    if (legacy) deleteTempUploadPath(legacy);
   }
 }

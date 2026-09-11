@@ -14,7 +14,8 @@ import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
 import { NoctaLoading } from "../components/NoctaLoading";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { ManualSearchInput } from "../components/ManualSearchInput";
 
 function formatDate(value?: string) {
@@ -329,11 +330,13 @@ export function VenueManagePage() {
 
       <div className="venue-manage-overview">
         <header className="venue-manage-head">
-          <img
+          <OptimizedImage
             src={venueCoverSrc(venue)}
             alt=""
             className="venue-manage-thumb"
-            onError={onVenuePhotoError}
+            variant="thumb"
+            sizes="80px"
+            fallbackSrc={VENUE_PHOTO_FALLBACK}
           />
           <div className="venue-manage-head-copy min-w-0">
             <div className="venue-manage-title-row">
@@ -426,7 +429,12 @@ export function VenueManagePage() {
             />
             {newsPhotoPreview ? (
               <div className="venue-manage-news-photo-preview">
-                <img src={newsPhotoPreview} alt="" />
+                <OptimizedImage
+                  src={newsPhotoPreview}
+                  alt=""
+                  variant="medium"
+                  sizes="(min-width: 768px) 240px, 100vw"
+                />
                 <div className="venue-manage-news-photo-actions">
                   <button
                     type="button"
@@ -514,10 +522,12 @@ export function VenueManagePage() {
                     {filteredNews.map((item) => (
                       <li key={item.id} className="venue-manage-item">
                         {item.photos[0] ? (
-                          <img
+                          <OptimizedImage
                             src={item.photos[0]}
                             alt=""
                             className="venue-manage-item-thumb"
+                            variant="thumb"
+                            sizes="56px"
                           />
                         ) : null}
                         <div className="min-w-0 flex-grow-1">

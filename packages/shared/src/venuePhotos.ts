@@ -14,9 +14,18 @@ export function venuePhotoUrl(name: string): string {
   return `/images/venues/${venuePhotoFilename(name)}`;
 }
 
-/** Portada: subida del organizador, URL guardada o asset derivado del nombre. */
+/** Portada: subida del organizador, URL gestionada/CDN, o asset derivado del nombre. */
 export function venueCoverSrc(venue: { name: string; photos?: string[] }): string {
-  const uploaded = venue.photos?.find((photo) => photo.startsWith("/uploads/"));
+  const uploaded = venue.photos?.find(
+    (photo) =>
+      photo.startsWith("/uploads/") ||
+      photo.startsWith("/api/media/") ||
+      photo.includes("/api/media/") ||
+      // Fase 3+: delivery directa Object Storage (CDN o firmada)
+      /\/(thumb|medium|large)\.(webp|avif)(\?|$)/i.test(photo) ||
+      (/^https?:\/\//i.test(photo) &&
+        (photo.includes("/public/") || photo.includes("X-Amz-")))
+  );
   if (uploaded) return uploaded;
   const stored = venue.photos?.find(Boolean);
   if (stored) return stored;

@@ -8,6 +8,7 @@ import {
 import { ApiError, api } from "../lib/api";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { useToast } from "../components/ToastProvider";
+import { OptimizedImage } from "../components/OptimizedImage";
 
 type ReportedUser = {
   id: string;
@@ -91,7 +92,12 @@ export function UserReportPage() {
 
       <div className="user-report-person">
         {reportedUser.photo ? (
-          <img src={reportedUser.photo} alt="" />
+          <OptimizedImage
+            src={reportedUser.photo}
+            alt=""
+            variant="thumb"
+            sizes="48px"
+          />
         ) : (
           <span aria-hidden="true">
             {reportedUser.name.slice(0, 1).toUpperCase()}

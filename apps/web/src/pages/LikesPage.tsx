@@ -6,6 +6,7 @@ import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
 import { PremiumPackagesModal } from "../components/PremiumPackagesModal";
 import { NoctaLoading } from "../components/NoctaLoading";
+import { OptimizedImage } from "../components/OptimizedImage";
 
 const FALLBACK_PHOTO =
   "https://images.unsplash.com/photo-1511367461989-f85a21fda167?w=400";
@@ -217,7 +218,13 @@ export function LikesPage() {
             >
               <div className="likes-card-media">
                 {revealed && (like.user.photo || FALLBACK_PHOTO) ? (
-                  <img src={like.user.photo || FALLBACK_PHOTO} alt="" />
+                  <OptimizedImage
+                    src={like.user.photo || FALLBACK_PHOTO}
+                    alt=""
+                    variant="medium"
+                    sizes="(min-width: 768px) 280px, 100vw"
+                    fallbackSrc={FALLBACK_PHOTO}
+                  />
                 ) : (
                   <div className="likes-card-locked-media" aria-hidden="true">
                     <span className="likes-card-locked-blob is-one" />
@@ -277,9 +284,12 @@ export function LikesPage() {
             aria-labelledby="likes-heartshot-title"
           >
             <div className="likes-heartshot-dialog-photo" aria-hidden="true">
-              <img
+              <OptimizedImage
                 src={actionLike.user.photo || FALLBACK_PHOTO}
                 alt=""
+                variant="medium"
+                sizes="120px"
+                fallbackSrc={FALLBACK_PHOTO}
               />
             </div>
             <h2 id="likes-heartshot-title">

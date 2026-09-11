@@ -12,7 +12,8 @@ import { VenueMap } from "../components/VenueMap";
 import { api, ApiError, downloadApiFile } from "../lib/api";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { useToast } from "../components/ToastProvider";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "../components/OptimizedImage";
 
 const STATUS_LABEL: Record<VenueRequest["status"], string> = {
   pending: "Pendiente",
@@ -184,13 +185,15 @@ export function AdminVenueRequestPage() {
       <div className="admin-venue-review-layout">
         <div className="admin-venue-review-media">
           {request.photos[0] || reviewVenue ? (
-            <img
+            <OptimizedImage
               src={
                 request.photos[0] ||
                 (reviewVenue ? venueCoverSrc(reviewVenue) : "")
               }
               alt={request.name}
-              onError={onVenuePhotoError}
+              variant="large"
+              sizes="(min-width: 768px) 42vw, 100vw"
+              fallbackSrc={VENUE_PHOTO_FALLBACK}
             />
           ) : (
             <div className="admin-venue-review-media-empty">Sin foto</div>

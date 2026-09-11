@@ -51,8 +51,15 @@ import { DiscoverSafetyModal,
   type DiscoverSafetyAction,
 } from "../components/DiscoverSafetyModal";
 import { PremiumPackagesModal } from "../components/PremiumPackagesModal";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { VenueTrustBadge } from "../components/VenueTrustBadge";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import {
+  DISCOVER_SWIPE_SIZES,
+  DISCOVER_SWIPE_VARIANTS,
+  discoverVisiblePhotoPlan,
+  useDiscoverSwipePhotoVariant,
+} from "../lib/discoverImages";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
 import { useAuth } from "../auth/AuthContext";
 
 type MatchFlash = {
@@ -424,6 +431,13 @@ export function DiscoverPage() {
   const nextPhoto = nextAd
     ? nextAd.imageUrl
     : (nextProfile?.profile.photos ?? []).find(Boolean);
+  const swipePhotoVariant = useDiscoverSwipePhotoVariant();
+  const { renderSrc: activeSwipePhoto, preloadNext } = discoverVisiblePhotoPlan({
+    currentPhotos: photos,
+    photoIndex: currentAd ? 0 : photoIdx,
+    nextPrimaryPhoto: nextPhoto,
+    detailOpen,
+  });
   const photoExtraInfo =
     currentProfile ? photoExtra(currentProfile, photoIdx) : null;
   const swipeProgress = exitDirection
@@ -1025,11 +1039,13 @@ export function DiscoverPage() {
                   >
                     <div className="venue-card-media discover-venue-picker-media">
                       {venue ? (
-                        <img
+                        <OptimizedImage
                           src={venueCoverSrc(venue)}
                           alt=""
-                          aria-hidden="true"
-                          onError={onVenuePhotoError}
+                          variant="thumb"
+                          variants={DISCOVER_SWIPE_VARIANTS}
+                          sizes="(max-width: 767px) 50vw, 220px"
+                          fallbackSrc={VENUE_PHOTO_FALLBACK}
                         />
                       ) : (
                         <span
@@ -1267,15 +1283,23 @@ export function DiscoverPage() {
                   .filter(Boolean)
                   .join(" ")}
                 aria-hidden="true"
-                style={
-                  nextPhoto
-                    ? ({
-                        "--swipe-next-photo": `url(${JSON.stringify(nextPhoto)})`,
-                      } as CSSProperties)
-                    : undefined
-                }
               >
-                {!nextPhoto && <div className="swipe-card-fallback" />}
+                {preloadNext ? (
+                  <OptimizedImage
+                    key={`preload-${preloadNext}`}
+                    className="swipe-card-photo swipe-card-next-photo"
+                    src={preloadNext}
+                    alt=""
+                    variant="thumb"
+                    variants={DISCOVER_SWIPE_VARIANTS}
+                    sizes={DISCOVER_SWIPE_SIZES}
+                    loading="eager"
+                    fetchPriority="low"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="swipe-card-fallback" />
+                )}
                 <div className="swipe-gradient" />
                 <div className="swipe-meta">
                   <h2 className="h3 mb-0 text-white">
@@ -1336,10 +1360,15 @@ export function DiscoverPage() {
                   {currentAd ? (
                     <div className="swipe-card-compact">
                       <div className="swipe-card-photo-hit">
-                        <img
+                        <OptimizedImage
                           className="swipe-card-photo"
                           src={currentAd.imageUrl}
                           alt={currentAd.title}
+                          variant={swipePhotoVariant}
+                          variants={DISCOVER_SWIPE_VARIANTS}
+                          sizes={DISCOVER_SWIPE_SIZES}
+                          loading="eager"
+                          fetchPriority="high"
                           draggable={false}
                         />
                       </div>
@@ -1399,12 +1428,20 @@ export function DiscoverPage() {
                         ))}
                       </div>
                       <div className="swipe-card-photo-hit">
-                        <img
-                          className="swipe-card-photo"
-                          src={photos[photoIdx] ?? photos[0]}
-                          alt={currentProfile.profile.name}
-                          draggable={false}
-                        />
+                        {activeSwipePhoto ? (
+                          <OptimizedImage
+                            key={`${deckKey}:${photoIdx}:${activeSwipePhoto}`}
+                            className="swipe-card-photo"
+                            src={activeSwipePhoto}
+                            alt={currentProfile.profile.name}
+                            variant={swipePhotoVariant}
+                            variants={DISCOVER_SWIPE_VARIANTS}
+                            sizes={DISCOVER_SWIPE_SIZES}
+                            loading="eager"
+                            fetchPriority="high"
+                            draggable={false}
+                          />
+                        ) : null}
                       </div>
                       <div className="swipe-gradient" />
                       <div className="swipe-meta">
@@ -1604,7 +1641,15 @@ export function DiscoverPage() {
               <span className="match-ring match-ring-b" />
               <span className="match-ring match-ring-c" />
               {matchFlash.photo ? (
-                <img className="match-photo" src={matchFlash.photo} alt="" />
+                <OptimizedImage
+                  className="match-photo"
+                  src={matchFlash.photo}
+                  alt=""
+                  variant="thumb"
+                  variants={DISCOVER_SWIPE_VARIANTS}
+                  sizes="120px"
+                  loading="eager"
+                />
               ) : (
                 <span className="match-icon">
                   <i className="bi bi-heart-fill" />

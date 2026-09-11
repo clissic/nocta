@@ -173,6 +173,12 @@ const userSchema = new Schema(
     passwordResetToken: { type: String, index: true },
     passwordResetExpires: { type: Date },
     authVersion: { type: Number, min: 0, default: 0 },
+    /**
+     * Solicitud de borrado (términos: 30 días de recuperación).
+     * Mientras esté set, la cuenta queda invisible; las imágenes se purgan
+     * solo en la eliminación definitiva.
+     */
+    deletionRequestedAt: { type: Date, default: null, index: true },
     oauthAccounts: { type: [oauthAccountSchema], default: [] },
     authProvider: {
       type: String,

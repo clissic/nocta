@@ -14,22 +14,16 @@ import { UserPost } from "../models/UserPost.js";
 import { Venue } from "../models/Venue.js";
 import { VenueRequest } from "../models/VenueRequest.js";
 import { VenueReview } from "../models/VenueReview.js";
-import {
-  deleteClaimEvidence,
-  deleteIdentityVerificationFiles,
-  deleteLocalUploads,
-} from "../uploads/index.js";
+import { purgeAllUserImages } from "../image-lifecycle/accountImages.js";
 import { recomputeVenueRatings } from "./venueRatings.js";
 
+/**
+ * Eliminación definitiva de cuenta (post período de 30 días o admin).
+ * Purga imágenes (Image Service + legacy) y datos asociados.
+ */
 export async function deleteUserAccount(user: UserDocument) {
   const userId = user._id;
-  const verification = user.identityVerification as
-    | {
-        documentFrontPath?: string | null;
-        selfieWithDocumentPath?: string | null;
-      }
-    | undefined;
-  const [matches, follows, requests, reviews, posts] = await Promise.all([
+  const [matches, follows, reviews] = await Promise.all([
     Match.find({ users: userId }).select("_id"),
     Follow.find({
       $or: [
@@ -37,9 +31,7 @@ export async function deleteUserAccount(user: UserDocument) {
         { targetType: "user", targetId: userId },
       ],
     }).lean(),
-    VenueRequest.find({ requesterId: userId }).lean(),
     VenueReview.find({ userId }).lean(),
-    UserPost.find({ authorId: userId }).lean(),
   ]);
 
   const matchIds = matches.map((match) => match._id);
@@ -55,19 +47,7 @@ export async function deleteUserAccount(user: UserDocument) {
   }
   affectedUserIds.delete(userId.toString());
 
-  deleteLocalUploads([
-    ...(user.profile?.photos ?? []),
-    ...requests.flatMap((request) => request.photos ?? []),
-    ...reviews.flatMap((review) => review.photos ?? []),
-    ...posts.flatMap((post) => post.photos ?? []),
-  ]);
-  deleteClaimEvidence(
-    requests.flatMap((request) => request.evidenceFiles ?? [])
-  );
-  deleteIdentityVerificationFiles([
-    verification?.documentFrontPath,
-    verification?.selfieWithDocumentPath,
-  ]);
+  await purgeAllUserImages(user);
 
   await Promise.all([
     Message.deleteMany({ matchId: { $in: matchIds } }),

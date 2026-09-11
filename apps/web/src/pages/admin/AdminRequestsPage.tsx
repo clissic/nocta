@@ -13,6 +13,7 @@ import {
   AdminPagination,
 } from "../../components/admin/AdminPagination";
 import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
+import { OptimizedImage } from "../../components/OptimizedImage";
 import { AdminCreateVenueRequestModal } from "../../components/admin/AdminCreateVenueRequestModal";
 
 const FILTERS: { value: VenueRequestStatus | "all"; label: string; icon: string }[] = [
@@ -180,7 +181,13 @@ export function AdminRequestsPage() {
                   to={`/admin/venue-requests/${r.id}`}
                 >
                   {r.photos[0] ? (
-                    <img src={r.photos[0]} alt="" className="admin-list-thumb" />
+                    <OptimizedImage
+                      src={r.photos[0]}
+                      alt=""
+                      className="admin-list-thumb"
+                      variant="thumb"
+                      sizes="64px"
+                    />
                   ) : (
                     <div className="admin-list-thumb is-empty" aria-hidden="true">
                       <i className="bi bi-building" />

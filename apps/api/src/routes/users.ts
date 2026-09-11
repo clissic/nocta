@@ -21,6 +21,7 @@ import { blockUser } from "../utils/userSafety.js";
 import { Report } from "../models/Report.js";
 import { notifyMany } from "../utils/notify.js";
 import { getActiveSuspension } from "../utils/moderation.js";
+import { isAccountPendingDeletion } from "../image-lifecycle/accountDeletion.js";
 
 const router = Router();
 
@@ -31,7 +32,8 @@ async function loadPublicUser(id: string) {
     !user ||
     !user.profileComplete ||
     !user.profile ||
-    getActiveSuspension(user)
+    getActiveSuspension(user) ||
+    isAccountPendingDeletion(user)
   ) {
     return null;
   }
@@ -62,7 +64,7 @@ router.get("/:id", requireAuth, async (req: AuthedRequest, res) => {
   }
 
   return res.json({
-    user: serializePublicUser(user, {
+    user: await serializePublicUser(user, {
       isFollowing: viewerId ? following : undefined,
       isFollower: viewerId ? follower : undefined,
       isFollowRequested: viewerId ? followRequested : undefined,
@@ -223,16 +225,18 @@ router.get("/:id/followers", optionalAuth, async (req: AuthedRequest, res) => {
     followingSet = new Set(mine.map((f) => f.targetId.toString()));
   }
 
-  const list = ids
-    .map((fid) => map.get(fid.toString()))
-    .filter(Boolean)
-    .map((u) =>
-      serializePublicUser(u!, {
-        isFollowing: viewerId
-          ? followingSet.has(u!._id.toString())
-          : undefined,
-      })
-    );
+  const list = await Promise.all(
+    ids
+      .map((fid) => map.get(fid.toString()))
+      .filter(Boolean)
+      .map((u) =>
+        serializePublicUser(u!, {
+          isFollowing: viewerId
+            ? followingSet.has(u!._id.toString())
+            : undefined,
+        })
+      )
+  );
 
   return res.json({ users: list, followersCount: target.followersCount ?? 0 });
 });
@@ -253,8 +257,10 @@ router.get("/:id/venues", optionalAuth, async (req: AuthedRequest, res) => {
     name: 1,
   });
   return res.json({
-    venues: venues.map((v) =>
-      serializeVenue(v, { followersCount: v.followersCount ?? 0 })
+    venues: await Promise.all(
+      venues.map((v) =>
+        serializeVenue(v, { followersCount: v.followersCount ?? 0 })
+      )
     ),
   });
 });
@@ -285,16 +291,18 @@ router.get("/:id/following", optionalAuth, async (req: AuthedRequest, res) => {
     followingSet = new Set(mine.map((f) => f.targetId.toString()));
   }
 
-  const list = ids
-    .map((tid) => map.get(tid.toString()))
-    .filter(Boolean)
-    .map((u) =>
-      serializePublicUser(u!, {
-        isFollowing: viewerId
-          ? followingSet.has(u!._id.toString())
-          : undefined,
-      })
-    );
+  const list = await Promise.all(
+    ids
+      .map((tid) => map.get(tid.toString()))
+      .filter(Boolean)
+      .map((u) =>
+        serializePublicUser(u!, {
+          isFollowing: viewerId
+            ? followingSet.has(u!._id.toString())
+            : undefined,
+        })
+      )
+  );
 
   return res.json({
     users: list,

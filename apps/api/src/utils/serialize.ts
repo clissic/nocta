@@ -20,9 +20,23 @@ import { resolveShowActivityToFollowers } from "./activityVisibility.js";
 import { getActiveSuspension } from "./moderation.js";
 import { isPremiumActive } from "./premium.js";
 import { config } from "../config.js";
+import {
+  resolveDeliveryUrl,
+  resolveDeliveryUrls,
+} from "../image-service/resolveDelivery.js";
 
+/**
+ * Absolutiza legacy `/uploads` de forma síncrona.
+ * Para managed `/api/media/...` preferí `resolvePublicAssetUrl` (Object Storage directo).
+ */
 export function publicAssetUrl(url?: string | null) {
   if (!url) return url ?? undefined;
+  if (url.startsWith("/api/media/") || url.includes("/api/media/")) {
+    // No devolver proxy Express: el caller async debe expandir.
+    // Fallback sync solo para no romper call sites olvidados: dejar ref relativa
+    // (el browser no la cargará hasta expandir). Mejor expandir siempre.
+    return url.startsWith("/") ? url : url;
+  }
   if (!url.startsWith("/uploads/")) return url;
   const base = config.apiPublicUrl.replace(/\/$/, "");
   return base ? `${base}${url}` : url;
@@ -30,6 +44,18 @@ export function publicAssetUrl(url?: string | null) {
 
 export function publicAssetUrls(urls?: string[] | null) {
   return (urls ?? []).map((url) => publicAssetUrl(url) ?? url);
+}
+
+/** Browser → Object Storage (CDN/firmada) o legacy `/uploads` vía API. */
+export async function resolvePublicAssetUrl(url?: string | null) {
+  return resolveDeliveryUrl(url);
+}
+
+export async function resolvePublicAssetUrls(urls?: string[] | null) {
+  const list = urls ?? [];
+  if (!list.length) return [];
+  const resolved = await resolveDeliveryUrls(list);
+  return resolved.filter(Boolean);
 }
 
 function calcAge(birthDate: Date): number {
@@ -66,7 +92,7 @@ export function serializeSocials(
   return Object.keys(next).length ? next : undefined;
 }
 
-export function serializeUser(user: UserDocument) {
+export async function serializeUser(user: UserDocument) {
   const suspension = getActiveSuspension(user);
   const socials = serializeSocials(user.profile?.socials);
   const livesIn = user.profile?.livesIn as
@@ -79,6 +105,10 @@ export function serializeUser(user: UserDocument) {
   const hasLivesIn =
     Boolean(livesIn?.country?.trim()) && Boolean(livesIn?.city?.trim());
 
+  const photos = user.profile?.photos
+    ? await resolvePublicAssetUrls(user.profile.photos)
+    : [];
+
   const profile = user.profile
     ? {
         name: user.profile.name ?? "",
@@ -87,7 +117,7 @@ export function serializeUser(user: UserDocument) {
           : undefined,
         heightCm: user.profile.heightCm ?? undefined,
         lookingFor: user.profile.lookingFor?.slice(0, 1) ?? [],
-        photos: publicAssetUrls(user.profile.photos),
+        photos,
         bio: user.profile.bio ?? undefined,
         interests: user.profile.interests ?? [],
         workStatus: user.profile.workStatus ?? undefined,
@@ -217,10 +247,13 @@ export function serializeUser(user: UserDocument) {
           duration: suspension.duration,
         }
       : undefined,
+    deletionRequestedAt: user.deletionRequestedAt
+      ? user.deletionRequestedAt.toISOString()
+      : null,
   };
 }
 
-export function serializePublicUser(
+export async function serializePublicUser(
   user: UserDocument,
   opts?: {
     isFollowing?: boolean;
@@ -231,7 +264,7 @@ export function serializePublicUser(
   if (!user.profile?.birthDate) {
     throw new Error("Usuario sin perfil público");
   }
-  const photos = publicAssetUrls(user.profile.photos);
+  const photos = await resolvePublicAssetUrls(user.profile.photos);
   const livesIn = user.profile.livesIn as
     | { country?: string | null; city?: string | null }
     | null
@@ -270,8 +303,8 @@ export function serializePublicUser(
 }
 
 /** Vista mínima: foto, nombre, edad, altura, ubicación y redes. */
-export function serializeReducedProfile(user: UserDocument) {
-  const publicUser = serializePublicUser(user);
+export async function serializeReducedProfile(user: UserDocument) {
+  const publicUser = await serializePublicUser(user);
   return {
     id: publicUser.id,
     name: publicUser.name,
@@ -283,13 +316,13 @@ export function serializeReducedProfile(user: UserDocument) {
   };
 }
 
-export function serializeVenue(
+export async function serializeVenue(
   venue: VenueDocument,
   opts?: {
     followersCount?: number;
     isFollowing?: boolean;
     owner?: { id: string; name: string; photo?: string };
-    myReview?: ReturnType<typeof serializeVenueReview>;
+    myReview?: Awaited<ReturnType<typeof serializeVenueReview>>;
     livePublishedCount?: number;
   }
 ) {
@@ -301,6 +334,10 @@ export function serializeVenue(
     typeof venue.ratingAvg === "number" && ratingCount > 0
       ? venue.ratingAvg
       : undefined;
+  const photos = await resolvePublicAssetUrls(venue.photos);
+  const ownerPhoto = opts?.owner?.photo
+    ? await resolvePublicAssetUrl(opts.owner.photo)
+    : undefined;
   return {
     id: venue._id.toString(),
     name: venue.name,
@@ -309,7 +346,7 @@ export function serializeVenue(
     country: venue.country ?? "Uruguay",
     city: venue.city,
     description: venue.description ?? undefined,
-    photos: publicAssetUrls(venue.photos),
+    photos,
     location:
       loc && typeof loc.lat === "number" && typeof loc.lng === "number"
         ? { lat: loc.lat, lng: loc.lng }
@@ -317,7 +354,7 @@ export function serializeVenue(
     active: venue.active,
     ownerId,
     owner: opts?.owner
-      ? { ...opts.owner, photo: publicAssetUrl(opts.owner.photo) }
+      ? { ...opts.owner, photo: ownerPhoto }
       : undefined,
     followersCount:
       opts?.followersCount ??
@@ -332,7 +369,7 @@ export function serializeVenue(
   };
 }
 
-export function serializeVenueReview(
+export async function serializeVenueReview(
   review: VenueReviewDocument,
   opts?: {
     author?: { id: string; name: string; photo?: string };
@@ -344,46 +381,57 @@ export function serializeVenueReview(
     typeof review.body === "string" && review.body.trim()
       ? review.body.trim()
       : undefined;
+  const photos = await resolvePublicAssetUrls(review.photos);
+  const authorPhoto = opts?.author?.photo
+    ? await resolvePublicAssetUrl(opts.author.photo)
+    : undefined;
+  const venuePhoto = opts?.venuePhoto
+    ? await resolvePublicAssetUrl(opts.venuePhoto)
+    : undefined;
   return {
     id: review._id.toString(),
     venueId: review.venueId.toString(),
     userId: review.userId.toString(),
     rating: review.rating,
     body,
-    photos: publicAssetUrls(review.photos),
+    photos,
     active: review.active !== false,
     author: opts?.author
-      ? { ...opts.author, photo: publicAssetUrl(opts.author.photo) }
+      ? { ...opts.author, photo: authorPhoto }
       : undefined,
     venueName: opts?.venueName,
-    venuePhoto: publicAssetUrl(opts?.venuePhoto),
+    venuePhoto,
     createdAt: review.createdAt.toISOString(),
     updatedAt: review.updatedAt.toISOString(),
   };
 }
 
-export function serializeUserPost(
+export async function serializeUserPost(
   post: UserPostDocument,
   opts?: {
     venueName?: string;
     venuePhoto?: string;
   }
 ) {
+  const photos = await resolvePublicAssetUrls(post.photos);
+  const venuePhoto = opts?.venuePhoto
+    ? await resolvePublicAssetUrl(opts.venuePhoto)
+    : undefined;
   return {
     id: post._id.toString(),
     authorId: post.authorId.toString(),
     venueId: post.venueId.toString(),
     body: post.body.trim(),
-    photos: publicAssetUrls(post.photos),
+    photos,
     active: post.active !== false,
     venueName: opts?.venueName,
-    venuePhoto: publicAssetUrl(opts?.venuePhoto),
+    venuePhoto,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
   };
 }
 
-export function serializeActivityItem(
+export async function serializeActivityItem(
   event: ActivityEventDocument,
   opts: {
     actor: { id: string; name: string; photo?: string };
@@ -401,27 +449,39 @@ export function serializeActivityItem(
     };
   }
 ) {
+  const actorPhoto = opts.actor.photo
+    ? await resolvePublicAssetUrl(opts.actor.photo)
+    : undefined;
+  const venuePhoto = opts.venue?.photo
+    ? await resolvePublicAssetUrl(opts.venue.photo)
+    : undefined;
+  const reviewPhotos = opts.review
+    ? await resolvePublicAssetUrls(opts.review.photos)
+    : undefined;
+  const postPhotos = opts.post
+    ? await resolvePublicAssetUrls(opts.post.photos)
+    : undefined;
   return {
     id: event._id.toString(),
     type: event.type as ActivityType,
     createdAt: event.createdAt.toISOString(),
     actor: {
       ...opts.actor,
-      photo: publicAssetUrl(opts.actor.photo),
+      photo: actorPhoto,
     },
     venue: opts.venue
-      ? { ...opts.venue, photo: publicAssetUrl(opts.venue.photo) }
+      ? { ...opts.venue, photo: venuePhoto }
       : undefined,
     review: opts.review
-      ? { ...opts.review, photos: publicAssetUrls(opts.review.photos) }
+      ? { ...opts.review, photos: reviewPhotos ?? [] }
       : undefined,
     post: opts.post
-      ? { ...opts.post, photos: publicAssetUrls(opts.post.photos) }
+      ? { ...opts.post, photos: postPhotos ?? [] }
       : undefined,
   };
 }
 
-export function serializePromotion(
+export async function serializePromotion(
   promo: PromotionDocument,
   opts?: { venueName?: string; venuePhoto?: string }
 ) {
@@ -429,6 +489,9 @@ export function serializePromotion(
     typeof promo.priceUyu === "number" && Number.isFinite(promo.priceUyu)
       ? promo.priceUyu
       : undefined;
+  const venuePhoto = opts?.venuePhoto
+    ? await resolvePublicAssetUrl(opts.venuePhoto)
+    : undefined;
   return {
     id: promo._id.toString(),
     venueId: promo.venueId.toString(),
@@ -439,7 +502,7 @@ export function serializePromotion(
     validUntil: promo.validUntil?.toISOString(),
     active: promo.active,
     venueName: opts?.venueName,
-    venuePhoto: publicAssetUrl(opts?.venuePhoto),
+    venuePhoto,
   };
 }
 
@@ -456,7 +519,7 @@ function resolvePurchaseStatus(
   return "valid";
 }
 
-export function serializePromoPurchase(
+export async function serializePromoPurchase(
   purchase: PromoPurchaseDocument,
   opts?: { venueName?: string; venuePhoto?: string }
 ) {
@@ -465,6 +528,9 @@ export function serializePromoPurchase(
     typeof purchase.priceUyu === "number" && Number.isFinite(purchase.priceUyu)
       ? purchase.priceUyu
       : undefined;
+  const venuePhoto = opts?.venuePhoto
+    ? await resolvePublicAssetUrl(opts.venuePhoto)
+    : undefined;
   return {
     id,
     venueId: purchase.venueId.toString(),
@@ -477,30 +543,34 @@ export function serializePromoPurchase(
     validUntil: purchase.validUntil?.toISOString(),
     redeemedAt: purchase.redeemedAt?.toISOString(),
     venueName: opts?.venueName,
-    venuePhoto: publicAssetUrl(opts?.venuePhoto),
+    venuePhoto,
   };
 }
 
-export function serializeVenueNews(
+export async function serializeVenueNews(
   news: VenueNewsDocument,
   opts?: { venueName?: string; venuePhoto?: string }
 ) {
+  const photos = await resolvePublicAssetUrls(news.photos);
+  const venuePhoto = opts?.venuePhoto
+    ? await resolvePublicAssetUrl(opts.venuePhoto)
+    : undefined;
   return {
     id: news._id.toString(),
     venueId: news.venueId.toString(),
     title: news.title,
     body: news.body,
-    photos: publicAssetUrls(news.photos),
+    photos,
     publishedAt: news.publishedAt.toISOString(),
     active: news.active,
     venueName: opts?.venueName,
-    venuePhoto: publicAssetUrl(opts?.venuePhoto),
+    venuePhoto,
     createdAt: news.createdAt.toISOString(),
     updatedAt: news.updatedAt.toISOString(),
   };
 }
 
-export function serializeVenueRequest(
+export async function serializeVenueRequest(
   request: VenueRequestDocument,
   opts?: { requester?: { id: string; email: string; name?: string } }
 ) {
@@ -514,6 +584,8 @@ export function serializeVenueRequest(
     typeof loc.lng === "number" &&
     Number.isFinite(loc.lat) &&
     Number.isFinite(loc.lng);
+
+  const photos = await resolvePublicAssetUrls(request.photos);
 
   return {
     id: request._id.toString(),
@@ -530,7 +602,7 @@ export function serializeVenueRequest(
     country: request.country ?? "Uruguay",
     city: request.city,
     description: request.description ?? undefined,
-    photos: publicAssetUrls(request.photos),
+    photos,
     evidenceFiles: (request.evidenceFiles ?? []).map((file) => ({
       id: file.id,
       originalName: file.originalName,
@@ -556,7 +628,7 @@ export function serializeVenueRequest(
   };
 }
 
-export function serializePresence(
+export async function serializePresence(
   presence: PresenceDocument,
   venue?: VenueDocument | null
 ) {
@@ -564,7 +636,7 @@ export function serializePresence(
     id: presence._id.toString(),
     userId: refId(presence.userId),
     venueId: refId(presence.venueId),
-    venue: venue ? serializeVenue(venue) : undefined,
+    venue: venue ? await serializeVenue(venue) : undefined,
     startsAt: presence.startsAt.toISOString(),
     endsAt: presence.endsAt ? presence.endsAt.toISOString() : null,
     status: presence.status,

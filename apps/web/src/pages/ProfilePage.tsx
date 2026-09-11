@@ -18,7 +18,8 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { LOOKING_FOR_ICONS } from "../lib/lookingForIcons";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { ProfileExtraSections, ProfileLanguagesSection } from "../components/ProfileExtraSections";
 import { ProfileSocialIcons } from "../components/ProfileSocialIcons";
 import { useToast } from "../components/ToastProvider";
@@ -173,7 +174,13 @@ export function ProfilePage() {
         <div className="profile-media">
           <div className="profile-hero">
             {hero ? (
-              <img src={hero} alt={profile.name} />
+              <OptimizedImage
+                src={hero}
+                alt={profile.name}
+                variant="large"
+                sizes="(min-width: 768px) 42vw, 100vw"
+                loading="eager"
+              />
             ) : (
               <Link
                 to={photosEditHref}
@@ -268,10 +275,12 @@ export function ProfilePage() {
                   const photoNumber = index + 2;
                   if (src) {
                     return (
-                      <img
+                      <OptimizedImage
                         key={src}
                         src={src}
                         alt={`Foto ${photoNumber}`}
+                        variant="medium"
+                        sizes="(min-width: 768px) 120px, 28vw"
                       />
                     );
                   }
@@ -520,10 +529,12 @@ export function ProfilePage() {
               <div className="profile-owned-venues">
                 {ownedVenues.map((v) => (
                   <Link key={v.id} className="profile-owned-card" to={`/venues/${v.id}/manage`}>
-                    <img
+                    <OptimizedImage
                       src={venueCoverSrc(v)}
                       alt=""
-                      onError={onVenuePhotoError}
+                      variant="thumb"
+                      sizes="64px"
+                      fallbackSrc={VENUE_PHOTO_FALLBACK}
                     />
                     <span>
                       <strong>{v.name}</strong>

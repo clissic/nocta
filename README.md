@@ -14,9 +14,10 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 4. [Credenciales demo](#credenciales-demo)
 5. [Scripts](#scripts)
 6. [Backend](#backend)
-7. [Frontend](#frontend)
-8. [Shared](#shared-noctashared)
-9. [Convenciones](#convenciones)
+7. [Image Service](#image-service)
+8. [Frontend](#frontend)
+9. [Shared](#shared-noctashared)
+10. [Convenciones](#convenciones)
 
 ---
 
@@ -117,6 +118,12 @@ En login hay atajos visuales para cargar estas cuentas (demo).
 | `npm run dev:api` | API en watch (`tsx`) |
 | `npm run dev:web` | Vite (proxy `/api` y `/uploads` → `:4000`) |
 | `npm run seed` | Seed admin + venues + demos (`seedDemoData`) |
+| `npm run migrate:images` | Migrar imágenes legacy → Image Service (`--preview`/`DRY_RUN=1`; real exige credenciales Railway) |
+| `npm run validate:images` | Validar ledger + Object Storage post-migración |
+| `npm run repair:images-memory` | Restaurar refs si una migrate corrió con storage memory (`--execute`) |
+| `npm run cleanup:images` | Inventario de huérfanos (default dry-run; borrado solo con `--execute`) |
+| `npm run diagnose:images` | Diagnóstico Image Service (siempre dry-run; 6 categorías; sin deletes) |
+| `npm run purge:deleted-accounts` | Purga cuentas tras 30 días + identity TTL (`--dry-run`) |
 | `npm run build` | Build shared → api → web |
 | `npm run build:shared` | Solo `packages/shared` |
 
@@ -131,19 +138,28 @@ En login hay atajos visuales para cargar estas cuentas (demo).
 - Express + Mongoose + Zod + JWT + `jose` + Nodemailer / Resend + Multer
 - Path: `apps/api`
 - Health: `GET /health` → `{ ok, service, db }`
-- Estáticos: `GET /uploads/*` (fotos en `apps/api/uploads/`)
+- Estáticos legacy: `GET /uploads/*` (solo fotos antiguas en disco `apps/api/uploads/`)
+- Imágenes **nuevas** públicas: el browser las pide al Object Storage (CDN o URL firmada), no al pipeline de bytes de Express
 - Gates: `requireVerified` / `requireProfileComplete`; perfiles requieren autenticación y detalle de Espacio admite `optionalAuth`
 
 ### Estructura (`apps/api/src`)
 
 ```text
 config.ts · db.ts · index.ts · seed.ts · seedData.ts · pilotVenues.ts
+models/     User · Venue · Presence · Swipe · Match · Message · Follow · …
+image-service/  registry · ingest · Sharp · delivery · privateAccess
+image-lifecycle/  inventory · migrate · cleanup · diagnose · accountDeletion
+storage/    Railway / memory Object Storage
+middleware/ auth · gates · imageRateLimit
+uploads/    multer temp (legacy bridge) · validate
 mail/       mailer · templates
 middleware/ auth · gates · optionalAuth
-models/     User · Follow · FollowRequest · Block · Report · Venue · VenueNews · VenueRequest · Promotion · PromoPurchase · Presence · Swipe · Match · Message · VenueReview · UserPost · ActivityEvent
+models/     User · Follow · FollowRequest · Block · Report · Venue · VenueNews · VenueRequest · Promotion · PromoPurchase · Presence · Swipe · Match · Message · VenueReview · UserPost · ActivityEvent · ImageAsset
 oauth/      providers.ts · upsert.ts
-routes/     auth · oauth · profile · users · me · venues · muro · presence · discover · matches · admin
-uploads/    multer · validate · paths · middleware
+routes/     auth · oauth · profile · users · me · venues · muro · presence · discover · matches · admin · media (302 fallback)
+uploads/    multer · validate · paths · middleware  (legado; sigue sirviendo `/uploads`)
+storage/    abstracción Object Storage (Railway Buckets S3-compat; memory en local/tests)
+image-service/  registry · Sharp · ingest · resolveDelivery (URL directa CDN/firmada)
 utils/      ids · presence · serialize · follows · tokens · matchActions · geocode · venueAccess · likeAllowance · activity · venueRatings · promoValidity
 ```
 
@@ -161,12 +177,242 @@ Ver `apps/api/.env.example`.
 | `SEED_ON_EMPTY` | Seed en Atlas si no hay users |
 | `JWT_SECRET` | Firma JWT |
 | `CLIENT_ORIGIN` | CORS + redirects OAuth (URL del web, p. ej. Railway) |
-| `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` en JSON |
+| `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` legacy en JSON |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed (defaults de la tabla demo) |
 | `MAIL_TRANSPORT` | `auto` (default) \| `smtp` \| `resend` — `smtp` fuerza Gmail aunque exista `RESEND_API_KEY` |
 | `RESEND_API_KEY` | Mail vía Resend (HTTPS). En `auto` tiene prioridad; sin dominio solo envía al mail de la cuenta Resend |
 | `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer (DNS IPv4); `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
 | OAuth `GOOGLE_*` / `APPLE_*` / `MICROSOFT_*` / `MICROSOFT_TENANT` | Social login (`MICROSOFT_TENANT` default `common`) |
+| `STORAGE_DRIVER` | `auto` (default) \| `railway` \| `memory` — Object Storage |
+| `STORAGE_PUBLIC_BASE_URL` | Base CDN/custom delante del bucket (opcional; sin esto las públicas salen firmadas al bucket) |
+| `STORAGE_SIGNED_URL_TTL_SECONDS` | TTL de URLs firmadas (default `3600`) |
+| `AWS_ENDPOINT_URL` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_S3_BUCKET_NAME` / `AWS_DEFAULT_REGION` / `AWS_S3_URL_STYLE` | Credenciales Railway Bucket (preset AWS SDK). También acepta `ENDPOINT`/`BUCKET`/`ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`/`REGION` o prefijo `STORAGE_*` |
+
+**Object Storage / Image Service (Fase 1–8):** ver sección dedicada [Image Service](#image-service). Resumen: Sharp + Railway Object Storage; públicos sin original permanente; Express no sirve bytes de imágenes managed nuevas; identity PRIVATE/SENSITIVE; `OptimizedImage` en FE; `/uploads` solo legacy.
+- Tests: `npm run test -w @nocta/api` · `npm run test:e2e -w @nocta/api` · `npm run test -w @nocta/web`.
+
+### Image Service
+
+Arquitectura final (browser → Object Storage; API solo orquesta):
+
+```
+Upload multipart → multer temp → validate (MIME real, size, dims, bombs)
+  → Sharp (variants_v1 | identity_raw | evidence_raw)
+  → Railway Object Storage (keys public/… o private/…)
+  → ImageAsset en Mongo (metadata + refs; NUNCA binarios)
+  → JSON al cliente con URL CDN/firmada
+  → OptimizedImage (<picture> AVIF/WebP + srcset + lazy)
+```
+
+**Verdades de diseño (explícitas):**
+
+1. MongoDB **nunca** almacena binarios de imagen (solo refs `/api/media/{id}`, paths legacy o imageIds privados).
+2. Los **originales públicos no se almacenan** de forma permanente (solo variantes WebP/AVIF).
+3. Express **no sirve** bytes de imágenes públicas managed nuevas (`GET /api/media/:id` = 302 a Storage). **`/uploads` es legacy read-only** (telemetría `[legacy-uploads]`; writes → 405).
+4. **Railway Object Storage** es el storage actual (`STORAGE_DRIVER=railway|auto|memory`).
+5. **identity_verification** es PRIVATE/SENSITIVE (`admin_signed`, TTL 180d; no Discover/perfiles/JSON público). Staging multer en `tmp/upload-staging`, no en `private/`.
+6. **`OptimizedImage`** es el componente público genérico del FE.
+7. **`/uploads` ya no acepta almacenamiento permanente nuevo** (Fase 11). Corpus residual + FE compat hasta cleanup confirmado.
+
+#### ImageTypes
+
+| Tipo | Visibility | Processing | Access | Retention |
+|------|------------|------------|--------|-----------|
+| `user_profile` | public | `variants_v1` | `public_cdn_or_signed` | owner_lifetime |
+| `space` | public | `variants_v1` | `public_cdn_or_signed` | owner_lifetime |
+| `space_news` / `space_promotion` | public | `variants_v1` | `public_cdn_or_signed` | owner_lifetime |
+| `space_request` | public | `variants_v1` | `public_cdn_or_signed` | ttl 90d |
+| `review` | public | `variants_v1` | `public_cdn_or_signed` | owner_lifetime |
+| `user_post` | public | `variants_v1` | `public_cdn_or_signed` | owner_lifetime |
+| `identity_verification` | private/SENSITIVE | `identity_raw` | `admin_signed` | ttl 180d |
+| `claim_evidence` | private | `evidence_raw` | `owner_or_admin_signed` | ttl 365d |
+| `report_evidence` | private | `evidence_raw` | `owner_or_admin_signed` | ttl 365d |
+
+Registry: `apps/api/src/image-service/registry.ts`.
+
+#### Processing / Storage / Access
+
+- **variants_v1:** thumb/medium/large × webp/avif; `rotate()` + re-encode (sin EXIF/GPS); sin upscale; sin original.
+- **identity_raw / evidence_raw:** JPEG/PDF privado; sin variantes públicas; sin URL CDN.
+- **Cache Storage:** públicos `Cache-Control: public, max-age=31536000, immutable`; privados `private, no-store`.
+- **Rate limits (en memoria):** upload 30/min · delete 40/min · sensitive 5/min por usuario (`IMAGE_RATE_LIMIT` → 429).
+
+#### Seguridad
+
+MIME real (Sharp), límites de bytes/dims/píxeles, rechazo SVG/GIF/ejecutables, filenames sanitizados, segmentos sin path traversal, ownership + auth en privados, identity solo admin (conocer `imageId` no alcanza), errores genéricos sin filtrar keys internas.
+
+#### Migración / cleanup / cuenta
+
+- `npm run migrate:images` (`--preview` / `DRY_RUN=1`, lotes, idempotente)
+- `npm run cleanup:images` (dry-run default; borrado solo `--execute`)
+- Soft-delete 30d → `purge:deleted-accounts` / `jobs:images` borra imágenes públicas/privadas/variantes/metadata
+- Identity TTL 180d (job `identity_retention`, SENSITIVE, separado de públicas)
+- E2E HTTP: `npm run test:e2e -w @nocta/api`
+- **Fase 11 (deprecación legacy):** staging en `tmp/upload-staging`; `/uploads` read-only + telemetría
+- **Fase 12 (automatización lifecycle):** jobs idempotentes con ledger `ImageLifecycleJobRun`
+- **Fase 14 (housekeeping):** `diagnose:images` dry-run + `listObjects`/`deleteByPrefix` + métricas `[image-metric]`
+- **Fase 15 (go-live):** auditoría + memory bloqueado en prod + GIF fuera del edge + checklist
+
+#### Jobs de lifecycle (Fase 12)
+
+| Job | Qué hace | Borrado automático |
+|-----|----------|-------------------|
+| `purge_deleted_accounts` | Cuentas soft-delete > 30d → purge imágenes + cuenta | Sí |
+| `identity_retention` | `identity_verification` TTL registry (180d); limpia refs User; **nunca** publica | Sí (solo identity) |
+| `orphan_classify` | Clasifica metadata↔storage, dangling, legacy residual | **No** (solo reporte) |
+
+**Manual:**
+
+```bash
+# Dry-run de todos
+npm run jobs:images -w @nocta/api -- --dry-run
+
+# Un job
+npm run jobs:images -w @nocta/api -- --job=identity_retention --force
+
+# Ejecutar de verdad (idempotente por hora UTC)
+npm run jobs:images -w @nocta/api -- --force
+```
+
+Alias legacy: `npm run purge:deleted-accounts` ahora delega al bundle de jobs.
+
+**Automático en producción (sin Redis):**
+
+1. En Railway: `IMAGE_LIFECYCLE_JOBS=1` y opcional `IMAGE_LIFECYCLE_INTERVAL_MS=3600000` (default 1h).
+2. El API arranca un scheduler in-process (`startImageLifecycleScheduler`) que corre los 3 jobs con backoff por ítem y ledger Mongo.
+3. Alternativa: Cron de Railway / GitHub Action → `npm run jobs:images -w @nocta/api -- --force` (mismo código).
+
+Ledger: colección `ImageLifecycleJobRun` (processed / deleted / errors / pending / durationMs / summary).
+
+Huérfanos dudosos **no** se borran solos: revisar `summary.samples` del job `orphan_classify` y, si corresponde, `cleanup:images --execute` a mano.
+
+#### Housekeeping y observabilidad (Fase 14)
+
+Operaciones de storage para ops: `listObjects(prefix)`, `exists(key)`, `deleteObject(key)`, `deleteByPrefix(prefix)`.
+
+**Diagnóstico (siempre DRY RUN — informa, no borra):**
+
+```bash
+npm run diagnose:images -w @nocta/api
+```
+
+Detecta:
+
+1. Mongo metadata sin objeto en storage  
+2. Objetos en storage sin `ImageAsset`  
+3. Variantes públicas incompletas  
+4. `ImageType` / visibility / namespace inconsistentes  
+5. Imágenes de cuentas soft-delete o owner ausente  
+6. Residuos legacy (`/uploads`, claims, identity en disco)
+
+Rechaza `--execute` / `--delete`. Tras revisar: `cleanup:images --execute` o jobs lifecycle.
+
+**Métricas** (stdout JSON, prefijo `[image-metric]`): `upload`, `processing_error`, `sharp_error`, `storage_error`, `signing` (latencia ms), `migration_error`, `cleanup_error`, `missing_object`.  
+No loguean URLs firmadas, tokens, docs de identidad ni bytes de imagen (keys private redactadas).
+
+**Troubleshooting**
+
+| Síntoma | Qué mirar | Acción |
+|---------|-----------|--------|
+| Fotos 404 / broken en UI | `diagnose:images` → `mongoWithoutObject`; logs `missing_object` | Remigrar o re-subir; no confiar en refs memory-migrate |
+| Bucket crece sin Mongo | `objectWithoutMongo` (usa `listObjects`) | Revisar samples; borrar solo con `cleanup`/`deleteByPrefix` manual |
+| Variantes rotas / picture incompleto | `incompleteVariants` | Re-ingest de esa imagen |
+| Identity mezclada con pública | `inconsistentImageType` | Corregir metadata; identity nunca CDN |
+| Cuenta borrada con fotos vivas | `deletedAccountObjects` | Esperar/job `purge_deleted_accounts` o purge manual |
+| Hits `[legacy-uploads]` | `legacyResidues` + `validate:images` | Migrar residual; luego `cleanup:images --execute` |
+| Errores Sharp / upload | grepear `[image-metric]` `sharp_error` / `processing_error` / `storage_error` | Revisar MIME/size; credenciales Railway |
+| Firmas lentas | `signing` con `ms` alto | CDN (`STORAGE_PUBLIC_BASE_URL`) para públicas; TTL firmas |
+| Migración falla | `migration_error` + ledger `ImageMigrationRecord` | `validate:images`; `repair:images-memory` si migrate corrió en memory |
+
+CDN smoke: `npm run diag:storage -w @nocta/api`.
+
+#### Go-live checklist (Fase 15)
+
+Antes de producción:
+
+1. Railway Object Storage con credenciales (`STORAGE_DRIVER=auto|railway`); **memory bloqueado en `NODE_ENV=production`** salvo `STORAGE_ALLOW_MEMORY=1`.
+2. `STORAGE_PUBLIC_BASE_URL` apuntando a CDN/custom domain (sin slash final).
+3. `IMAGE_LIFECYCLE_JOBS=1` **o** cron externo → `npm run jobs:images -w @nocta/api -- --force`.
+4. `npm run diagnose:images -w @nocta/api` en staging → revisar findings; sin deletes auto.
+5. Migración legacy completa o plan explícito; `/uploads` sigue read-only residual.
+6. Suite: `npm run test:all -w @nocta/api` + `npm run test -w @nocta/web`.
+
+Veredicto de auditoría en canvas / informe Fase 15.
+
+#### CDN pública (Fase 13)
+
+Arquitectura de entrega **pública**:
+
+```
+Mongo (storageKey /api/media/{id})
+  → API resolveDelivery → URL CDN (STORAGE_PUBLIC_BASE_URL + key)
+  → Browser
+  → OptimizedImage (<picture> AVIF/WebP + srcset; reescribe variantes en CDN)
+```
+
+Sin CDN (dev local):
+
+```
+Mongo → API → URL firmada al bucket Railway/memory → Browser
+OptimizedImage cae a /api/media/{id}?v=&f= (302 firmado)
+```
+
+| Variable | Rol |
+|----------|-----|
+| `STORAGE_PUBLIC_BASE_URL` | Origen CDN / custom domain delante del bucket (sin slash final) |
+| `STORAGE_SIGNED_URL_TTL_SECONDS` | TTL firmas (fallback sin CDN + privados) |
+
+**Cache:** objetos públicos en Storage llevan `Cache-Control: public, max-age=31536000, immutable` + `Content-Type` webp/avif. Privados: `private, no-store`. Redirect `/api/media` a CDN: `max-age=86400`; a firma: `max-age=60`.
+
+**Seguridad:** `identity_verification` / keys `private/*` **nunca** reciben URL CDN (`getPublicUrl` → null; `resolveReadUrl` → signed). Mongo **no** guarda URLs absolutas.
+
+**Verificar staging/prod:**
+
+```bash
+npm run diag:storage -w @nocta/api
+# Esperado con CDN: resolveMode=public, usesCdn=false en samplePrivate
+curl -I "https://<cdn>/<public/.../medium.webp>"   # Cache-Control immutable
+```
+
+#### Legacy `/uploads` — qué queda y cómo verificar
+
+| Qué | Estado |
+|-----|--------|
+| Escrituras permanentes a `/uploads` | **Eliminadas** (multer → `tmp/upload-staging` → Image Service) |
+| `POST/PUT/DELETE /uploads/*` | **Bloqueadas** (405 `LEGACY_UPLOADS_READONLY`) |
+| `GET /uploads/*` | **Permanece** (solo corpus migrable residual + telemetría) |
+| FE `OptimizedImage` / `apiUrl` para `/uploads` | **Permanece** (compat si Mongo aún tiene refs legacy) |
+| Vite proxy `/uploads` | **Permanece** (dev: sirve GETs legacy vía API) |
+| Carpetas `apps/api/uploads`, `private/*` | **Permanece** hasta cleanup confirmado (`cleanup:images --execute`) |
+| Identity / claims staging | **TEMP**; lectura admin de archivos viejos en `private/` si existen |
+
+**Verificar cero dependencia de escritura:**
+
+1. `npm run test -w @nocta/api` (incluye `phase11.legacyDeprecation`)
+2. `npm run test:e2e -w @nocta/api`
+3. `npm run validate:images -w @nocta/api` → `legacyPublic` / `legacyPrivate` → 0
+4. En logs de API: ausencia de `[legacy-uploads] GET` en tráfico normal (o solo hits residuales)
+5. Tras período de prueba sin hits: `cleanup:images --execute` y luego retirar `express.static` + proxy Vite (paso final explícito)
+#### Desarrollo local vs producción
+
+| | Local | Producción |
+|--|-------|------------|
+| Storage | `memory` o Railway | Railway bucket |
+| CDN | opcional `STORAGE_PUBLIC_BASE_URL` | recomendada |
+| Legacy `/uploads` | disco API | solo archivos no migrados |
+| Seed | memory + seed | Atlas + migrate si hay legacy |
+
+#### Endpoints de imagen (resumen)
+
+| Método | Ruta | Notas |
+|--------|------|--------|
+| `POST` | `/api/profile/photos` | upload público + rate limit |
+| `DELETE` | `/api/profile/photos/:index` | delete + rate limit |
+| `POST` | `/api/me/identity-verification` | SENSITIVE + rate limit |
+| `GET` | `/api/media/:id` | solo public → 302 Storage (fallback) |
+| Admin | download identity/claims | URL firmada `no-store` |
+
+Código: `apps/api/src/image-service/**`, `image-lifecycle/**`, `storage/**`.
 
 ### Auth (email + código 6 dígitos)
 
@@ -188,7 +434,9 @@ Discover, presence, matches y varias mutaciones de venues/muro exigen `emailVeri
 
 ### Profile y fotos
 
-`MIN_PHOTOS=1`, `MAX_PHOTOS=10`, `MIN_AGE=16`, `MAX_AGE=99`; `photos[0]`=avatar. Upload multipart `photo`/`photos` vía `src/uploads/`.
+`MIN_PHOTOS=1`, `MAX_PHOTOS=10`, `MIN_AGE=16`, `MAX_AGE=99`; `photos[0]`=avatar. Upload multipart `photo`/`photos` vía multer → ingest Object Storage (públicos nuevos).
+
+**Contrato fotos en JSON:** en Mongo las refs managed siguen siendo `/api/media/{id}` (o `/uploads/...` legacy). En respuestas API, `serialize*` las expande a URL directa Storage/CDN (o absolutiza legacy). El PUT de perfil canónica URLs firmadas/CDN de vuelta a la ref estable.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
@@ -223,7 +471,8 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 | `GET` | `/api/me/blocked-users` | Usuarios bloqueados por la cuenta, paginados (`page`, `limit`) |
 | `DELETE` | `/api/me/blocked-users/:id` | Desbloquea al usuario indicado |
 | `GET` | `/api/me/reports/:id` | Resultado de una denuncia propia (solo el denunciante) |
-| `DELETE` | `/api/me/account` | Eliminación definitiva con `{ confirmation: "Eliminar" }`; limpia datos y archivos asociados, desasigna Espacios y protege a la última cuenta administradora |
+| `DELETE` | `/api/me/account` | Soft-delete (30 días de recuperación) con `{ confirmation: "Eliminar" }`; perfil invisible; no borra imágenes aún; protege la última cuenta admin activa |
+| `POST` | `/api/me/account/restore` | Cancela el borrado pendiente dentro de los 30 días |
 | `POST`/`DELETE` | `/api/venues/:id/follow` | Follow de Espacios (instantáneo) |
 | `GET` | `/api/venues/:id/followers` | Seguidores del Espacio |
 | `GET` | `/api/users/:id/venues` | Espacios públicos del organizador |
@@ -301,7 +550,7 @@ Presets UI: `PRESENCE_PRESETS` — 24h / 48h / 1 semana / permanente.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `GET` | `/api/discover/feed` | Deck del `venueId` activo + `likeAllowance`; sin presencia → `400` `NO_PRESENCE`. Cards con `isFollowing` / `isFollowRequested`. Acepta `?userId=` para priorizar esa persona si quien consulta es Premium |
+| `GET` | `/api/discover/feed` | Deck del `venueId` activo + `likeAllowance`; sin presencia → `400` `NO_PRESENCE`. Cards con `isFollowing` / `isFollowRequested`. Acepta `?userId=` para priorizar esa persona si quien consulta es Premium. **Fotos:** entrega CDN/firmada solo `photos[0]`; el resto refs `/api/media/{id}` o `/uploads/...` (sin firmar el álbum completo) |
 | `GET` | `/api/discover/likes` | Likes **recibidos** pendientes. Excluye bloqueados; `viewerPremium` + `canSeeLikes` (plan **4 AM+** con `see_likes`). Sin `canSeeLikes` **no** envía `user.id`, `name` ni `photo` (salvo Heartshot). Cada ítem trae `canRespond` si tenés presencia en ese `venueId` |
 | `POST` | `/api/discover/swipe` | `{ toUserId, direction }` → `{ ok, match, likeAllowance }`; rechaza pares bloqueados; sin cuota → `429 LIKES_EXHAUSTED` |
 | `POST` | `/api/discover/rewind` | Deshace el último swipe del espacio activo; si era like, borra match+mensajes y `refundLike`; nunca restaura perfiles bloqueados |
@@ -491,7 +740,7 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 | `/venues/:id/edit` | Edición separada del Espacio: identidad, País/Ciudad, mapa, descripción y reemplazo opcional de portada |
 | `/likes` | Likes recibidos pendientes: plan **4 AM+** ve foto/nombre + Discover; free / 2 AM placeholder + modal; grilla 2 cols en mobile |
 | `/muro` | Redirect a `/venues` (pantalla retirada) |
-| `/discover` | Sin presencia: portada. Varias (Clone): picker de Espacios. Con una elegida: swipe (← pass / → like / ↑ Heartshot) + botones; Boost en header; rewind Premium; likes agotados → CTA Premium; detalle con bloquear/denunciar. Cada 7–10 swipes (usuarios sin `no_ads`) inserta un anuncio: like → `/ads/:id`, pass saltea |
+| `/discover` | Sin presencia: portada. Varias (Clone): picker de Espacios. Con una elegida: swipe (← pass / → like / ↑ Heartshot) + botones; Boost en header; rewind Premium; likes agotados → CTA Premium; detalle con bloquear/denunciar. Cada 7–10 swipes (usuarios sin `no_ads`) inserta un anuncio: like → `/ads/:id`, pass saltea. **Imágenes:** `OptimizedImage`; 1 foto activa por card (thumb/medium) + preload de la 1.ª del siguiente; galería del detalle lazy por índice |
 | `/ads/:id` | Landing del anuncio (imagen, copy, CTA externo o in-app) |
 | `/report/:userId` | Formulario protegido para denunciar un perfil por motivo y detalles |
 | `/reports/:reportId` | Resultado de una denuncia propia (descarte o medidas aplicadas) |
@@ -512,8 +761,9 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 ### Consumo API
 
 - Cliente: `src/lib/api.ts` — `api()` / OAuth usan `apiUrl()`; `VITE_API_URL` (bake en build) apunta a la API en producción; vacío en local → rutas relativas + proxy Vite
-- Helper `mediaUrl()` antepone la API a `/uploads/` si hiciera falta en el cliente
-- Proxy Vite: `/api` y `/uploads` → `http://localhost:4000`
+- Helper `mediaUrl()`: `https://…` (CDN/firmada) tal cual; `/uploads/` y `/api/media/` vía API
+- **`OptimizedImage`** (`components/OptimizedImage.tsx`): único componente para fotos PUBLIC (perfil, Espacios, promos/news, reviews, Discover). `<picture>` AVIF→WebP + srcset; prop `variants` para limitar (swipe: thumb+medium); legacy `/uploads` y `/images` como `<img>`; lazy + `decoding="async"`; fallback ante error. **No** usar en identity_verification.
+- Proxy Vite: `/api` y `/uploads` → `http://localhost:4000` (solo legacy/local)
 - Producción (p. ej. Railway, web y API en dominios distintos):
   - Web: `VITE_API_URL=https://…api…` y **redesplegar** (Vite incrusta el env en el build)
   - API: `CLIENT_ORIGIN=https://…web…`, `API_PUBLIC_URL=https://…api…` (absolutiza fotos en JSON)

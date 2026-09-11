@@ -41,6 +41,7 @@ import { TermsPage } from "./pages/TermsPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { AdPage } from "./pages/AdPage";
+import { PendingDeletionScreen } from "./components/PendingDeletionScreen";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -57,6 +58,9 @@ function Protected({ children }: { children: React.ReactNode }) {
   if (!user) {
     const next = `${location.pathname}${location.search}`;
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
+  if (user.deletionRequestedAt) {
+    return <PendingDeletionScreen />;
   }
   return children;
 }

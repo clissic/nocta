@@ -18,6 +18,7 @@ import {
 import { VenueCountryCityFields } from "../components/VenueFormFields";
 import { useToast } from "../components/ToastProvider";
 import { VenueClaimForm } from "../components/VenueClaimForm";
+import { OptimizedImage } from "../components/OptimizedImage";
 import {
   validateVenueEvidenceFiles,
   VenueEvidenceFields,
@@ -514,7 +515,13 @@ export function VenueRequestPage() {
                   )}
                 </div>
                 {r.photos[0] ? (
-                  <img src={r.photos[0]} alt="" className="venue-request-mine-thumb" />
+                  <OptimizedImage
+                    src={r.photos[0]}
+                    alt=""
+                    className="venue-request-mine-thumb"
+                    variant="thumb"
+                    sizes="64px"
+                  />
                 ) : null}
               </article>
             ))}

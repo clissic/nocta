@@ -44,6 +44,7 @@ import {
   AdminPagination,
 } from "../../components/admin/AdminPagination";
 import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
+import { OptimizedImage } from "../../components/OptimizedImage";
 
 function UserAvatar({
   name,
@@ -55,7 +56,15 @@ function UserAvatar({
   photo?: string;
 }) {
   if (photo) {
-    return <img src={photo} alt="" className="admin-list-thumb" />;
+    return (
+      <OptimizedImage
+        src={photo}
+        alt=""
+        className="admin-list-thumb"
+        variant="thumb"
+        sizes="48px"
+      />
+    );
   }
   return (
     <div className="admin-list-thumb is-avatar" aria-hidden="true">
@@ -1158,7 +1167,13 @@ export function AdminUsersPage() {
                       <h3 className="admin-review-label">Fotos</h3>
                       <div className="admin-modal-photos">
                         {profile.photos.map((src) => (
-                          <img key={src} src={src} alt="" />
+                          <OptimizedImage
+                            key={src}
+                            src={src}
+                            alt=""
+                            variant="medium"
+                            sizes="(min-width: 768px) 200px, 50vw"
+                          />
                         ))}
                       </div>
                     </section>

@@ -14,6 +14,7 @@ import { PhotoLightbox } from "./PhotoLightbox";
 import { useToast } from "./ToastProvider";
 import { NoctaLoading } from "./NoctaLoading";
 import { useAuth } from "../auth/AuthContext";
+import { OptimizedImage } from "./OptimizedImage";
 
 type Props = {
   venueId: string;
@@ -333,7 +334,12 @@ export function VenueReviewsSection({
             {[...keptPhotos.map((url) => ({ kind: "kept" as const, url })), ...previews.map((url, i) => ({ kind: "new" as const, url, i }))].map(
               (item) => (
                 <div key={item.url} className="venue-review-photo-thumb">
-                  <img src={item.url} alt="" />
+                  <OptimizedImage
+                    src={item.url}
+                    alt=""
+                    variant="thumb"
+                    sizes="64px"
+                  />
                   <button
                     type="button"
                     className="venue-review-photo-remove"
@@ -415,7 +421,12 @@ export function VenueReviewsSection({
               <div className="venue-review-item-top">
                 <div className="venue-review-author">
                   {review.author?.photo ? (
-                    <img src={review.author.photo} alt="" />
+                    <OptimizedImage
+                      src={review.author.photo}
+                      alt=""
+                      variant="thumb"
+                      sizes="40px"
+                    />
                   ) : (
                     <span>
                       {(review.author?.name ?? "?").slice(0, 1).toUpperCase()}
@@ -451,7 +462,12 @@ export function VenueReviewsSection({
                         setLightbox({ photos: review.photos, index })
                       }
                     >
-                      <img src={src} alt="" />
+                      <OptimizedImage
+                        src={src}
+                        alt=""
+                        variant="thumb"
+                        sizes="80px"
+                      />
                     </button>
                   ))}
                 </div>

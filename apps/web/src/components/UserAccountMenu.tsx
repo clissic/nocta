@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { AuthUser, PremiumPlanId } from "@nocta/shared";
 import { planHasFeature } from "@nocta/shared";
-import { api, ApiError, mediaUrl } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { AppFooter } from "./AppFooter";
 import { formatBoostCountdown } from "./BoostTopbarIndicator";
 import { OverflowFade } from "./OverflowFade";
 import { PremiumPackagesModal } from "./PremiumPackagesModal";
 import { ProfileSettingsModal } from "./ProfileSettingsModal";
 import { useToast } from "./ToastProvider";
+import { OptimizedImage } from "./OptimizedImage";
 
 type Props = {
   user: AuthUser;
@@ -172,9 +173,11 @@ export function UserAccountMenu({
           <div className="account-drawer-profile">
             <div className="account-drawer-avatar" aria-hidden="true">
               {showAvatar ? (
-                <img
-                  src={mediaUrl(avatar)}
+                <OptimizedImage
+                  src={avatar}
                   alt=""
+                  variant="thumb"
+                  sizes="56px"
                   onError={() => setAvatarBroken(true)}
                 />
               ) : (

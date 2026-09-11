@@ -8,6 +8,7 @@ import {
   type FollowRequestProfile,
   type SocialNetwork,
 } from "@nocta/shared";
+import { OptimizedImage } from "./OptimizedImage";
 
 const SOCIAL_ICONS: Record<SocialNetwork, string> = {
   instagram: "bi-instagram",
@@ -91,10 +92,12 @@ export function FollowRequestProfileModal({
           ) : (
             <>
               {profile.photo ? (
-                <img
+                <OptimizedImage
                   className="follow-request-profile-photo"
                   src={profile.photo}
                   alt={`Foto de ${profile.name}`}
+                  variant="large"
+                  sizes="(min-width: 768px) 320px, 100vw"
                 />
               ) : (
                 <div

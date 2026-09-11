@@ -13,7 +13,11 @@
     "dev:web": "npm run dev -w @nocta/web",
     "build": "npm run build -w @nocta/shared && npm run build -w @nocta/api --if-present && npm run build -w @nocta/web --if-present",
     "build:shared": "npm run build -w @nocta/shared",
-    "seed": "npm run seed -w @nocta/api"
+    "seed": "npm run seed -w @nocta/api",
+    "migrate:images": "npm run migrate:images -w @nocta/api --",
+    "cleanup:images": "npm run cleanup:images -w @nocta/api --",
+    "validate:images": "npm run validate:images -w @nocta/api --",
+    "purge:deleted-accounts": "npm run purge:deleted-accounts -w @nocta/api --"
   },
   "engines": {
     "node": ">=20"

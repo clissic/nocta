@@ -441,7 +441,7 @@ router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
     | undefined;
 
   return res.json({
-    user: serializeUser(user),
+    user: await serializeUser(user),
     subscription: {
       active,
       planId: active ? user.premiumPlanId : undefined,
@@ -484,7 +484,7 @@ router.post(
       });
     }
     return res.json({
-      user: serializeUser(result.user),
+      user: await serializeUser(result.user),
       boostExpiresAt: result.user.boostExpiresAt?.toISOString() ?? null,
       boostsRemaining: result.user.boostsRemaining ?? 0,
     });
@@ -564,7 +564,7 @@ router.post(
 
     const updated = await markPremiumCancelledAtPeriodEnd(user._id.toString());
     return res.json({
-      user: serializeUser(updated!),
+      user: await serializeUser(updated!),
       message: user.premiumExpiresAt
         ? `Tu plan sigue activo hasta ${user.premiumExpiresAt.toLocaleDateString("es-UY")}. No se renovará.`
         : "Suscripción cancelada.",
@@ -601,7 +601,7 @@ router.post(
       return res.status(502).json({ error: "No se pudo pausar la suscripción" });
     }
     const updated = await markPremiumPaused(user._id.toString());
-    return res.json({ user: serializeUser(updated!) });
+    return res.json({ user: await serializeUser(updated!) });
   }
 );
 
@@ -642,7 +642,7 @@ router.post(
         user.premiumNextPaymentAt = new Date(String(result.next_payment_date));
       }
       await user.save();
-      return res.json({ user: serializeUser(user) });
+      return res.json({ user: await serializeUser(user) });
     } catch (err) {
       console.error("[mp] resume preapproval failed", err);
       return res.status(502).json({

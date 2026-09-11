@@ -11,7 +11,8 @@ import { Message } from "../models/Message.js";
 import { User } from "../models/User.js";
 import { Venue } from "../models/Venue.js";
 import { expireStalePresences } from "../utils/presence.js";
-import { calcAge, publicAssetUrl, publicAssetUrls, serializeSocials } from "../utils/serialize.js";
+import { calcAge, serializeSocials, resolvePublicAssetUrl } from "../utils/serialize.js";
+import { canonicalizePhotoRef } from "../image-service/uploadBridge.js";
 import { isObjectId, sortedUserPair } from "../utils/ids.js";
 import { blockedPeerIds } from "../models/Block.js";
 import { Follow } from "../models/Follow.js";
@@ -55,10 +56,26 @@ async function resolveMyActivePresence(
   return Presence.findOne(filter).sort({ startsAt: -1, _id: -1 });
 }
 
-function serializeCard(
+/**
+ * Discover: firma/CDN solo la 1.ª foto (carga inmediata).
+ * El resto quedan como refs estables `/api/media/{id}` o `/uploads/...`
+ * (sin firmar las 10 en el feed → menos JSON y menos trabajo en API).
+ */
+async function resolveDiscoverCardPhotos(
+  photos: string[] | undefined | null
+): Promise<string[]> {
+  const list = (photos ?? []).filter((p): p is string => Boolean(p?.trim()));
+  if (!list.length) return [];
+  const primary =
+    (await resolvePublicAssetUrl(list[0])) ?? canonicalizePhotoRef(list[0]!);
+  const rest = list.slice(1).map((p) => canonicalizePhotoRef(p));
+  return [primary, ...rest];
+}
+
+async function serializeCard(
   u: InstanceType<typeof User>,
   presenceId: string
-): DiscoverCard {
+): Promise<DiscoverCard> {
   const profile = u.profile!;
   const birthDate = profile.birthDate;
   if (!birthDate) {
@@ -71,7 +88,7 @@ function serializeCard(
       birthDate: birthDate.toISOString(),
       heightCm: profile.heightCm ?? undefined,
       lookingFor: (profile.lookingFor ?? []).slice(0, 1),
-      photos: publicAssetUrls(profile.photos),
+      photos: await resolveDiscoverCardPhotos(profile.photos),
       bio: profile.bio ?? undefined,
       interests: profile.interests ?? [],
       workStatus: profile.workStatus ?? undefined,
@@ -214,7 +231,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
     .filter(Boolean);
   const myGender = user.profile.gender?.toLowerCase();
 
-  const cards = users
+  const filteredUsers = users
     .filter((u) => u.profile)
     .filter((u) => {
       if (focusedUserId === u._id.toString()) return true;
@@ -244,19 +261,21 @@ router.get("/feed", async (req: AuthedRequest, res) => {
         }
       }
       return true;
-    })
-    .map((u) => {
+    });
+  const cardRows = await Promise.all(
+    filteredUsers.map(async (u) => {
       const presence = candidates.find(
         (c) => c.userId.toString() === u._id.toString()
       )!;
       return {
-        card: serializeCard(u, presence._id.toString()),
+        card: await serializeCard(u, presence._id.toString()),
         boosted: isBoostActive(u),
       };
-    });
+    })
+  );
 
-  const boosted = cards.filter((c) => c.boosted).map((c) => c.card);
-  const regular = cards.filter((c) => !c.boosted).map((c) => c.card);
+  const boosted = cardRows.filter((c) => c.boosted).map((c) => c.card);
+  const regular = cardRows.filter((c) => !c.boosted).map((c) => c.card);
   shuffleInPlace(boosted);
   shuffleInPlace(regular);
   const ordered = [...boosted, ...regular];
@@ -538,7 +557,7 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
     !blocked
   ) {
     try {
-      card = serializeCard(targetUser, theirPresence._id.toString());
+      card = await serializeCard(targetUser, theirPresence._id.toString());
     } catch {
       card = null;
     }
@@ -605,38 +624,40 @@ router.get("/likes", async (req: AuthedRequest, res) => {
     viewerPremium &&
     planHasFeature(String(req.user!.premiumPlanId), "see_likes");
 
-  const likes = pending
-    .map((s) => {
-      const fromId = s.fromUserId.toString();
-      const venueId = s.venueId.toString();
-      const u = userMap.get(fromId);
-      const birthDate = u?.profile?.birthDate;
-      if (!u?.profile || !birthDate) return null;
-      const venueName = venueMap.get(venueId);
-      if (!venueName) return null;
-      const isHeartshot = Boolean(s.isHeartshot);
-      const reveal = canSeeLikes || isHeartshot;
+  const likes = (
+    await Promise.all(
+      pending.map(async (s) => {
+        const fromId = s.fromUserId.toString();
+        const venueId = s.venueId.toString();
+        const u = userMap.get(fromId);
+        const birthDate = u?.profile?.birthDate;
+        if (!u?.profile || !birthDate) return null;
+        const venueName = venueMap.get(venueId);
+        if (!venueName) return null;
+        const isHeartshot = Boolean(s.isHeartshot);
+        const reveal = canSeeLikes || isHeartshot;
 
-      return {
-        id: s._id.toString(),
-        createdAt: s.createdAt.toISOString(),
-        venueId,
-        venueName,
-        isHeartshot,
-        user: {
-          ...(reveal
-            ? {
-                id: fromId,
-                name: u.profile.name ?? "Usuario",
-                photo: publicAssetUrl(u.profile.photos?.[0]),
-              }
-            : {}),
-          age: calcAge(birthDate),
-        },
-        canRespond: myVenueIds.has(venueId),
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+        return {
+          id: s._id.toString(),
+          createdAt: s.createdAt.toISOString(),
+          venueId,
+          venueName,
+          isHeartshot,
+          user: {
+            ...(reveal
+              ? {
+                  id: fromId,
+                  name: u.profile.name ?? "Usuario",
+                  photo: await resolvePublicAssetUrl(u.profile.photos?.[0]),
+                }
+              : {}),
+            age: calcAge(birthDate),
+          },
+          canRespond: myVenueIds.has(venueId),
+        };
+      })
+    )
+  ).filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   return res.json({ likes, viewerPremium, canSeeLikes });
 });

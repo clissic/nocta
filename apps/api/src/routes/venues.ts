@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import {
   DEFAULT_VENUE_COUNTRY,
@@ -31,19 +32,16 @@ import {
   requireAdmin,
   type AuthedRequest,
 } from "../middleware/auth.js";
+import {
+  requireImageUploadRateLimit,
+  requireSensitiveImageRateLimit,
+} from "../middleware/requireImageRateLimit.js";
 import { optionalAuth } from "../middleware/optionalAuth.js";
 import {
   requireProfileComplete,
   requireVerified,
 } from "../middleware/gates.js";
-import {
-  serializeVenue,
-  serializePromotion,
-  serializePublicUser,
-  serializeVenueNews,
-  serializeVenueRequest,
-  serializeVenueReview,
-} from "../utils/serialize.js";
+import { serializeVenue, serializePromotion, serializePublicUser, serializeVenueNews, serializeVenueRequest, serializeVenueReview } from "../utils/serialize.js";
 import { isObjectId, paramId } from "../utils/ids.js";
 import { isActiveAppCity } from "../utils/appCities.js";
 import { isPremiumActive } from "../utils/premium.js";
@@ -79,13 +77,21 @@ import {
   collectClaimEvidence,
   collectUploadedFiles,
   deleteClaimEvidence,
-  deleteLocalUploads,
+  deleteCollectedUploads,
   handleMulterError,
   uploadPhotosFlexible,
   uploadClaimEvidence,
   uploadVenueRequestFiles,
   uploadSinglePhoto,
 } from "../uploads/index.js";
+import {
+  canonicalizePhotoRef,
+  ingestCollectedPublicUpload,
+  ingestErrorResponse,
+  ingestMulterClaimEvidence,
+  isAllowedPhotoRef,
+  removePhotoRef,
+} from "../image-service/index.js";
 
 const router = Router();
 
@@ -97,10 +103,7 @@ const locationSchema = z.object({
 const photoUrlSchema = z
   .string()
   .min(1)
-  .refine(
-    (v) => v.startsWith("/uploads/") || /^https?:\/\//i.test(v),
-    "URL de foto inválida"
-  );
+  .refine(isAllowedPhotoRef, "URL de foto inválida");
 
 const enabledVenueCountries = [...ENABLED_VENUE_COUNTRIES] as [
   string,
@@ -429,12 +432,14 @@ router.get("/", optionalAuth, async (req: AuthedRequest, res) => {
   }
 
   return res.json({
-    venues: venues.map((v) =>
-      serializeVenue(v, {
-        livePublishedCount: showSpyCounts
-          ? liveByVenue.get(v._id.toString()) ?? 0
-          : undefined,
-      })
+    venues: await Promise.all(
+      venues.map((v) =>
+        serializeVenue(v, {
+          livePublishedCount: showSpyCounts
+            ? liveByVenue.get(v._id.toString()) ?? 0
+            : undefined,
+        })
+      )
     ),
     pagination: {
       page,
@@ -492,25 +497,27 @@ router.get(
     const ownersById = new Map(owners.map((u) => [u._id.toString(), u]));
 
     return res.json({
-      venues: venues.map((v) => {
-        const ownerId = v.ownerId ? v.ownerId.toString() : undefined;
-        const owner = ownerId ? ownersById.get(ownerId) : undefined;
-        return serializeVenue(v, {
-          owner:
-            owner && owner.profile?.name
-              ? {
-                  id: owner._id.toString(),
-                  name: owner.profile.name,
-                  photo: owner.profile.photos?.[0],
-                }
-              : owner
+      venues: await Promise.all(
+        venues.map(async (v) => {
+          const ownerId = v.ownerId ? v.ownerId.toString() : undefined;
+          const owner = ownerId ? ownersById.get(ownerId) : undefined;
+          return serializeVenue(v, {
+            owner:
+              owner && owner.profile?.name
                 ? {
                     id: owner._id.toString(),
-                    name: owner.email,
+                    name: owner.profile.name,
+                    photo: owner.profile.photos?.[0],
                   }
-                : undefined,
-        });
-      }),
+                : owner
+                  ? {
+                      id: owner._id.toString(),
+                      name: owner.email,
+                    }
+                  : undefined,
+          });
+        })
+      ),
       pagination: {
         page,
         limit,
@@ -558,13 +565,14 @@ router.get(
     const venues = await Venue.find(filter)
       .sort({ name: 1 })
       .limit(parsed.data.limit);
-    return res.json({ venues: venues.map((venue) => serializeVenue(venue)) });
+    return res.json({ venues: await Promise.all(venues.map((venue) => serializeVenue(venue))) });
   }
 );
 
 router.post(
   "/claims",
   requireAuth,
+  requireSensitiveImageRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadClaimEvidence(req, res, (err) => {
       if (!err) return next();
@@ -608,19 +616,31 @@ router.post(
       });
     }
 
+    let managedEvidence;
+    try {
+      managedEvidence = await ingestMulterClaimEvidence({
+        files: claimEvidenceRequestFiles(req),
+        ownerId: req.user!._id.toString(),
+      });
+    } catch (err) {
+      cleanup();
+      const mapped = ingestErrorResponse(err);
+      return res.status(mapped.status).json(mapped.body);
+    }
+
     const parsed = venueClaimSchema.safeParse(req.body);
     if (!parsed.success || !isObjectId(parsed.data?.venueId ?? "")) {
-      cleanup();
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       return res.status(400).json({ error: "Datos de reclamación inválidos" });
     }
 
     const venue = await Venue.findById(parsed.data.venueId);
     if (!venue || venue.active === false) {
-      cleanup();
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       return res.status(404).json({ error: "Espacio no encontrado" });
     }
     if (venue.ownerId) {
-      cleanup();
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       return res
         .status(409)
         .json({ error: "Este Espacio ya tiene Organizador" });
@@ -639,13 +659,13 @@ router.post(
       }),
     ]);
     if (duplicate) {
-      cleanup();
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       return res
         .status(409)
         .json({ error: "Ya tenés una reclamación pendiente para este Espacio" });
     }
     if (pending >= 5) {
-      cleanup();
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       return res
         .status(400)
         .json({ error: "Ya tenés demasiadas solicitudes pendientes" });
@@ -664,7 +684,7 @@ router.post(
         country: venue.country ?? DEFAULT_VENUE_COUNTRY,
         city: venue.city,
         photos: venue.photos ?? [],
-        evidenceFiles: evidence.files,
+        evidenceFiles: managedEvidence,
         location: venue.location,
         status: "pending",
       });
@@ -679,7 +699,7 @@ router.post(
             address: request.address,
             city: request.city,
             managementMessage: request.managementMessage ?? undefined,
-            evidenceCount: evidence.files.length,
+            evidenceCount: managedEvidence.length,
           },
           requester: {
             email: req.user!.email,
@@ -694,10 +714,10 @@ router.post(
       }
 
       return res.status(201).json({
-        request: serializeVenueRequest(request),
+        request: await serializeVenueRequest(request),
       });
     } catch (err) {
-      cleanup();
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       if (
         typeof err === "object" &&
         err &&
@@ -716,11 +736,12 @@ router.post(
 router.post(
   "/requests",
   requireAuth,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadVenueRequestFiles(req, res, (err) => {
       if (err) {
         const coverUploads = collectUploadedFiles(req);
-        deleteLocalUploads(coverUploads.map((upload) => upload.url));
+        deleteCollectedUploads(coverUploads);
         deleteClaimEvidence(claimEvidenceRequestFiles(req));
         return handleMulterError(err, req, res, next);
       }
@@ -731,7 +752,7 @@ router.post(
     const uploaded = collectUploadedFiles(req);
     const rawEvidence = claimEvidenceRequestFiles(req);
     const cleanup = () => {
-      deleteLocalUploads(uploaded.map((upload) => upload.url));
+      deleteCollectedUploads(uploaded);
       deleteClaimEvidence(rawEvidence);
     };
     if (uploaded.length > 1) {
@@ -759,14 +780,30 @@ router.post(
     }
 
     const body = { ...(req.body as Record<string, unknown>) };
-    if (uploaded[0]?.url) {
-      body.photos = [uploaded[0].url];
+    let coverRef: string | undefined;
+    if (uploaded[0]) {
+      try {
+        const ingested = await ingestCollectedPublicUpload({
+          upload: uploaded[0],
+          type: "space_request",
+          ownerId: req.user!._id.toString(),
+          entityType: "space_request",
+          context: { userId: req.user!._id.toString() },
+        });
+        coverRef = ingested.mediaRef;
+        body.photos = [ingested.mediaRef];
+      } catch (err) {
+        cleanup();
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
     } else {
       body.photos = [];
     }
 
     const parsed = parseRequestBody(body);
     if (!parsed.success) {
+      if (coverRef) await removePhotoRef(coverRef);
       cleanup();
       return res.status(400).json({
         error: "Datos inválidos",
@@ -774,6 +811,7 @@ router.post(
       });
     }
     if (!(await isActiveAppCity(parsed.data.country, parsed.data.city))) {
+      if (coverRef) await removePhotoRef(coverRef);
       cleanup();
       return res.status(400).json({
         error: "La ciudad no corresponde al país seleccionado",
@@ -782,12 +820,14 @@ router.post(
 
     const evidence = collectClaimEvidence(req);
     if (!evidence.ok) {
+      if (coverRef) await removePhotoRef(coverRef);
       cleanup();
       return res
         .status(400)
         .json({ error: evidence.error, code: "UPLOAD_INVALID" });
     }
     if (parsed.data.wantsToManage && evidence.files.length < 1) {
+      if (coverRef) await removePhotoRef(coverRef);
       cleanup();
       return res.status(400).json({
         error: "Subí al menos un comprobante para solicitar la administración",
@@ -795,6 +835,7 @@ router.post(
       });
     }
     if (!parsed.data.wantsToManage && evidence.files.length > 0) {
+      if (coverRef) await removePhotoRef(coverRef);
       cleanup();
       return res.status(400).json({
         error: "Los comprobantes solo corresponden a solicitudes de administración",
@@ -802,12 +843,29 @@ router.post(
       });
     }
 
+    let managedEvidence: Awaited<ReturnType<typeof ingestMulterClaimEvidence>> =
+      [];
+    if (evidence.files.length > 0) {
+      try {
+        managedEvidence = await ingestMulterClaimEvidence({
+          files: rawEvidence,
+          ownerId: req.user!._id.toString(),
+        });
+      } catch (err) {
+        if (coverRef) await removePhotoRef(coverRef);
+        cleanup();
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
+    }
+
     const pending = await VenueRequest.countDocuments({
       requesterId: req.user!._id,
       status: "pending",
     });
     if (pending >= 5) {
-      cleanup();
+      if (coverRef) await removePhotoRef(coverRef);
+      for (const f of managedEvidence) await removePhotoRef(f.filename);
       return res.status(400).json({
         error: "Ya tenés demasiadas solicitudes pendientes",
       });
@@ -829,7 +887,7 @@ router.post(
         city: parsed.data.city,
         description: parsed.data.description,
         photos: parsed.data.photos,
-        evidenceFiles: evidence.files,
+        evidenceFiles: managedEvidence,
         contactEmail: parsed.data.contactEmail,
         contactPhone: parsed.data.contactPhone,
         location: parsed.data.location,
@@ -871,7 +929,7 @@ router.post(
     }
 
     return res.status(201).json({
-      request: serializeVenueRequest(request),
+      request: await serializeVenueRequest(request),
     });
   }
 );
@@ -880,7 +938,7 @@ router.get("/requests/mine", requireAuth, async (req: AuthedRequest, res) => {
   const rows = await VenueRequest.find({ requesterId: req.user!._id }).sort({
     createdAt: -1,
   });
-  return res.json({ requests: rows.map((r) => serializeVenueRequest(r)) });
+  return res.json({ requests: await Promise.all(rows.map((r) => serializeVenueRequest(r))) });
 });
 
 router.get("/geocode/reverse", requireAuth, async (req: AuthedRequest, res) => {
@@ -1005,7 +1063,7 @@ router.get("/:id", optionalAuth, async (req: AuthedRequest, res) => {
       : undefined;
 
   const myReview = myReviewDoc
-    ? serializeVenueReview(myReviewDoc, {
+    ? await serializeVenueReview(myReviewDoc, {
         author: req.user?.profile?.name
           ? {
               id: req.user._id.toString(),
@@ -1032,15 +1090,15 @@ router.get("/:id", optionalAuth, async (req: AuthedRequest, res) => {
   }
 
   return res.json({
-    venue: serializeVenue(venue, {
+    venue: await serializeVenue(venue, {
       followersCount,
       isFollowing: following,
       owner: ownerSummary,
       myReview,
       livePublishedCount,
     }),
-    promotions: promotions.map((p) => serializePromotion(p)),
-    news: news.map((n) => serializeVenueNews(n)),
+    promotions: await Promise.all(promotions.map((p) => serializePromotion(p))),
+    news: await Promise.all(news.map((n) => serializeVenueNews(n))),
   });
 });
 
@@ -1055,7 +1113,7 @@ router.get("/:id/manage", requireAuth, async (req: AuthedRequest, res) => {
     return res.status(403).json({ error: "Sin permiso" });
   }
   return res.json({
-    venue: serializeVenue(venue, {
+    venue: await serializeVenue(venue, {
       followersCount: await venueFollowersCount(venue._id),
     }),
   });
@@ -1064,6 +1122,7 @@ router.get("/:id/manage", requireAuth, async (req: AuthedRequest, res) => {
 router.patch(
   "/:id/manage",
   requireAuth,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadSinglePhoto(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -1074,7 +1133,7 @@ router.patch(
     const id = paramId(req.params.id);
     const uploaded = collectUploadedFiles(req);
     const cleanupNewUpload = () =>
-      deleteLocalUploads(uploaded.map((item) => item.url));
+      deleteCollectedUploads(uploaded);
 
     if (!isObjectId(id)) {
       cleanupNewUpload();
@@ -1097,13 +1156,6 @@ router.patch(
         return res
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
-      }
-      const coverCheck = await assertVenueCoverUpload(uploaded[0]);
-      if (!coverCheck.ok) {
-        cleanupNewUpload();
-        return res
-          .status(400)
-          .json({ error: coverCheck.error, code: "UPLOAD_INVALID" });
       }
     }
 
@@ -1130,8 +1182,11 @@ router.patch(
       }
     }
 
-    const previousUploadedPhoto = venue.photos?.find((photo) =>
-      photo.startsWith("/uploads/")
+    const previousUploadedPhoto = venue.photos?.find(
+      (photo) =>
+        photo.startsWith("/uploads/") ||
+        photo.startsWith("/api/media/") ||
+        photo.includes("/api/media/")
     );
     venue.name = parsed.data.name;
     venue.type = parsed.data.type;
@@ -1140,30 +1195,48 @@ router.patch(
     venue.city = parsed.data.city;
     venue.location = parsed.data.location;
     venue.description = parsed.data.description;
-    if (uploaded[0]) venue.photos = [uploaded[0].url];
+
+    let newCoverRef: string | null = null;
+    if (uploaded[0]) {
+      try {
+        const ingested = await ingestCollectedPublicUpload({
+          upload: uploaded[0],
+          type: "space",
+          ownerId: req.user!._id.toString(),
+          entityType: "space",
+          entityId: venue._id.toString(),
+          context: { spaceId: venue._id.toString() },
+        });
+        newCoverRef = ingested.mediaRef;
+        venue.photos = [ingested.mediaRef];
+      } catch (err) {
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
+    }
     try {
       await venue.save();
     } catch (error) {
-      cleanupNewUpload();
+      if (newCoverRef) await removePhotoRef(newCoverRef);
+      else cleanupNewUpload();
       throw error;
     }
 
     if (
-      uploaded[0] &&
+      newCoverRef &&
       previousUploadedPhoto &&
-      previousUploadedPhoto !== uploaded[0].url
+      previousUploadedPhoto !== newCoverRef
     ) {
-      deleteLocalUploads([previousUploadedPhoto]);
+      await removePhotoRef(previousUploadedPhoto);
     }
 
     return res.json({
-      venue: serializeVenue(venue, {
+      venue: await serializeVenue(venue, {
         followersCount: await venueFollowersCount(venue._id),
       }),
     });
   }
 );
-
 router.post("/:id/follow", requireAuth, async (req: AuthedRequest, res) => {
   const id = paramId(req.params.id);
   if (!isObjectId(id)) {
@@ -1270,16 +1343,18 @@ router.get(
       followingSet = new Set(mine.map((f) => f.targetId.toString()));
     }
 
-    const list = ids
-      .map((fid) => map.get(fid.toString()))
-      .filter(Boolean)
-      .map((u) =>
-        serializePublicUser(u!, {
-          isFollowing: viewerId
-            ? followingSet.has(u!._id.toString())
-            : undefined,
-        })
-      );
+    const list = await Promise.all(
+      ids
+        .map((fid) => map.get(fid.toString()))
+        .filter(Boolean)
+        .map((u) =>
+          serializePublicUser(u!, {
+            isFollowing: viewerId
+              ? followingSet.has(u!._id.toString())
+              : undefined,
+          })
+        )
+    );
 
     return res.json({
       users: list,
@@ -1332,12 +1407,14 @@ router.get(
 
     const totalPages = Math.max(1, Math.ceil(total / limit));
     return res.json({
-      reviews: rows.map((r) =>
-        serializeVenueReview(r, {
-          author: authorMap.get(r.userId.toString()),
-          venueName: venue.name,
-          venuePhoto: venue.photos?.[0],
-        })
+      reviews: await Promise.all(
+        rows.map((r) =>
+          serializeVenueReview(r, {
+            author: authorMap.get(r.userId.toString()),
+            venueName: venue.name,
+            venuePhoto: venue.photos?.[0],
+          })
+        )
       ),
       pagination: {
         page,
@@ -1357,6 +1434,7 @@ router.post(
   requireAuth,
   requireVerified,
   requireProfileComplete,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadPhotosFlexible(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -1375,7 +1453,7 @@ router.post(
     if (uploaded.length > 0) {
       const checked = assertUploadsAreImages(uploaded);
       if (!checked.ok) {
-        deleteLocalUploads(uploaded.map((u) => u.url));
+        deleteCollectedUploads(uploaded);
         return res
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
@@ -1396,9 +1474,34 @@ router.post(
               }
             })()
           : [];
+      const newRefs: string[] = [];
+      const reviewKey = `${id}_${req.user!._id.toString()}`;
+      for (const upload of uploaded) {
+        try {
+          const ingested = await ingestCollectedPublicUpload({
+            upload,
+            type: "review",
+            ownerId: req.user!._id.toString(),
+            entityType: "review",
+            entityId: reviewKey,
+            context: {
+              reviewId: reviewKey,
+              userId: req.user!._id.toString(),
+              spaceId: id,
+            },
+          });
+          newRefs.push(ingested.mediaRef);
+        } catch (err) {
+          for (const ref of newRefs) await removePhotoRef(ref);
+          const mapped = ingestErrorResponse(err);
+          return res.status(mapped.status).json(mapped.body);
+        }
+      }
       body.photos = [
-        ...existingPhotos.filter((p) => typeof p === "string"),
-        ...uploaded.map((u) => u.url),
+        ...existingPhotos
+          .filter((p) => typeof p === "string")
+          .map((p) => canonicalizePhotoRef(p)),
+        ...newRefs,
       ].slice(0, MAX_REVIEW_PHOTOS);
       delete body.existingPhotos;
     } else if (body.existingPhotos !== undefined && body.photos === undefined) {
@@ -1408,7 +1511,13 @@ router.post(
 
     const parsed = parseReviewBody(body);
     if (!parsed.success) {
-      deleteLocalUploads(uploaded.map((u) => u.url));
+      if (Array.isArray(body.photos)) {
+        await Promise.all(
+          (body.photos as string[])
+            .filter((p) => typeof p === "string" && p.startsWith("/api/media/"))
+            .map((p) => removePhotoRef(p))
+        );
+      }
       return res.status(400).json({
         error: "Datos inválidos",
         details: parsed.error.flatten(),
@@ -1494,7 +1603,7 @@ router.post(
       : undefined;
 
     return res.status(isUpdate ? 200 : 201).json({
-      review: serializeVenueReview(review!, {
+      review: await serializeVenueReview(review!, {
         author,
         venueName: venue.name,
         venuePhoto: venue.photos?.[0],
@@ -1508,6 +1617,7 @@ router.patch(
   requireAuth,
   requireVerified,
   requireProfileComplete,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadPhotosFlexible(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -1534,7 +1644,7 @@ router.patch(
     if (uploaded.length > 0) {
       const checked = assertUploadsAreImages(uploaded);
       if (!checked.ok) {
-        deleteLocalUploads(uploaded.map((u) => u.url));
+        deleteCollectedUploads(uploaded);
         return res
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
@@ -1555,11 +1665,31 @@ router.patch(
               }
             })()
           : [...(review.photos ?? [])];
+      photos = photos.map((p) => canonicalizePhotoRef(p));
       if (uploaded.length > 0) {
-        photos = [...photos, ...uploaded.map((u) => u.url)].slice(
-          0,
-          MAX_REVIEW_PHOTOS
-        );
+        const newRefs: string[] = [];
+        for (const upload of uploaded) {
+          try {
+            const ingested = await ingestCollectedPublicUpload({
+              upload,
+              type: "review",
+              ownerId: req.user!._id.toString(),
+              entityType: "review",
+              entityId: reviewId,
+              context: {
+                reviewId,
+                userId: req.user!._id.toString(),
+                spaceId: venueId,
+              },
+            });
+            newRefs.push(ingested.mediaRef);
+          } catch (err) {
+            for (const ref of newRefs) await removePhotoRef(ref);
+            const mapped = ingestErrorResponse(err);
+            return res.status(mapped.status).json(mapped.body);
+          }
+        }
+        photos = [...photos, ...newRefs].slice(0, MAX_REVIEW_PHOTOS);
       }
       body.photos = photos;
       delete body.existingPhotos;
@@ -1571,7 +1701,7 @@ router.patch(
 
     const parsed = parseReviewBody(body);
     if (!parsed.success) {
-      deleteLocalUploads(uploaded.map((u) => u.url));
+      deleteCollectedUploads(uploaded);
       return res.status(400).json({
         error: "Datos inválidos",
         details: parsed.error.flatten(),
@@ -1615,7 +1745,7 @@ router.patch(
     }).catch(() => undefined);
 
     return res.json({
-      review: serializeVenueReview(review, {
+      review: await serializeVenueReview(review, {
         author: req.user?.profile?.name
           ? {
               id: req.user._id.toString(),
@@ -1657,7 +1787,7 @@ router.delete(
     await deactivateReviewActivity(reviewId);
 
     return res.json({
-      review: serializeVenueReview(review, {
+      review: await serializeVenueReview(review, {
         venueName: venue.name,
         venuePhoto: venue.photos?.[0],
       }),
@@ -1669,6 +1799,7 @@ router.post(
   "/",
   requireAuth,
   requireAdmin,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadSinglePhoto(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -1678,7 +1809,7 @@ router.post(
   async (req: AuthedRequest, res) => {
     const uploaded = collectUploadedFiles(req);
     const cleanupNewUpload = () =>
-      deleteLocalUploads(uploaded.map((item) => item.url));
+      deleteCollectedUploads(uploaded);
 
     if (uploaded.length > 0) {
       const checked = assertUploadsAreImages(uploaded);
@@ -1688,41 +1819,54 @@ router.post(
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
       }
-      const coverCheck = await assertVenueCoverUpload(uploaded[0]);
-      if (!coverCheck.ok) {
-        cleanupNewUpload();
-        return res
-          .status(400)
-          .json({ error: coverCheck.error, code: "UPLOAD_INVALID" });
-      }
     }
 
     const body = req.body as Record<string, unknown>;
-    if (uploaded[0]?.url) {
-      body.photos = [uploaded[0].url];
+    let coverRef: string | null = null;
+    const provisionalSpaceId = new Types.ObjectId().toString();
+    if (uploaded[0]) {
+      try {
+        const ingested = await ingestCollectedPublicUpload({
+          upload: uploaded[0],
+          type: "space",
+          ownerId: req.user!._id.toString(),
+          entityType: "space",
+          entityId: provisionalSpaceId,
+          context: { spaceId: provisionalSpaceId },
+        });
+        coverRef = ingested.mediaRef;
+        body.photos = [ingested.mediaRef];
+      } catch (err) {
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
     }
     const parsed = parseVenueCreateBody(body);
     if (!parsed.success) {
-      cleanupNewUpload();
+      if (coverRef) await removePhotoRef(coverRef);
+      else cleanupNewUpload();
       return res.status(400).json({
         error: "Datos inválidos",
         details: parsed.error.flatten(),
       });
     }
     if (!(await isActiveAppCity(parsed.data.country, parsed.data.city))) {
-      cleanupNewUpload();
+      if (coverRef) await removePhotoRef(coverRef);
+      else cleanupNewUpload();
       return res.status(400).json({
         error: "La ciudad no corresponde al país seleccionado",
       });
     }
     if (!parsed.data.location) {
-      cleanupNewUpload();
+      if (coverRef) await removePhotoRef(coverRef);
+      else cleanupNewUpload();
       return res.status(400).json({
         error: "Marcá la ubicación del Espacio en el mapa",
       });
     }
     if (parsed.data.photos.length === 0) {
-      cleanupNewUpload();
+      if (coverRef) await removePhotoRef(coverRef);
+      else cleanupNewUpload();
       return res.status(400).json({
         error: "La imagen del Espacio es obligatoria",
       });
@@ -1730,7 +1874,8 @@ router.post(
 
     const owner = await resolveOwnerId(parsed.data.ownerId);
     if (!owner) {
-      cleanupNewUpload();
+      if (coverRef) await removePhotoRef(coverRef);
+      else cleanupNewUpload();
       return res.status(400).json({ error: "Organizador inválido" });
     }
 
@@ -1742,14 +1887,16 @@ router.post(
         location: parsed.data.location,
       });
       const venue = await Venue.create({
+        _id: new Types.ObjectId(provisionalSpaceId),
         ...parsed.data,
         ownerId: owner._id,
         location,
         followersCount: 0,
       });
-      return res.status(201).json({ venue: serializeVenue(venue) });
+      return res.status(201).json({ venue: await serializeVenue(venue) });
     } catch (error) {
-      cleanupNewUpload();
+      if (coverRef) await removePhotoRef(coverRef);
+      else cleanupNewUpload();
       throw error;
     }
   }
@@ -1826,7 +1973,7 @@ router.patch(
       { new: true }
     );
     if (!venue) return res.status(404).json({ error: "Espacio no encontrado" });
-    return res.json({ venue: serializeVenue(venue) });
+    return res.json({ venue: await serializeVenue(venue) });
   }
 );
 
@@ -1841,7 +1988,7 @@ router.delete(
       { new: true }
     );
     if (!venue) return res.status(404).json({ error: "Espacio no encontrado" });
-    return res.json({ venue: serializeVenue(venue) });
+    return res.json({ venue: await serializeVenue(venue) });
   }
 );
 
@@ -1880,7 +2027,7 @@ router.post(
       active: parsed.data.active ?? true,
     });
 
-    return res.status(201).json({ promotion: serializePromotion(promo) });
+    return res.status(201).json({ promotion: await serializePromotion(promo) });
   }
 );
 
@@ -1915,7 +2062,7 @@ router.get("/:id/promotions", requireAuth, async (req: AuthedRequest, res) => {
     Promotion.countDocuments({ venueId: id }),
   ]);
   return res.json({
-    promotions: promotions.map((p) => serializePromotion(p)),
+    promotions: await Promise.all(promotions.map((p) => serializePromotion(p))),
     ...(paginate
       ? {
           pagination: {
@@ -1960,7 +2107,7 @@ router.get("/:id/news", optionalAuth, async (req: AuthedRequest, res) => {
     VenueNews.countDocuments(filter),
   ]);
   return res.json({
-    news: news.map((n) => serializeVenueNews(n)),
+    news: await Promise.all(news.map((n) => serializeVenueNews(n))),
     ...(paginate
       ? {
           pagination: {
@@ -1978,6 +2125,7 @@ router.get("/:id/news", optionalAuth, async (req: AuthedRequest, res) => {
 router.post(
   "/:id/news",
   requireAuth,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadSinglePhoto(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -1995,7 +2143,7 @@ router.post(
     if (uploaded.length > 0) {
       const checked = assertUploadsAreImages(uploaded);
       if (!checked.ok) {
-        deleteLocalUploads(uploaded.map((u) => u.url));
+        deleteCollectedUploads(uploaded);
         return res
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
@@ -2003,8 +2151,21 @@ router.post(
     }
 
     const body = { ...(req.body as Record<string, unknown>) };
-    if (uploaded[0]?.url) {
-      body.photos = [uploaded[0].url];
+    if (uploaded[0]) {
+      try {
+        const ingested = await ingestCollectedPublicUpload({
+          upload: uploaded[0],
+          type: "space_news",
+          ownerId: req.user!._id.toString(),
+          entityType: "news",
+          entityId: venue._id.toString(),
+          context: { spaceId: venue._id.toString() },
+        });
+        body.photos = [ingested.mediaRef];
+      } catch (err) {
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
     }
 
     const hasPhoto =
@@ -2015,7 +2176,13 @@ router.post(
 
     const parsed = parseNewsBody(body);
     if (!parsed.success) {
-      deleteLocalUploads(uploaded.map((u) => u.url));
+      if (Array.isArray(body.photos)) {
+        for (const p of body.photos as string[]) {
+          if (typeof p === "string" && p.startsWith("/api/media/")) {
+            await removePhotoRef(p);
+          }
+        }
+      }
       return res.status(400).json({
         error: "Datos inválidos",
         details: parsed.error.flatten(),
@@ -2033,7 +2200,7 @@ router.post(
       active: parsed.data.active ?? true,
     });
 
-    return res.status(201).json({ news: serializeVenueNews(news) });
+    return res.status(201).json({ news: await serializeVenueNews(news) });
   }
 );
 
@@ -2070,7 +2237,7 @@ router.patch(
       { new: true }
     );
     if (!news) return res.status(404).json({ error: "Noticia no encontrada" });
-    return res.json({ news: serializeVenueNews(news) });
+    return res.json({ news: await serializeVenueNews(news) });
   }
 );
 
@@ -2095,7 +2262,7 @@ router.delete(
       { new: true }
     );
     if (!news) return res.status(404).json({ error: "Noticia no encontrada" });
-    return res.json({ news: serializeVenueNews(news) });
+    return res.json({ news: await serializeVenueNews(news) });
   }
 );
 
@@ -2155,7 +2322,7 @@ router.patch(
       { new: true }
     );
     if (!promo) return res.status(404).json({ error: "Promo no encontrada" });
-    return res.json({ promotion: serializePromotion(promo) });
+    return res.json({ promotion: await serializePromotion(promo) });
   }
 );
 
@@ -2180,7 +2347,7 @@ router.delete(
       { new: true }
     );
     if (!promo) return res.status(404).json({ error: "Promo no encontrada" });
-    return res.json({ promotion: serializePromotion(promo) });
+    return res.json({ promotion: await serializePromotion(promo) });
   }
 );
 

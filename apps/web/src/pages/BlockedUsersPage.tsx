@@ -4,6 +4,7 @@ import type { BlockedUser, PaginationMeta } from "@nocta/shared";
 import { ApiError, api } from "../lib/api";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { useToast } from "../components/ToastProvider";
+import { OptimizedImage } from "../components/OptimizedImage";
 
 const PAGE_SIZE = 20;
 
@@ -96,7 +97,12 @@ export function BlockedUsersPage() {
           {users.map((user) => (
             <article className="blocked-user-row" key={user.id}>
               {user.photo ? (
-                <img src={user.photo} alt="" />
+                <OptimizedImage
+                  src={user.photo}
+                  alt=""
+                  variant="thumb"
+                  sizes="48px"
+                />
               ) : (
                 <span className="blocked-user-avatar" aria-hidden="true">
                   {user.name.slice(0, 1).toUpperCase()}

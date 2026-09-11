@@ -121,7 +121,7 @@ router.post("/register", async (req, res) => {
   const token = signToken(user);
   return res.status(201).json({
     token,
-    user: serializeUser(user),
+    user: await serializeUser(user),
     code: "EMAIL_NOT_VERIFIED",
     expiresInMinutes: EMAIL_VERIFICATION_TTL_MINUTES,
     message: `Te enviamos un código de ${EMAIL_VERIFICATION_CODE_LENGTH} dígitos. Válido ${EMAIL_VERIFICATION_TTL_MINUTES} minutos.`,
@@ -163,11 +163,11 @@ router.post("/login", async (req, res) => {
   }
 
   const token = signToken(user);
-  return res.json({ token, user: serializeUser(user) });
+  return res.json({ token, user: await serializeUser(user) });
 });
 
 router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
-  return res.json({ user: serializeUser(req.user!) });
+  return res.json({ user: await serializeUser(req.user!) });
 });
 
 router.post("/resend-verification", async (req, res) => {
@@ -250,7 +250,7 @@ router.post("/verify-email", optionalAuth, async (req: AuthedRequest, res) => {
       ok: true,
       alreadyVerified: true,
       token: signToken(user),
-      user: serializeUser(user),
+      user: await serializeUser(user),
     });
   }
 
@@ -285,7 +285,7 @@ router.post("/verify-email", optionalAuth, async (req: AuthedRequest, res) => {
   return res.json({
     ok: true,
     token: signToken(user),
-    user: serializeUser(user),
+    user: await serializeUser(user),
     message: "Email confirmado",
   });
 });

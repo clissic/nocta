@@ -10,7 +10,8 @@ import { FollowRequestProfileModal } from "./FollowRequestProfileModal";
 import { OverflowFade } from "./OverflowFade";
 import { NoctaLoading } from "./NoctaLoading";
 import { useToast } from "./ToastProvider";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "./OptimizedImage";
 import { ManualSearchInput } from "./ManualSearchInput";
 
 export type ProfileConnectionsMode = "followers" | "following" | "venues";
@@ -250,10 +251,12 @@ export function ProfileConnectionsModal({
               {visibleVenues.map((venue) => (
                 <li key={venue.id} className="profile-connections-item">
                   <div className="profile-connections-user">
-                    <img
+                    <OptimizedImage
                       src={venueCoverSrc(venue)}
                       alt=""
-                      onError={onVenuePhotoError}
+                      variant="thumb"
+                      sizes="48px"
+                      fallbackSrc={VENUE_PHOTO_FALLBACK}
                     />
                     <div className="min-w-0">
                       <Link
@@ -289,7 +292,12 @@ export function ProfileConnectionsModal({
                 <li key={user.id} className="profile-connections-item">
                   <div className="profile-connections-user">
                     {user.photo ? (
-                      <img src={user.photo} alt="" />
+                      <OptimizedImage
+                        src={user.photo}
+                        alt=""
+                        variant="thumb"
+                        sizes="48px"
+                      />
                     ) : (
                       <span aria-hidden="true">
                         {user.name.slice(0, 1).toUpperCase()}

@@ -1,8 +1,10 @@
 export {
   ensureUploadsDir,
+  ensureTempUploadDir,
   ensureClaimEvidenceDir,
   ensureIdentityVerificationDir,
   UPLOADS_DIR,
+  TEMP_UPLOAD_DIR,
   CLAIM_EVIDENCE_DIR,
   IDENTITY_VERIFICATION_DIR,
   publicUploadUrl,
@@ -24,6 +26,8 @@ export {
 export {
   deleteLocalUpload,
   deleteLocalUploads,
+  deleteCollectedUploads,
+  deleteTempUploadPath,
   isAllowedPhotoMime,
   matchesImageMagicBytes,
   normalizePhotoExtension,
@@ -43,5 +47,12 @@ export {
   collectIdentityVerificationFiles,
   identityVerificationRequestFiles,
   deleteIdentityVerificationFiles,
+  deleteIdentityVerificationMulterFiles,
   safeIdentityVerificationPath,
 } from "./identityVerification.js";
+export {
+  getLegacyUploadAccessStats,
+  resetLegacyUploadAccessStats,
+  noteLegacyUploadGet,
+  noteLegacyUploadBlockedWrite,
+} from "./legacyAccess.js";

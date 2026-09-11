@@ -58,6 +58,20 @@ export async function requireAuth(
         code: "TOKEN_REVOKED",
       });
     }
+    if (synced.deletionRequestedAt) {
+      const url = (req.originalUrl || req.url || "").split("?")[0];
+      const allowed =
+        (req.method === "POST" && /\/account\/restore\/?$/.test(url)) ||
+        (req.method === "GET" && /\/auth\/me\/?$/.test(url));
+      if (!allowed) {
+        return res.status(403).json({
+          error:
+            "Tu cuenta está pendiente de eliminación. Recuperála para continuar.",
+          code: "ACCOUNT_PENDING_DELETION",
+          deletionRequestedAt: synced.deletionRequestedAt.toISOString(),
+        });
+      }
+    }
     req.user = synced;
     req.auth = payload;
     next();

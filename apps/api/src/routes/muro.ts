@@ -18,25 +18,28 @@ import { User } from "../models/User.js";
 import { VenueReview } from "../models/VenueReview.js";
 import { UserPost } from "../models/UserPost.js";
 import { blockedPeerIds } from "../models/Block.js";
-import {
-  serializeVenueNews,
-  serializePromotion,
-  serializeActivityItem,
-  serializeUserPost,
-  publicAssetUrl,
-} from "../utils/serialize.js";
+import { serializeVenueNews, serializePromotion, serializeActivityItem, serializeUserPost, resolvePublicAssetUrl } from "../utils/serialize.js";
 import { currentlyValidPromoFilter } from "../utils/promoValidity.js";
 import { recordActivity } from "../utils/activity.js";
 import { resolveShowActivityToFollowers } from "../utils/activityVisibility.js";
 import { notifyUserFollowers } from "../utils/notifyFollowers.js";
 import { isObjectId } from "../utils/ids.js";
 import {
+  requireImageUploadRateLimit,
+} from "../middleware/requireImageRateLimit.js";
+import {
   assertUploadsAreImages,
   collectUploadedFiles,
-  deleteLocalUploads,
+  deleteCollectedUploads,
   handleMulterError,
   uploadPhotosFlexible,
 } from "../uploads/index.js";
+import {
+  ingestCollectedPublicUpload,
+  ingestErrorResponse,
+  isAllowedPhotoRef,
+  removePhotoRef,
+} from "../image-service/index.js";
 
 const router = Router();
 
@@ -46,10 +49,7 @@ const FOLLOWING_USERS_AVATAR_LIMIT = 24;
 const photoUrlSchema = z
   .string()
   .min(1)
-  .refine(
-    (v) => v.startsWith("/uploads/") || /^https?:\/\//i.test(v),
-    "URL de foto inválida"
-  );
+  .refine(isAllowedPhotoRef, "URL de foto inválida");
 
 const createPostSchema = z.object({
   venueId: z.string().min(1),
@@ -91,8 +91,8 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
 
   const venueIds = venueFollows.map((f) => f.targetId);
 
-  let news: ReturnType<typeof serializeVenueNews>[] = [];
-  let promotions: ReturnType<typeof serializePromotion>[] = [];
+  let news: Awaited<ReturnType<typeof serializeVenueNews>>[] = [];
+  let promotions: Awaited<ReturnType<typeof serializePromotion>>[] = [];
 
   if (venueIds.length > 0) {
     const venues = await Venue.find({
@@ -124,23 +124,27 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
         .limit(40),
     ]);
 
-    news = newsRows.map((n) => {
-      const meta = venueMap.get(n.venueId.toString());
-      return serializeVenueNews(n, {
-        venueName: meta?.name,
-        venuePhoto: meta?.photo,
-      });
-    });
-    promotions = promoRows.map((p) => {
-      const meta = venueMap.get(p.venueId.toString());
-      return serializePromotion(p, {
-        venueName: meta?.name,
-        venuePhoto: meta?.photo,
-      });
-    });
+    news = await Promise.all(
+      newsRows.map(async (n) => {
+        const meta = venueMap.get(n.venueId.toString());
+        return serializeVenueNews(n, {
+          venueName: meta?.name,
+          venuePhoto: meta?.photo,
+        });
+      })
+    );
+    promotions = await Promise.all(
+      promoRows.map(async (p) => {
+        const meta = venueMap.get(p.venueId.toString());
+        return serializePromotion(p, {
+          venueName: meta?.name,
+          venuePhoto: meta?.photo,
+        });
+      })
+    );
   }
 
-  let activity: ReturnType<typeof serializeActivityItem>[] = [];
+  let activity: Awaited<ReturnType<typeof serializeActivityItem>>[] = [];
   let followingUsers: Array<{ id: string; name: string; photo?: string }> = [];
 
   const actorUsers = await User.find({
@@ -160,17 +164,19 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
     ])
   );
 
-  followingUsers = followedUserIds
-    .filter((id) => actorMap.has(id))
-    .slice(0, FOLLOWING_USERS_AVATAR_LIMIT)
-    .map((id) => {
-      const actor = actorMap.get(id)!;
-      return {
-        id: actor.id,
-        name: actor.name,
-        photo: publicAssetUrl(actor.photo),
-      };
-    });
+  followingUsers = await Promise.all(
+    followedUserIds
+      .filter((id) => actorMap.has(id))
+      .slice(0, FOLLOWING_USERS_AVATAR_LIMIT)
+      .map(async (id) => {
+        const actor = actorMap.get(id)!;
+        return {
+          id: actor.id,
+          name: actor.name,
+          photo: await resolvePublicAssetUrl(actor.photo),
+        };
+      })
+  );
 
   // Incluye al viewer siempre; showActivityToFollowers solo aplica a terceros
   const activityActorIds = [
@@ -266,8 +272,9 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
       ])
     );
 
-    activity = events
-      .map((event) => {
+    activity = (
+      await Promise.all(
+        events.map(async (event) => {
         const actor = actorMap.get(event.actorId.toString());
         if (!actor) return null;
         const venueId = event.venueId?.toString();
@@ -318,7 +325,8 @@ router.get("/feed", requireAuth, async (req: AuthedRequest, res) => {
           post: postFromPayload,
         });
       })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      )
+    ).filter((item): item is NonNullable<typeof item> => Boolean(item));
   }
 
   return res.json({
@@ -334,6 +342,7 @@ router.post(
   requireAuth,
   requireVerified,
   requireProfileComplete,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadPhotosFlexible(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -345,7 +354,7 @@ router.post(
     if (uploaded.length > 0) {
       const checked = assertUploadsAreImages(uploaded);
       if (!checked.ok) {
-        deleteLocalUploads(uploaded.map((u) => u.url));
+        deleteCollectedUploads(uploaded);
         return res
           .status(400)
           .json({ error: checked.error, code: "UPLOAD_INVALID" });
@@ -354,12 +363,32 @@ router.post(
 
     const body = { ...(req.body as Record<string, unknown>) };
     if (uploaded.length > 0) {
-      body.photos = uploaded.map((u) => u.url).slice(0, MAX_POST_PHOTOS);
+      const mediaRefs: string[] = [];
+      for (const upload of uploaded.slice(0, MAX_POST_PHOTOS)) {
+        try {
+          const ingested = await ingestCollectedPublicUpload({
+            upload,
+            type: "user_post",
+            ownerId: req.user!._id.toString(),
+            entityType: "post",
+            context: { userId: req.user!._id.toString() },
+          });
+          mediaRefs.push(ingested.mediaRef);
+        } catch (err) {
+          for (const ref of mediaRefs) {
+            await removePhotoRef(ref);
+          }
+          deleteCollectedUploads(uploaded);
+          const mapped = ingestErrorResponse(err);
+          return res.status(mapped.status).json(mapped.body);
+        }
+      }
+      body.photos = mediaRefs;
     }
 
     const parsed = parsePostBody(body);
     if (!parsed.success) {
-      deleteLocalUploads(uploaded.map((u) => u.url));
+      deleteCollectedUploads(uploaded);
       return res.status(400).json({
         error: "Datos inválidos",
         details: parsed.error.flatten(),
@@ -368,13 +397,13 @@ router.post(
 
     const venueId = parsed.data.venueId;
     if (!isObjectId(venueId)) {
-      deleteLocalUploads(uploaded.map((u) => u.url));
+      deleteCollectedUploads(uploaded);
       return res.status(400).json({ error: "Espacio inválido" });
     }
 
     const venue = await Venue.findOne({ _id: venueId, active: true });
     if (!venue) {
-      deleteLocalUploads(uploaded.map((u) => u.url));
+      deleteCollectedUploads(uploaded);
       return res.status(404).json({ error: "Espacio no encontrado" });
     }
 
@@ -416,7 +445,7 @@ router.post(
     }).catch(() => undefined);
 
     return res.status(201).json({
-      post: serializeUserPost(post, {
+      post: await serializeUserPost(post, {
         venueName: venue.name,
         venuePhoto: venue.photos?.[0],
       }),

@@ -16,7 +16,8 @@ import { VenueReviewsSection } from "../components/VenueReviewsSection";
 import { OverflowFade } from "../components/OverflowFade";
 import { useToast } from "../components/ToastProvider";
 import { VenueTrustBadge } from "../components/VenueTrustBadge";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { useAuth } from "../auth/AuthContext";
 
@@ -200,10 +201,13 @@ export function VenueDetailPage() {
         <div className="col-12 col-md-5 venue-detail-visual">
           <div className="venue-detail-media">
             <div className="venue-detail-hero">
-              <img
+              <OptimizedImage
                 src={hero}
                 alt={venue.name}
-                onError={onVenuePhotoError}
+                variant="large"
+                sizes="(min-width: 768px) 42vw, 100vw"
+                loading="eager"
+                fallbackSrc={VENUE_PHOTO_FALLBACK}
               />
               <div className="venue-detail-hero-fade" />
               <button
@@ -327,7 +331,12 @@ export function VenueDetailPage() {
                   {news.map((item) => (
                     <article key={item.id} className="venue-detail-news-item">
                       {item.photos[0] && (
-                        <img src={item.photos[0]} alt="" />
+                        <OptimizedImage
+                          src={item.photos[0]}
+                          alt=""
+                          variant="thumb"
+                          sizes="72px"
+                        />
                       )}
                       <div className="min-w-0">
                         <strong>{item.title}</strong>

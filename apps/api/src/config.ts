@@ -11,6 +11,13 @@ function env(key: string, fallback = ""): string {
   return String(raw).replace(/^["']|["']$/g, "").trim();
 }
 
+function envBool(key: string, fallback: boolean): boolean {
+  const raw = env(key, fallback ? "1" : "0").toLowerCase();
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return fallback;
+}
+
 /**
  * Resuelve la URI de Mongo:
  * - `memory` → Mongo embebido
@@ -118,6 +125,35 @@ export const config = {
       tenant: env("MICROSOFT_TENANT", "common"),
     },
   },
+  /**
+   * Railway Object Storage (Buckets S3-compatibles).
+   * Ver `src/storage/env.ts` para aliases AWS_* / BUCKET / ENDPOINT.
+   * Fase 11: `/uploads` solo lectura residual; staging en tmp/upload-staging.
+   */
+  storage: {
+    driver: (() => {
+      const raw = env("STORAGE_DRIVER", "auto").toLowerCase();
+      if (raw === "memory" || raw === "railway" || raw === "auto") return raw;
+      return "auto" as const;
+    })(),
+    publicBaseUrl: env("STORAGE_PUBLIC_BASE_URL"),
+    signedUrlTtlSeconds: Math.max(
+      60,
+      Number(env("STORAGE_SIGNED_URL_TTL_SECONDS", "3600")) || 3600
+    ),
+  },
+  /**
+   * Fase 12: jobs de lifecycle in-process (sin Redis).
+   * Producción: IMAGE_LIFECYCLE_JOBS=1 (o cron externo → npm run jobs:images).
+   */
+  imageLifecycleJobs: {
+    enabled: envBool("IMAGE_LIFECYCLE_JOBS", false),
+    intervalMs: Math.max(
+      60_000,
+      Number(env("IMAGE_LIFECYCLE_INTERVAL_MS", "3600000")) || 3_600_000
+    ),
+  },
 };
 
 export const isMemoryDb = config.mongoUri === "memory";
+

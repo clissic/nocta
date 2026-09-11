@@ -13,6 +13,7 @@ import {
 import { ApiError, api } from "../../lib/api";
 import { NoctaLoading } from "../NoctaLoading";
 import { OverflowFade } from "../OverflowFade";
+import { OptimizedImage } from "../OptimizedImage";
 
 type Props = {
   userId: string;
@@ -82,10 +83,12 @@ export function AdminUserDetailsModal({ userId, onClose }: Props) {
         <header className="admin-modal-head">
           <div className="admin-modal-title-row">
             {profile?.photos?.[0] ? (
-              <img
+              <OptimizedImage
                 className="admin-list-thumb"
                 src={profile.photos[0]}
                 alt=""
+                variant="thumb"
+                sizes="48px"
               />
             ) : (
               <span className="admin-list-thumb is-avatar" aria-hidden="true">
@@ -297,7 +300,13 @@ export function AdminUserDetailsModal({ userId, onClose }: Props) {
                   <h3 className="admin-review-label">Fotos</h3>
                   <div className="admin-modal-photos">
                     {profile.photos.map((photo, index) => (
-                      <img key={photo} src={photo} alt={`Foto ${index + 1}`} />
+                      <OptimizedImage
+                        key={photo}
+                        src={photo}
+                        alt={`Foto ${index + 1}`}
+                        variant="medium"
+                        sizes="(min-width: 768px) 120px, 28vw"
+                      />
                     ))}
                   </div>
                 </section>

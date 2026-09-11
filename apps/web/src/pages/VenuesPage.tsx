@@ -11,7 +11,8 @@ import {
 } from "@nocta/shared";
 import { api } from "../lib/api";
 import { VenueTrustBadge } from "../components/VenueTrustBadge";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { ManualSearchInput } from "../components/ManualSearchInput";
 import { useVenueCity } from "../components/RequireVenueLocation";
@@ -278,10 +279,12 @@ export function VenuesPage() {
               }}
             >
               <div className="venue-card-media">
-                <img
+                <OptimizedImage
                   src={venueCoverSrc(venue)}
                   alt={venue.name}
-                  onError={onVenuePhotoError}
+                  variant="medium"
+                  sizes="(min-width: 992px) 33vw, (min-width: 768px) 50vw, 100vw"
+                  fallbackSrc={VENUE_PHOTO_FALLBACK}
                 />
                 <div className="venue-card-fade" />
                 {isLive && (

@@ -3,7 +3,8 @@ import { type Venue } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "./ToastProvider";
 import { NoctaLoading } from "./NoctaLoading";
-import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../lib/venuePhoto";
+import { OptimizedImage } from "./OptimizedImage";
 import { ManualSearchInput } from "./ManualSearchInput";
 import {
   validateVenueEvidenceFiles,
@@ -120,10 +121,12 @@ export function VenueClaimForm({ onSubmitted }: VenueClaimFormProps) {
                   className={`venue-claim-option${active ? " is-selected" : ""}`}
                   onClick={() => setSelected(venue)}
                 >
-                  <img
+                  <OptimizedImage
                     src={venueCoverSrc(venue)}
                     alt=""
-                    onError={onVenuePhotoError}
+                    variant="thumb"
+                    sizes="56px"
+                    fallbackSrc={VENUE_PHOTO_FALLBACK}
                   />
                   <span>
                     <strong>{venue.name}</strong>

@@ -22,6 +22,7 @@ import { useAuth } from "../auth/AuthContext";
 import { OverflowFade } from "../components/OverflowFade";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { PhotoLightbox } from "../components/PhotoLightbox";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { useToast } from "../components/ToastProvider";
 import { api, ApiError } from "../lib/api";
 import { LOOKING_FOR_ICONS } from "../lib/lookingForIcons";
@@ -425,12 +426,13 @@ export function ChatPage() {
           >
             <i className="bi bi-arrow-left fs-5" aria-hidden="true" />
           </button>
-          <img
+          <OptimizedImage
             className="chat-header-avatar"
-            src={
-              peer?.photo ?? matchMeta?.otherUser.photo ?? FALLBACK_PHOTO
-            }
+            src={peer?.photo ?? matchMeta?.otherUser.photo ?? FALLBACK_PHOTO}
             alt=""
+            variant="thumb"
+            sizes="40px"
+            fallbackSrc={FALLBACK_PHOTO}
           />
           <div className="min-w-0">
             <div className="fw-semibold text-truncate">{displayName}</div>
@@ -551,7 +553,12 @@ function ChatMatchProfile({
               className="chat-match-carousel-photo"
               onClick={() => onOpenPhoto(safeIndex)}
             >
-              <img src={currentPhoto} alt={`Foto de ${name}`} />
+              <OptimizedImage
+                src={currentPhoto}
+                alt={`Foto de ${name}`}
+                variant="large"
+                sizes="(min-width: 768px) 320px, 100vw"
+              />
             </button>
             {hasMany && (
               <>

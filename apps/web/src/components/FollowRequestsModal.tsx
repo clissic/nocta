@@ -7,6 +7,7 @@ import { ApiError, api } from "../lib/api";
 import { FollowRequestProfileModal } from "./FollowRequestProfileModal";
 import { OverflowFade } from "./OverflowFade";
 import { useToast } from "./ToastProvider";
+import { OptimizedImage } from "./OptimizedImage";
 
 type Props = {
   requests: FollowRequestItem[];
@@ -112,7 +113,12 @@ export function FollowRequestsModal({
                 <li key={request.id} className="profile-follow-request-item">
                   <div className="profile-follow-request-user">
                     {request.fromUser.photo ? (
-                      <img src={request.fromUser.photo} alt="" />
+                      <OptimizedImage
+                        src={request.fromUser.photo}
+                        alt=""
+                        variant="thumb"
+                        sizes="48px"
+                      />
                     ) : (
                       <span aria-hidden="true">
                         {request.fromUser.name.slice(0, 1).toUpperCase()}

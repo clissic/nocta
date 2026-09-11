@@ -8,6 +8,7 @@ import {
 import { api, ApiError } from "../lib/api";
 import { OverflowFade } from "../components/OverflowFade";
 import { NoctaLoading } from "../components/NoctaLoading";
+import { OptimizedImage } from "../components/OptimizedImage";
 
 const REPORT_LABELS: Record<ReportReason, string> = {
   spam: "Spam",
@@ -181,10 +182,13 @@ export function MatchesPage() {
         {matches.map((m) => (
           <article key={m.id} className="match-row">
             <Link to={`/matches/${m.id}`} className="match-row-main">
-              <img
+              <OptimizedImage
                 className="match-avatar"
                 src={m.otherUser.photo ?? FALLBACK_PHOTO}
                 alt=""
+                variant="thumb"
+                sizes="56px"
+                fallbackSrc={FALLBACK_PHOTO}
               />
               <div className="match-row-copy min-w-0">
                 <div className="match-row-name fw-semibold text-truncate">

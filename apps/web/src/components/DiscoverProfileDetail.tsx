@@ -11,6 +11,11 @@ import {
   type LookingFor,
 } from "@nocta/shared";
 import { LOOKING_FOR_ICONS } from "../lib/lookingForIcons";
+import {
+  DISCOVER_DETAIL_SIZES,
+  useDiscoverDetailPhotoVariant,
+} from "../lib/discoverImages";
+import { OptimizedImage } from "./OptimizedImage";
 import { ProfileExtraSections, ProfileLanguagesSection } from "./ProfileExtraSections";
 
 type DiscoverProfileDetailProps = {
@@ -32,6 +37,15 @@ export function DiscoverProfileDetail({
   const { profile, age } = card;
   const photos = profile.photos.filter(Boolean);
   const activePhoto = photos[photoIndex] ?? photos[0];
+  const photoVariant = useDiscoverDetailPhotoVariant();
+  /** Galería lazy: solo monta la foto activa (+ ninguna otra). */
+  const detailVariants = useMemo(
+    () =>
+      photoVariant === "large"
+        ? (["medium", "large"] as const)
+        : (["thumb", "medium"] as const),
+    [photoVariant]
+  );
 
   const lookingFor = useMemo(
     () =>
@@ -71,7 +85,18 @@ export function DiscoverProfileDetail({
       <div className="discover-detail-media">
         <div className="discover-detail-hero swipe-card-photo-hit">
           {activePhoto ? (
-            <img src={activePhoto} alt={profile.name} draggable={false} />
+            <OptimizedImage
+              key={`${activePhoto}:${photoIndex}`}
+              src={activePhoto}
+              alt={profile.name}
+              className="discover-detail-hero-img"
+              variant={photoVariant}
+              variants={detailVariants}
+              sizes={DISCOVER_DETAIL_SIZES}
+              loading="eager"
+              fetchPriority="high"
+              draggable={false}
+            />
           ) : (
             <div className="discover-detail-hero-empty" aria-hidden="true" />
           )}

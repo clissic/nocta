@@ -15,7 +15,7 @@ import {
   serializeVenue,
   serializeVenueReview,
   serializePromoPurchase,
-  publicAssetUrl,
+  resolvePublicAssetUrl,
 } from "../utils/serialize.js";
 import {
   acceptFollowRequest,
@@ -27,17 +27,22 @@ import { FollowRequest } from "../models/FollowRequest.js";
 import { Block } from "../models/Block.js";
 import { Report } from "../models/Report.js";
 import { isObjectId, paramId } from "../utils/ids.js";
-import { deleteUserAccount } from "../utils/deleteUserAccount.js";
 import { isPremiumActive } from "../utils/premium.js";
 import { endActivePresences } from "../utils/presence.js";
 import {
   collectIdentityVerificationFiles,
-  deleteIdentityVerificationFiles,
+  deleteIdentityVerificationMulterFiles,
   handleMulterError,
   identityVerificationRequestFiles,
   uploadIdentityVerificationFiles,
 } from "../uploads/index.js";
+import {
+  ingestCollectedIdentityUpload,
+  ingestErrorResponse,
+  removeIdentityStoredRef,
+} from "../image-service/index.js";
 import { sendIdentityVerificationSubmittedEmail } from "../mail/mailer.js";
+import { requireSensitiveImageRateLimit } from "../middleware/requireImageRateLimit.js";
 
 const router = Router();
 
@@ -124,7 +129,7 @@ router.patch("/settings", requireAuth, async (req: AuthedRequest, res) => {
     await endActivePresences(user._id.toString(), "revoked");
   }
 
-  return res.json({ user: serializeUser(user) });
+  return res.json({ user: await serializeUser(user) });
 });
 
 const teleportLocationSchema = z.object({
@@ -171,7 +176,7 @@ router.put("/teleport-location", requireAuth, async (req: AuthedRequest, res) =>
   };
   await user.save();
 
-  return res.json({ user: serializeUser(user) });
+  return res.json({ user: await serializeUser(user) });
 });
 
 const blockedUsersPaginationSchema = z.object({
@@ -238,18 +243,20 @@ router.get("/blocked-users", requireAuth, async (req: AuthedRequest, res) => {
   );
 
   return res.json({
-    users: blocks.flatMap((block) => {
-      const user = usersById.get(block.blockedId.toString());
-      if (!user) return [];
-      return [
-        {
-          id: user._id.toString(),
-          name: user.profile?.name ?? "Usuario",
-          photo: publicAssetUrl(user.profile?.photos?.[0]),
-          blockedAt: block.createdAt.toISOString(),
-        },
-      ];
-    }),
+    users: (
+      await Promise.all(
+        blocks.map(async (block) => {
+          const user = usersById.get(block.blockedId.toString());
+          if (!user) return null;
+          return {
+            id: user._id.toString(),
+            name: user.profile?.name ?? "Usuario",
+            photo: await resolvePublicAssetUrl(user.profile?.photos?.[0]),
+            blockedAt: block.createdAt.toISOString(),
+          };
+        })
+      )
+    ).filter((row): row is NonNullable<typeof row> => Boolean(row)),
     pagination: {
       page,
       limit,
@@ -323,13 +330,15 @@ router.get("/reviews", requireAuth, async (req: AuthedRequest, res) => {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
   return res.json({
-    reviews: rows.map((review) => {
-      const venue = venueMap.get(review.venueId.toString());
-      return serializeVenueReview(review, {
-        venueName: venue?.name,
-        venuePhoto: venue?.photo,
-      });
-    }),
+    reviews: await Promise.all(
+      rows.map(async (review) => {
+        const venue = venueMap.get(review.venueId.toString());
+        return serializeVenueReview(review, {
+          venueName: venue?.name,
+          venuePhoto: venue?.photo,
+        });
+      })
+    ),
     pagination: {
       page,
       limit,
@@ -345,8 +354,10 @@ router.get("/venues/owned", requireAuth, async (req: AuthedRequest, res) => {
     ownerId: req.user!._id,
   }).sort({ name: 1 });
   return res.json({
-    venues: venues.map((v) =>
-      serializeVenue(v, { followersCount: v.followersCount ?? 0 })
+    venues: await Promise.all(
+      venues.map((v) =>
+        serializeVenue(v, { followersCount: v.followersCount ?? 0 })
+      )
     ),
   });
 });
@@ -368,13 +379,15 @@ router.get("/promo-purchases", requireAuth, async (req: AuthedRequest, res) => {
   );
 
   return res.json({
-    purchases: purchases.map((p) => {
-      const meta = venueMap.get(p.venueId.toString());
-      return serializePromoPurchase(p, {
-        venueName: meta?.name,
-        venuePhoto: meta?.photo,
-      });
-    }),
+    purchases: await Promise.all(
+      purchases.map(async (p) => {
+        const meta = venueMap.get(p.venueId.toString());
+        return serializePromoPurchase(p, {
+          venueName: meta?.name,
+          venuePhoto: meta?.photo,
+        });
+      })
+    ),
   });
 });
 
@@ -395,7 +408,7 @@ router.get(
     }
     const venue = await Venue.findById(purchase.venueId).select("name photos");
     return res.json({
-      purchase: serializePromoPurchase(purchase, {
+      purchase: await serializePromoPurchase(purchase, {
         venueName: venue?.name,
         venuePhoto: venue?.photos?.[0],
       }),
@@ -422,10 +435,12 @@ router.get("/following", requireAuth, async (req: AuthedRequest, res) => {
   const userMap = new Map(users.map((u) => [u._id.toString(), u]));
   const venueMap = new Map(venues.map((v) => [v._id.toString(), v]));
 
-  const publicUsers = userIds
-    .map((id) => userMap.get(id.toString()))
-    .filter(Boolean)
-    .map((u) => serializePublicUser(u!, { isFollowing: true }));
+  const publicUsers = await Promise.all(
+    userIds
+      .map((id) => userMap.get(id.toString()))
+      .filter(Boolean)
+      .map((u) => serializePublicUser(u!, { isFollowing: true }))
+  );
 
   const publicVenues = await Promise.all(
     venueIds
@@ -463,15 +478,17 @@ router.get("/followers", requireAuth, async (req: AuthedRequest, res) => {
   });
   const backSet = new Set(followingBack.map((f) => f.targetId.toString()));
 
-  const list = followerIds
-    .map((id) => map.get(id.toString()))
-    .filter(Boolean)
-    .map((u) =>
-      serializePublicUser(u!, {
-        isFollower: true,
-        isFollowing: backSet.has(u!._id.toString()),
-      })
-    );
+  const list = await Promise.all(
+    followerIds
+      .map((id) => map.get(id.toString()))
+      .filter(Boolean)
+      .map((u) =>
+        serializePublicUser(u!, {
+          isFollower: true,
+          isFollowing: backSet.has(u!._id.toString()),
+        })
+      )
+  );
 
   return res.json({ users: list });
 });
@@ -511,24 +528,26 @@ router.get("/follow-requests", requireAuth, async (req: AuthedRequest, res) => {
   });
   const map = new Map(users.map((u) => [u._id.toString(), u]));
 
-  const requests = rows
-    .map((row) => {
-      const from = map.get(row.fromUserId.toString());
-      if (!from?.profile?.birthDate) return null;
-      const publicUser = serializePublicUser(from);
-      return {
-        id: row._id.toString(),
-        status: row.status as "pending",
-        createdAt: row.createdAt.toISOString(),
-        fromUser: {
-          id: publicUser.id,
-          name: publicUser.name,
-          photo: publicUser.photo,
-          age: publicUser.age,
-        },
-      };
-    })
-    .filter(Boolean);
+  const requests = (
+    await Promise.all(
+      rows.map(async (row) => {
+        const from = map.get(row.fromUserId.toString());
+        if (!from?.profile?.birthDate) return null;
+        const publicUser = await serializePublicUser(from);
+        return {
+          id: row._id.toString(),
+          status: row.status as "pending",
+          createdAt: row.createdAt.toISOString(),
+          fromUser: {
+            id: publicUser.id,
+            name: publicUser.name,
+            photo: publicUser.photo,
+            age: publicUser.age,
+          },
+        };
+      })
+    )
+  ).filter(Boolean);
 
   return res.json({ requests });
 });
@@ -559,7 +578,7 @@ router.get(
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    return res.json({ profile: serializeReducedProfile(requester) });
+    return res.json({ profile: await serializeReducedProfile(requester) });
   }
 );
 
@@ -604,14 +623,15 @@ router.post(
 router.post(
   "/identity-verification",
   requireAuth,
+  requireSensitiveImageRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadIdentityVerificationFiles(req, res, (err) => {
       if (err) {
-        deleteIdentityVerificationFiles(
-          Object.values(identityVerificationRequestFiles(req))
-            .filter(Boolean)
-            .map((file) => file!.filename)
-        );
+        const files = identityVerificationRequestFiles(req);
+        deleteIdentityVerificationMulterFiles([
+          files.documentFront,
+          files.selfieWithDocument,
+        ]);
         return handleMulterError(err, req, res, next);
       }
       next();
@@ -621,14 +641,18 @@ router.post(
     const collected = collectIdentityVerificationFiles(req);
     const uploaded = identityVerificationRequestFiles(req);
     const cleanupUploaded = () =>
-      deleteIdentityVerificationFiles([
-        uploaded.documentFront?.filename,
-        uploaded.selfieWithDocument?.filename,
+      deleteIdentityVerificationMulterFiles([
+        uploaded.documentFront,
+        uploaded.selfieWithDocument,
       ]);
 
     if (!collected.ok) {
       cleanupUploaded();
       return res.status(400).json({ error: collected.error });
+    }
+    if (!uploaded.documentFront || !uploaded.selfieWithDocument) {
+      cleanupUploaded();
+      return res.status(400).json({ error: "Faltan archivos de verificación" });
     }
 
     const user = await User.findById(req.user!._id);
@@ -662,15 +686,35 @@ router.post(
         }
       | undefined;
 
-    deleteIdentityVerificationFiles([
-      previous?.documentFrontPath,
-      previous?.selfieWithDocumentPath,
-    ]);
+    let documentImageId: string;
+    let selfieImageId: string;
+    try {
+      const docIngested = await ingestCollectedIdentityUpload({
+        path: uploaded.documentFront.path,
+        mimetype: uploaded.documentFront.mimetype,
+        ownerId: user._id.toString(),
+      });
+      const selfieIngested = await ingestCollectedIdentityUpload({
+        path: uploaded.selfieWithDocument.path,
+        mimetype: uploaded.selfieWithDocument.mimetype,
+        ownerId: user._id.toString(),
+      });
+      documentImageId = docIngested.imageId;
+      selfieImageId = selfieIngested.imageId;
+    } catch (err) {
+      cleanupUploaded();
+      const mapped = ingestErrorResponse(err);
+      return res.status(mapped.status).json(mapped.body);
+    }
+
+    await removeIdentityStoredRef(previous?.documentFrontPath);
+    await removeIdentityStoredRef(previous?.selfieWithDocumentPath);
 
     user.identityVerification = {
       status: "pending",
-      documentFrontPath: collected.documentFront,
-      selfieWithDocumentPath: collected.selfieWithDocument,
+      // imageId privado (no URL pública); legacy usaba filename en disco
+      documentFrontPath: documentImageId,
+      selfieWithDocumentPath: selfieImageId,
       submittedAt: new Date(),
       reviewedAt: undefined,
       reviewedById: undefined,
@@ -688,7 +732,7 @@ router.post(
       console.error("[mail] identity verification notify failed", err);
     }
 
-    return res.json({ user: serializeUser(user) });
+    return res.json({ user: await serializeUser(user) });
   }
 );
 
@@ -702,7 +746,13 @@ router.delete("/account", requireAuth, async (req: AuthedRequest, res) => {
 
   const user = req.user!;
   if (user.role === "admin") {
-    const adminCount = await User.countDocuments({ role: "admin" });
+    const adminCount = await User.countDocuments({
+      role: "admin",
+      $or: [
+        { deletionRequestedAt: null },
+        { deletionRequestedAt: { $exists: false } },
+      ],
+    });
     if (adminCount <= 1) {
       return res.status(409).json({
         error: "No podés eliminar la última cuenta administradora",
@@ -710,8 +760,38 @@ router.delete("/account", requireAuth, async (req: AuthedRequest, res) => {
     }
   }
 
-  await deleteUserAccount(user);
-  return res.json({ ok: true });
+  const {
+    requestAccountDeletion,
+    ACCOUNT_DELETION_RECOVERY_DAYS,
+    accountDeletionPurgeAt,
+  } = await import("../image-lifecycle/accountDeletion.js");
+
+  const updated = await requestAccountDeletion(user);
+  const purgeAt = accountDeletionPurgeAt(updated.deletionRequestedAt!);
+  return res.json({
+    ok: true,
+    pendingDeletion: true,
+    recoveryDays: ACCOUNT_DELETION_RECOVERY_DAYS,
+    deletionRequestedAt: updated.deletionRequestedAt!.toISOString(),
+    purgeAt: purgeAt.toISOString(),
+    user: await serializeUser(updated),
+  });
+});
+
+router.post("/account/restore", requireAuth, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  if (!user.deletionRequestedAt) {
+    return res.status(400).json({
+      error: "Tu cuenta no está pendiente de eliminación",
+      code: "ACCOUNT_NOT_PENDING_DELETION",
+    });
+  }
+  const { restoreAccount } = await import("../image-lifecycle/accountDeletion.js");
+  const restored = await restoreAccount(user);
+  return res.json({
+    ok: true,
+    user: await serializeUser(restored),
+  });
 });
 
 export default router;

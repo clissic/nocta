@@ -4,7 +4,8 @@ export const AUTH_SESSION_INVALIDATED_EVENT = "nocta:auth-invalidated";
 
 /** Base de la API en producción (Railway). Vacío en local → proxy Vite. */
 export function apiBaseUrl() {
-  const raw = import.meta.env.VITE_API_URL;
+  const env = import.meta.env as { VITE_API_URL?: string } | undefined;
+  const raw = env?.VITE_API_URL;
   return typeof raw === "string" ? raw.replace(/\/$/, "") : "";
 }
 
@@ -20,14 +21,14 @@ export function apiUrl(path: string) {
 
 /**
  * URLs de media para <img>.
- * `/uploads/...` vive en la API; el resto (p. ej. `/images/...`) en el web.
+ * https/CDN/firmada tal cual; `/uploads/` y `/api/media/` (fallback) vía API.
  */
 export function mediaUrl(src?: string | null) {
   if (!src) return "";
   if (/^https?:\/\//i.test(src) || src.startsWith("blob:") || src.startsWith("data:")) {
     return src;
   }
-  if (src.startsWith("/uploads/")) return apiUrl(src);
+  if (src.startsWith("/uploads/") || src.startsWith("/api/media/")) return apiUrl(src);
   return src;
 }
 

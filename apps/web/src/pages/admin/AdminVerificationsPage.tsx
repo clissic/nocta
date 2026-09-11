@@ -3,7 +3,7 @@ import {
   IDENTITY_VERIFICATION_STATUS_LABELS,
   type AdminIdentityVerification,
 } from "@nocta/shared";
-import { api, ApiError, downloadApiFile, mediaUrl } from "../../lib/api";
+import { api, ApiError, downloadApiFile } from "../../lib/api";
 import { OverflowFade } from "../../components/OverflowFade";
 import { NoctaLoading } from "../../components/NoctaLoading";
 import { ManualSearchInput } from "../../components/ManualSearchInput";
@@ -13,6 +13,7 @@ import {
 } from "../../components/admin/AdminPagination";
 import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
 import { useToast } from "../../components/ToastProvider";
+import { OptimizedImage } from "../../components/OptimizedImage";
 
 type Filter = "pending" | "approved" | "rejected" | "all";
 
@@ -251,7 +252,12 @@ export function AdminVerificationsPage() {
               >
                 <span className="admin-list-avatar">
                   {item.photo ? (
-                    <img src={mediaUrl(item.photo)} alt="" />
+                    <OptimizedImage
+                      src={item.photo}
+                      alt=""
+                      variant="thumb"
+                      sizes="48px"
+                    />
                   ) : (
                     <i className="bi bi-person" aria-hidden="true" />
                   )}

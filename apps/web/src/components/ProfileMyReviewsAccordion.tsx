@@ -10,6 +10,8 @@ import { PhotoLightbox } from "./PhotoLightbox";
 import { useToast } from "./ToastProvider";
 import { NoctaLoading } from "./NoctaLoading";
 import { ManualSearchInput } from "./ManualSearchInput";
+import { OptimizedImage } from "./OptimizedImage";
+import { VENUE_PHOTO_FALLBACK } from "../lib/venuePhoto";
 
 function Stars({ rating }: { rating: number }) {
   return (
@@ -124,7 +126,13 @@ export function ProfileMyReviewsAccordion() {
               <li key={review.id} className="profile-my-review-item">
                 <div className="profile-my-review-head">
                   {review.venuePhoto ? (
-                    <img src={review.venuePhoto} alt="" />
+                    <OptimizedImage
+                      src={review.venuePhoto}
+                      alt=""
+                      variant="thumb"
+                      sizes="48px"
+                      fallbackSrc={VENUE_PHOTO_FALLBACK}
+                    />
                   ) : (
                     <span aria-hidden="true">
                       {(review.venueName ?? "E").slice(0, 1).toUpperCase()}
@@ -167,7 +175,12 @@ export function ProfileMyReviewsAccordion() {
                           setLightbox({ photos: review.photos, index })
                         }
                       >
-                        <img src={src} alt="" />
+                        <OptimizedImage
+                          src={src}
+                          alt=""
+                          variant="thumb"
+                          sizes="80px"
+                        />
                       </button>
                     ))}
                   </div>

@@ -1,6 +1,6 @@
 import multer from "multer";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import {
   IDENTITY_VERIFICATION_FILE_EXTENSIONS,
@@ -11,11 +11,14 @@ import type { AuthedRequest } from "../middleware/auth.js";
 import {
   IDENTITY_VERIFICATION_DIR,
   ensureIdentityVerificationDir,
+  ensureTempUploadDir,
 } from "./paths.js";
+import { deleteTempUploadPath } from "./validate.js";
 
 const MIME_SET = new Set<string>(IDENTITY_VERIFICATION_FILE_MIME_TYPES);
 const EXT_SET = new Set<string>(IDENTITY_VERIFICATION_FILE_EXTENSIONS);
 
+ensureTempUploadDir();
 ensureIdentityVerificationDir();
 
 function extensionFor(file: Express.Multer.File) {
@@ -54,9 +57,9 @@ function matchesImageSignature(file: Express.Multer.File) {
 const identityStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     try {
-      cb(null, ensureIdentityVerificationDir());
+      cb(null, ensureTempUploadDir());
     } catch (err) {
-      cb(err as Error, IDENTITY_VERIFICATION_DIR);
+      cb(err as Error, ensureTempUploadDir());
     }
   },
   filename: (req, file, cb) => {
@@ -145,6 +148,7 @@ export function collectIdentityVerificationFiles(req: AuthedRequest):
   };
 }
 
+/** Path legacy en corpus privado (solo lectura residual). */
 export function safeIdentityVerificationPath(filename: string) {
   if (!filename || filename.includes("..") || /[\\/]/.test(filename)) return null;
   return join(IDENTITY_VERIFICATION_DIR, filename);
@@ -155,12 +159,21 @@ export function deleteIdentityVerificationFiles(
 ) {
   for (const filename of filenames) {
     if (!filename) continue;
-    const path = safeIdentityVerificationPath(filename);
-    if (!path) continue;
-    try {
-      if (existsSync(path)) unlinkSync(path);
-    } catch {
-      /* ignore cleanup errors */
+    // Preferí path absoluto de staging; fallback a corpus legacy.
+    if (filename.includes("/") || filename.includes("\\")) {
+      deleteTempUploadPath(filename);
+      continue;
     }
+    const legacy = safeIdentityVerificationPath(filename);
+    if (legacy) deleteTempUploadPath(legacy);
+  }
+}
+
+/** Limpia archivos multer de identity (staging TEMP). */
+export function deleteIdentityVerificationMulterFiles(
+  files: Array<Express.Multer.File | null | undefined>
+) {
+  for (const file of files) {
+    if (file?.path) deleteTempUploadPath(file.path);
   }
 }

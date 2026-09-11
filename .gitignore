@@ -9,5 +9,6 @@ coverage/
 .vite/
 # Archivos subidos en runtime (no el código fuente en apps/api/src/uploads/)
 apps/api/uploads/
+apps/api/tmp/
 private/
 *.tsbuildinfo

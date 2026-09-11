@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import {
-  MAX_PHOTO_UPLOAD_BYTES,
-  VENUE_COUNTRIES,
-  VENUE_COVER_HEIGHT,
-  VENUE_COVER_MIME,
-  VENUE_COVER_WIDTH,
-} from "@nocta/shared";
-import { onVenuePhotoError } from "../lib/venuePhoto";
+import { MAX_PHOTO_UPLOAD_BYTES, VENUE_COUNTRIES } from "@nocta/shared";
+import { VENUE_PHOTO_FALLBACK } from "../lib/venuePhoto";
+import { OptimizedImage } from "./OptimizedImage";
 import { useActiveAppCities } from "../lib/appCities";
 
 type CountryCityProps = {
@@ -103,11 +98,12 @@ export function VenueCountryCityFields({
 export async function validateVenueCoverFile(
   file: File
 ): Promise<string | null> {
-  if (
-    file.type.toLowerCase() !== VENUE_COVER_MIME ||
-    !file.name.toLowerCase().endsWith(".webp")
-  ) {
-    return "La imagen debe estar en formato .webp";
+  const mime = file.type.toLowerCase();
+  const okMime = ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(
+    mime
+  );
+  if (!okMime) {
+    return "Usá JPEG, PNG o WebP";
   }
   if (file.size > MAX_PHOTO_UPLOAD_BYTES) {
     return `La imagen supera los ${Math.round(MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024))} MB`;
@@ -115,15 +111,11 @@ export async function validateVenueCoverFile(
 
   try {
     const bitmap = await createImageBitmap(file);
-    const valid =
-      bitmap.width === VENUE_COVER_WIDTH &&
-      bitmap.height === VENUE_COVER_HEIGHT;
+    const valid = bitmap.width >= 32 && bitmap.height >= 32;
     bitmap.close();
-    return valid
-      ? null
-      : `La imagen debe medir exactamente ${VENUE_COVER_WIDTH}×${VENUE_COVER_HEIGHT} píxeles`;
+    return valid ? null : "La imagen es demasiado pequeña";
   } catch {
-    return "No se pudo leer la imagen WebP";
+    return "No se pudo leer la imagen";
   }
 }
 
@@ -153,7 +145,7 @@ export function VenueCoverField({
         ref={inputRef}
         className="d-none"
         type="file"
-        accept=".webp,image/webp"
+        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
         aria-required={required}
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -164,10 +156,12 @@ export function VenueCoverField({
 
       {previewSrc ? (
         <div className="venue-request-photo-preview">
-          <img
+          <OptimizedImage
             src={previewSrc}
             alt="Vista previa del Espacio"
-            onError={onVenuePhotoError}
+            variant="medium"
+            sizes="(min-width: 768px) 320px, 100vw"
+            fallbackSrc={VENUE_PHOTO_FALLBACK}
           />
           <div className="venue-request-photo-actions">
             <button
@@ -196,7 +190,7 @@ export function VenueCoverField({
         >
           <i className="bi bi-image" aria-hidden="true" />
           <strong>Subir imagen</strong>
-          <small>WebP · 1600×1200 px · máx. 8 MB</small>
+          <small>JPEG, PNG o WebP · máx. 10 MB</small>
         </button>
       )}
     </div>

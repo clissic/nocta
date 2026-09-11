@@ -173,6 +173,8 @@ export interface AuthUser {
     suspendedUntil?: string;
     duration: SuspensionDuration;
   };
+  /** ISO si la cuenta está en período de recuperación (30 días). */
+  deletionRequestedAt?: string | null;
 }
 
 export interface VenueOwnerSummary {

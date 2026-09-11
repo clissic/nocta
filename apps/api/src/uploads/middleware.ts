@@ -10,8 +10,10 @@ import {
 } from "@nocta/shared";
 import sharp from "sharp";
 import type { AuthedRequest } from "../middleware/auth.js";
-import { publicUploadUrl } from "./paths.js";
-import { deleteLocalUpload, matchesImageMagicBytes } from "./validate.js";
+import {
+  deleteTempUploadPath,
+  matchesImageMagicBytes,
+} from "./validate.js";
 
 export function multerErrorMessage(err: unknown): string {
   if (err instanceof multer.MulterError) {
@@ -62,7 +64,8 @@ export function collectUploadedFiles(req: AuthedRequest): CollectedUpload[] {
     out.push({
       filename: f.filename,
       path: f.path,
-      url: publicUploadUrl(f.filename),
+      /** No es URL pública: staging temp. Solo para cleanup legacy helpers. */
+      url: f.path,
       mimetype: f.mimetype,
       size: f.size,
       originalName: f.originalname,
@@ -95,11 +98,11 @@ export function assertUploadsAreImages(
     try {
       buf = readFileSync(u.path);
     } catch {
-      deleteLocalUpload(u.url);
+      deleteTempUploadPath(u.path);
       continue;
     }
     if (!matchesImageMagicBytes(buf)) {
-      deleteLocalUpload(u.url);
+      deleteTempUploadPath(u.path);
       continue;
     }
     kept.push(u);

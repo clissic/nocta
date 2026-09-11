@@ -20,26 +20,33 @@ import {
   ZODIAC_SIGNS,
 } from "@nocta/shared";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { serializeUser, calcAge } from "../utils/serialize.js";
+import {
+  requireImageDeleteRateLimit,
+  requireImageUploadRateLimit,
+} from "../middleware/requireImageRateLimit.js";
+import { serializeUser, calcAge, resolvePublicAssetUrls } from "../utils/serialize.js";
 import { config } from "../config.js";
 import {
   assertUploadsAreImages,
   collectUploadedFiles,
-  deleteLocalUpload,
-  deleteLocalUploads,
+  deleteCollectedUploads,
   handleMulterError,
   uploadPhotosFlexible,
 } from "../uploads/index.js";
+import {
+  canonicalizePhotoRef,
+  ingestCollectedPublicUpload,
+  ingestErrorResponse,
+  isAllowedPhotoRef,
+  removePhotoRef,
+} from "../image-service/index.js";
 
 const router = Router();
 
 const photoUrlSchema = z
   .string()
   .min(1)
-  .refine(
-    (v) => v.startsWith("/uploads/") || /^https?:\/\//i.test(v),
-    "URL de foto inválida"
-  );
+  .refine(isAllowedPhotoRef, "URL de foto inválida");
 
 const livesInSchema = z.object({
   country: z.string().trim().min(2).max(60),
@@ -109,7 +116,7 @@ function cleanSocials(
 }
 
 router.get("/", requireAuth, async (req: AuthedRequest, res) => {
-  return res.json({ user: serializeUser(req.user!) });
+  return res.json({ user: await serializeUser(req.user!) });
 });
 
 router.put("/", requireAuth, async (req: AuthedRequest, res) => {
@@ -134,11 +141,32 @@ router.put("/", requireAuth, async (req: AuthedRequest, res) => {
 
   const user = req.user!;
   const prevPhotos = user.profile?.photos ?? [];
-  const nextPhotos = parsed.data.photos;
+  const { canonicalizeIncomingPhotoRefs } = await import(
+    "../image-service/resolveDelivery.js"
+  );
+  const { findForbiddenNewLegacyUploadRefs } = await import(
+    "../image-service/uploadBridge.js"
+  );
+  const forbiddenLegacy = findForbiddenNewLegacyUploadRefs(
+    parsed.data.photos,
+    prevPhotos
+  );
+  if (forbiddenLegacy.length > 0) {
+    return res.status(400).json({
+      error: "No se admiten nuevas rutas /uploads (usá el Image Service)",
+      code: "LEGACY_UPLOAD_REF_FORBIDDEN",
+    });
+  }
+  const nextPhotos = await canonicalizeIncomingPhotoRefs(
+    parsed.data.photos,
+    prevPhotos
+  );
   const socials = cleanSocials(parsed.data.socials);
 
   for (const old of prevPhotos) {
-    if (!nextPhotos.includes(old)) deleteLocalUpload(old);
+    if (!nextPhotos.includes(old)) {
+      await removePhotoRef(old);
+    }
   }
 
   user.profile = {
@@ -169,7 +197,7 @@ router.put("/", requireAuth, async (req: AuthedRequest, res) => {
   user.profileComplete = nextPhotos.length >= MIN_PHOTOS;
   await user.save();
 
-  return res.json({ user: serializeUser(user) });
+  return res.json({ user: await serializeUser(user) });
 });
 
 /**
@@ -180,6 +208,7 @@ router.put("/", requireAuth, async (req: AuthedRequest, res) => {
 router.post(
   "/photos",
   requireAuth,
+  requireImageUploadRateLimit,
   (req: AuthedRequest, res, next) => {
     uploadPhotosFlexible(req, res, (err) => {
       if (err) return handleMulterError(err, req, res, next);
@@ -198,7 +227,7 @@ router.post(
     }
 
     if (!user.profile) {
-      deleteLocalUploads(collected.map((c) => c.url));
+      deleteCollectedUploads(collected);
       return res.status(400).json({
         error: "Completá el perfil (nombre, fecha, etc.) antes de subir fotos",
         code: "PROFILE_INCOMPLETE",
@@ -216,7 +245,7 @@ router.post(
     const photos = [...(user.profile.photos ?? [])];
     const slots = MAX_PHOTOS - photos.length;
     if (slots <= 0) {
-      deleteLocalUploads(checked.uploads.map((u) => u.url));
+      deleteCollectedUploads(checked.uploads);
       return res.status(400).json({
         error: `Máximo ${MAX_PHOTOS} fotos`,
         code: "PHOTOS_LIMIT",
@@ -225,27 +254,46 @@ router.post(
 
     const accepted = checked.uploads.slice(0, slots);
     const overflow = checked.uploads.slice(slots);
-    deleteLocalUploads(overflow.map((u) => u.url));
+    deleteCollectedUploads(overflow);
 
-    const newUrls = accepted.map((u) => u.url);
-    photos.push(...newUrls);
+    const newRefs: string[] = [];
+    for (const upload of accepted) {
+      try {
+        const ingested = await ingestCollectedPublicUpload({
+          upload,
+          type: "user_profile",
+          ownerId: user._id.toString(),
+          entityType: "user",
+          entityId: user._id.toString(),
+          context: { userId: user._id.toString() },
+        });
+        newRefs.push(ingested.mediaRef);
+      } catch (err) {
+        // Limpia lo ya ingerido en este request si falla a mitad.
+        for (const ref of newRefs) await removePhotoRef(ref);
+        const mapped = ingestErrorResponse(err);
+        return res.status(mapped.status).json(mapped.body);
+      }
+    }
+
+    photos.push(...newRefs);
     user.profile.photos = photos;
     if (photos.length >= MIN_PHOTOS) {
       user.profileComplete = true;
     }
     await user.save();
 
+    const delivered = await resolvePublicAssetUrls(newRefs);
     return res.status(201).json({
-      user: serializeUser(user),
-      photos: newUrls,
-      photo: newUrls[0],
-      added: newUrls.length,
+      user: await serializeUser(user),
+      photos: delivered,
+      photo: delivered[0],
+      added: newRefs.length,
       skipped: overflow.length,
       apiBase: config.apiPublicUrl,
     });
   }
 );
-
 router.patch("/photos/reorder", requireAuth, async (req: AuthedRequest, res) => {
   const parsed = reorderSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -271,32 +319,37 @@ router.patch("/photos/reorder", requireAuth, async (req: AuthedRequest, res) => 
 
   user.profile!.photos = order.map((i) => photos[i]!);
   await user.save();
-  return res.json({ user: serializeUser(user) });
+  return res.json({ user: await serializeUser(user) });
 });
 
-router.delete("/photos/:index", requireAuth, async (req: AuthedRequest, res) => {
-  const index = Number(req.params.index);
-  if (!Number.isInteger(index) || index < 0) {
-    return res.status(400).json({ error: "Índice inválido" });
-  }
+router.delete(
+  "/photos/:index",
+  requireAuth,
+  requireImageDeleteRateLimit,
+  async (req: AuthedRequest, res) => {
+    const index = Number(req.params.index);
+    if (!Number.isInteger(index) || index < 0) {
+      return res.status(400).json({ error: "Índice inválido" });
+    }
 
-  const user = req.user!;
-  const photos = [...(user.profile?.photos ?? [])];
-  if (index >= photos.length) {
-    return res.status(404).json({ error: "Foto no encontrada" });
-  }
-  if (photos.length <= MIN_PHOTOS) {
-    return res
-      .status(400)
-      .json({ error: `Debés conservar al menos ${MIN_PHOTOS} foto(s)` });
-  }
+    const user = req.user!;
+    const photos = [...(user.profile?.photos ?? [])];
+    if (index >= photos.length) {
+      return res.status(404).json({ error: "Foto no encontrada" });
+    }
+    if (photos.length <= MIN_PHOTOS) {
+      return res
+        .status(400)
+        .json({ error: `Debés conservar al menos ${MIN_PHOTOS} foto(s)` });
+    }
 
-  const [removed] = photos.splice(index, 1);
-  if (removed) deleteLocalUpload(removed);
-  user.profile!.photos = photos;
-  await user.save();
-  return res.json({ user: serializeUser(user) });
-});
+    const [removed] = photos.splice(index, 1);
+    if (removed) await removePhotoRef(removed);
+    user.profile!.photos = photos;
+    await user.save();
+    return res.json({ user: await serializeUser(user) });
+  }
+);
 
 router.post("/password", requireAuth, async (req: AuthedRequest, res) => {
   const parsed = passwordSchema.safeParse(req.body);

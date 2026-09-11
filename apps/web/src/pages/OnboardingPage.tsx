@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ALLOWED_PHOTO_EXTENSIONS,
@@ -818,7 +819,12 @@ export function OnboardingPage() {
                   <div className="onboard-photo-grid">
                     {photos.map((photo, index) => (
                       <div className="onboard-photo" key={photo.id}>
-                        <img src={photo.url} alt="" />
+                        <OptimizedImage
+                          src={photo.url}
+                          alt=""
+                          variant="medium"
+                          sizes="(min-width: 768px) 120px, 28vw"
+                        />
                         {index === 0 && <span>Perfil</span>}
                         <div>
                           <button

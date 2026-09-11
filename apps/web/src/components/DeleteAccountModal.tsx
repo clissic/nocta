@@ -39,7 +39,9 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
         body: JSON.stringify({ confirmation }),
       });
       logout();
-      toast.success("Tu cuenta fue eliminada");
+      toast.success(
+        "Cuenta programada para eliminar. Tenés 30 días para recuperarla."
+      );
       navigate("/login", { replace: true });
     } catch (err) {
       toast.error(
@@ -70,8 +72,10 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
         </div>
         <h2 id="delete-account-title">Eliminar cuenta</h2>
         <p id="delete-account-description">
-          Esta acción es permanente. Se eliminarán tu perfil, conexiones,
-          matches, mensajes, contenido y datos asociados.
+          Pedís la eliminación de tu cuenta. Durante <strong>30 días</strong>{" "}
+          podés recuperarla iniciando sesión y cancelando el borrado. En ese
+          período tu perfil queda invisible. Pasados los 30 días se eliminan
+          perfil, conexiones, matches, mensajes, fotos y datos asociados.
         </p>
         <label className="delete-account-confirmation">
           <span>
@@ -102,7 +106,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
             disabled={!canDelete || busy}
             onClick={() => void deleteAccount()}
           >
-            {busy ? "Eliminando…" : "Eliminar definitivamente"}
+            {busy ? "Solicitando…" : "Solicitar eliminación"}
           </button>
         </div>
       </section>

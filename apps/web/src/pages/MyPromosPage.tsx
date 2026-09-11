@@ -7,6 +7,8 @@ import {
 import { api } from "../lib/api";
 import { PromoQrCode } from "../components/PromoQrCode";
 import { NoctaLoading } from "../components/NoctaLoading";
+import { OptimizedImage } from "../components/OptimizedImage";
+import { VENUE_PHOTO_FALLBACK } from "../lib/venuePhoto";
 
 function formatPrice(value?: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -167,7 +169,13 @@ export function MyPromosPage() {
                   >
                     <span className="my-promos-toggle-media" aria-hidden="true">
                       {item.venuePhoto ? (
-                        <img src={item.venuePhoto} alt="" />
+                        <OptimizedImage
+                          src={item.venuePhoto}
+                          alt=""
+                          variant="thumb"
+                          sizes="48px"
+                          fallbackSrc={VENUE_PHOTO_FALLBACK}
+                        />
                       ) : (
                         <span className="my-promos-toggle-fallback" />
                       )}
@@ -202,7 +210,13 @@ export function MyPromosPage() {
                 <div className="my-promos-detail-head">
                   <span className="my-promos-detail-media" aria-hidden="true">
                     {selected.venuePhoto ? (
-                      <img src={selected.venuePhoto} alt="" />
+                      <OptimizedImage
+                        src={selected.venuePhoto}
+                        alt=""
+                        variant="thumb"
+                        sizes="56px"
+                        fallbackSrc={VENUE_PHOTO_FALLBACK}
+                      />
                     ) : (
                       <span className="my-promos-toggle-fallback" />
                     )}

@@ -7,7 +7,8 @@ import {
 import { api, ApiError } from "../../lib/api";
 import { useToast } from "../../components/ToastProvider";
 import { NoctaLoading } from "../../components/NoctaLoading";
-import { onVenuePhotoError, venueCoverSrc } from "../../lib/venuePhoto";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "../../lib/venuePhoto";
+import { OptimizedImage } from "../../components/OptimizedImage";
 import { ManualSearchInput } from "../../components/ManualSearchInput";
 import {
   ADMIN_PAGE_SIZE,
@@ -130,11 +131,13 @@ export function AdminVenuesPage() {
             return (
               <div key={v.id} className="admin-list-row">
                 <div className="admin-list-media">
-                  <img
+                  <OptimizedImage
                     src={venueCoverSrc(v)}
                     alt=""
                     className="admin-list-thumb"
-                    onError={onVenuePhotoError}
+                    variant="thumb"
+                    sizes="64px"
+                    fallbackSrc={VENUE_PHOTO_FALLBACK}
                   />
                   <span
                     className={`admin-badge ${v.active ? "is-approved" : "is-rejected"}`}

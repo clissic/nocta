@@ -8,10 +8,7 @@ import {
   VENUE_CLAIM_FILE_MIME_TYPES,
 } from "@nocta/shared";
 import type { AuthedRequest } from "../middleware/auth.js";
-import {
-  ensureClaimEvidenceDir,
-  ensureUploadsDir,
-} from "./paths.js";
+import { ensureTempUploadDir } from "./paths.js";
 import {
   isAllowedPhotoMime,
   normalizePhotoExtension,
@@ -20,17 +17,13 @@ import {
 const evidenceMimes = new Set<string>(VENUE_CLAIM_FILE_MIME_TYPES);
 const evidenceExtensions = new Set<string>(VENUE_CLAIM_FILE_EXTENSIONS);
 
+/** Todo staging → TEMP (nunca corpus legacy /uploads ni private/). */
 const storage = multer.diskStorage({
-  destination: (_req, file, cb) => {
+  destination: (_req, _file, cb) => {
     try {
-      cb(
-        null,
-        file.fieldname === "evidenceFiles"
-          ? ensureClaimEvidenceDir()
-          : ensureUploadsDir()
-      );
+      cb(null, ensureTempUploadDir());
     } catch (err) {
-      cb(err as Error, ensureUploadsDir());
+      cb(err as Error, ensureTempUploadDir());
     }
   },
   filename: (req, file, cb) => {

@@ -3791,9 +3791,17 @@ p,
   transform: scale(calc(0.94 + 0.06 * var(--swipe-progress, 0)));
   transition: transform 160ms ease;
   background-color: #111;
-  background-image: var(--swipe-next-photo);
-  background-size: cover;
-  background-position: center;
+  overflow: hidden;
+}
+
+.swipe-card-next-photo,
+.swipe-card-next .swipe-card-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .swipe-card-top.is-dragging {
@@ -4638,6 +4646,7 @@ p,
 }
 
 .user-report-person > img,
+.user-report-person > picture > img,
 .user-report-person > span {
   display: grid;
   width: 3.4rem;
@@ -7107,6 +7116,7 @@ a.profile-gallery-placeholder {
 }
 
 .blocked-user-row > img,
+.blocked-user-row > picture > img,
 .blocked-user-avatar {
   width: 3rem;
   height: 3rem;
@@ -12295,6 +12305,7 @@ button.venue-claim-file-slot.is-empty:hover {
 }
 
 .admin-venue-review-media > img,
+.admin-venue-review-media > picture > img,
 .admin-venue-review-media-empty {
   width: 100%;
   height: min(46vh, 420px);
