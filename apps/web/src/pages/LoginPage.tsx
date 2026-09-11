@@ -4,6 +4,7 @@ import type { OAuthProvider } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
 import { AuthAtmosphere } from "../components/AuthAtmosphere";
 import { NoctaWordmark } from "../components/NoctaWordmark";
+import { PasswordInput } from "../components/PasswordInput";
 import { useToast } from "../components/ToastProvider";
 import {
   ApiError,
@@ -60,12 +61,16 @@ export function LoginPage() {
   }, [searchParams]);
 
   if (!loading && user) {
-    if (!user.emailVerified && user.role === "user") {
+    if (!user.emailVerified) {
       return <Navigate to="/verify-email" replace />;
     }
     return (
       <Navigate
-        to={user.role === "admin" && safeNext?.startsWith("/admin") ? safeNext : user.role === "admin" ? "/admin" : "/"}
+        to={
+          safeNext?.startsWith("/admin") && user.role !== "admin"
+            ? "/"
+            : safeNext ?? (user.profileComplete ? "/" : "/onboarding")
+        }
         replace
       />
     );
@@ -77,12 +82,11 @@ export function LoginPage() {
     try {
       const u = await login(nextEmail, nextPassword);
       navigate(
-        u.role === "admin"
-          ? safeNext?.startsWith("/admin")
+        !u.emailVerified
+          ? "/verify-email"
+          : safeNext &&
+              (u.role === "admin" || !safeNext.startsWith("/admin"))
             ? safeNext
-            : "/admin"
-          : !u.emailVerified
-            ? "/verify-email"
             : u.profileComplete
               ? "/"
               : "/onboarding"
@@ -192,9 +196,7 @@ export function LoginPage() {
             required
             autoComplete="email"
           />
-          <input
-            className="form-control form-control-lg bg-transparent border-secondary"
-            type="password"
+          <PasswordInput
             placeholder="Contraseña"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -206,6 +208,10 @@ export function LoginPage() {
             {busy ? "Entrando…" : "Entrar"}
           </button>
         </form>
+
+        <p className="small text-center mb-3">
+          <Link to="/forgot-password">¿Olvidaste tu contraseña?</Link>
+        </p>
 
         <div className="auth-social d-flex justify-content-center gap-3">
           <button

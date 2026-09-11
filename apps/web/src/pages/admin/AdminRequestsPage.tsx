@@ -6,12 +6,13 @@ import {
   type VenueRequestStatus,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
-import { OverflowFade } from "../../components/OverflowFade";
 import { NoctaLoading } from "../../components/NoctaLoading";
+import { ManualSearchInput } from "../../components/ManualSearchInput";
 import {
   ADMIN_PAGE_SIZE,
   AdminPagination,
 } from "../../components/admin/AdminPagination";
+import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
 import { AdminCreateVenueRequestModal } from "../../components/admin/AdminCreateVenueRequestModal";
 
 const FILTERS: { value: VenueRequestStatus | "all"; label: string; icon: string }[] = [
@@ -29,6 +30,8 @@ const STATUS_LABEL: Record<VenueRequestStatus, string> = {
 
 export function AdminRequestsPage() {
   const [status, setStatus] = useState<VenueRequestStatus | "all">("pending");
+  const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [requests, setRequests] = useState<VenueRequest[]>([]);
   const [page, setPage] = useState(1);
   const [totalRequests, setTotalRequests] = useState(0);
@@ -45,6 +48,7 @@ export function AdminRequestsPage() {
       limit: String(ADMIN_PAGE_SIZE),
     });
     if (status !== "all") params.set("status", status);
+    if (submittedQuery) params.set("q", submittedQuery);
     void api<{
       requests: VenueRequest[];
       pagination: { total: number };
@@ -57,7 +61,7 @@ export function AdminRequestsPage() {
         setError(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-  }, [status, page, reloadKey]);
+  }, [status, page, reloadKey, submittedQuery]);
 
   function openCreate(request: VenueRequest) {
     if (request.status !== "pending") return;
@@ -76,8 +80,7 @@ export function AdminRequestsPage() {
         </div>
       </header>
 
-      <OverflowFade
-        axis="x"
+      <div
         className="admin-filter-row"
         role="tablist"
         aria-label="Filtro de estado"
@@ -98,7 +101,21 @@ export function AdminRequestsPage() {
             <span>{f.label}</span>
           </button>
         ))}
-      </OverflowFade>
+      </div>
+
+      <AdminFiltersAccordion activeCount={submittedQuery ? 1 : 0}>
+        <ManualSearchInput
+          className="admin-toolbar"
+          placeholder="Buscar por nombre, ciudad, solicitante…"
+          ariaLabel="Buscar solicitudes"
+          value={query}
+          onValueChange={setQuery}
+          onSearch={(value) => {
+            setSubmittedQuery(value);
+            setPage(1);
+          }}
+        />
+      </AdminFiltersAccordion>
 
       {error && <p className="text-danger small">{error}</p>}
       {loading ? (
@@ -106,8 +123,7 @@ export function AdminRequestsPage() {
       ) : requests.length === 0 ? (
         <p className="text-secondary small mb-0">No hay solicitudes en este filtro.</p>
       ) : (
-        <>
-          <div className="admin-list">
+        <div className="admin-list">
             {requests.map((r) => {
               const isCreate = (r.requestType ?? "create") !== "claim";
               const canModal = isCreate && r.status === "pending";
@@ -201,15 +217,15 @@ export function AdminRequestsPage() {
                 </Link>
               );
             })}
-          </div>
-          <AdminPagination
-            page={page}
-            totalItems={totalRequests}
-            onPageChange={setPage}
-            label="Páginas de solicitudes"
-          />
-        </>
+        </div>
       )}
+
+      <AdminPagination
+        page={page}
+        totalItems={totalRequests}
+        onPageChange={setPage}
+        label="Páginas de solicitudes"
+      />
 
       {activeCreate && (
         <AdminCreateVenueRequestModal

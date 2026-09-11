@@ -6,11 +6,11 @@ import {
   DISPLAY_ADDRESS_HINT,
   VENUE_TYPES,
   VENUE_TYPE_LABELS,
-  venueCitiesForCountry,
   type VenueRequest,
   type VenueType,
 } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
+import { useActiveAppCities } from "../lib/appCities";
 import {
   LocationPickerMap,
   type MapCoords,
@@ -47,15 +47,16 @@ export function VenueRequestPage() {
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const forwardAbortRef = useRef<AbortController | null>(null);
   const automaticDisplayAddressRef = useRef("");
+  const { cities: countryCities } = useActiveAppCities(country);
 
   const cityCenter = useMemo(() => {
-    const found = venueCitiesForCountry(country).find(
-      (candidate) => candidate.label === city
+    const found = countryCities.find(
+      (candidate) => candidate.name.toLowerCase() === city.toLowerCase()
     );
     return found
       ? { lat: found.lat, lng: found.lng }
       : { lat: DEFAULT_URUGUAY_CITY.lat, lng: DEFAULT_URUGUAY_CITY.lng };
-  }, [city, country]);
+  }, [city, countryCities]);
 
   async function load() {
     const data = await api<{ requests: VenueRequest[] }>(
@@ -318,7 +319,6 @@ export function VenueRequestPage() {
               city={city}
               onCountryChange={(nextCountry) => {
                 setCountry(nextCountry);
-                setCity(venueCitiesForCountry(nextCountry)[0].label);
               }}
               onCityChange={setCity}
             />

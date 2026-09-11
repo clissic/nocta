@@ -19,10 +19,15 @@ import type {
   VENUE_REQUEST_TYPES,
   VENUE_REQUEST_REJECT_REASONS,
   PROMO_PURCHASE_STATUSES,
+  PREMIUM_PLAN_IDS,
+  PREMIUM_PERIOD_MONTHS,
+  PREMIUM_PURCHASE_STATUSES,
+  PREMIUM_SUBSCRIPTION_STATUSES,
   ACTIVITY_TYPES,
   FOLLOW_REQUEST_STATUSES,
   VENUE_TYPES,
   WORK_STATUS,
+  IDENTITY_VERIFICATION_STATUSES,
   NOTIFICATION_TYPES,
 } from "./constants.js";
 
@@ -48,6 +53,11 @@ export type VenueRequestType = (typeof VENUE_REQUEST_TYPES)[number];
 export type VenueRequestRejectReason =
   (typeof VENUE_REQUEST_REJECT_REASONS)[number];
 export type PromoPurchaseStatus = (typeof PROMO_PURCHASE_STATUSES)[number];
+export type PremiumPlanId = (typeof PREMIUM_PLAN_IDS)[number];
+export type PremiumPeriodMonths = (typeof PREMIUM_PERIOD_MONTHS)[number];
+export type PremiumPurchaseStatus = (typeof PREMIUM_PURCHASE_STATUSES)[number];
+export type PremiumSubscriptionStatus =
+  (typeof PREMIUM_SUBSCRIPTION_STATUSES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type ReportReason = (typeof REPORT_REASONS)[number];
 export type ReportStatus = "open" | "reviewed" | "dismissed";
@@ -56,6 +66,8 @@ export type ReportResolutionAction = "dismiss" | "suspend";
 export type SuspensionDuration = (typeof SUSPENSION_DURATIONS)[number];
 export type ModerationStatus = "active" | "suspended";
 export type UserRole = "user" | "admin";
+export type IdentityVerificationStatus =
+  (typeof IDENTITY_VERIFICATION_STATUSES)[number];
 export type PresenceStatus = "active" | "expired" | "revoked";
 export type SwipeDirection = "like" | "pass";
 
@@ -101,8 +113,41 @@ export interface AuthUser {
   emailVerified: boolean;
   profile: UserProfile | null;
   profileComplete: boolean;
-  /** Suscripción premium (MVP: flag; sin pagos aún). */
+  /** Suscripción premium activa (sincronizada con premiumExpiresAt). */
   premium: boolean;
+  premiumPlanId?: PremiumPlanId;
+  premiumExpiresAt?: string | null;
+  /** Periodicidad de cobro recurrente (1/3/6/12 meses). */
+  premiumPeriodMonths?: PremiumPeriodMonths;
+  /** Estado de la suscripción Mercado Pago. */
+  premiumSubscriptionStatus?: PremiumSubscriptionStatus;
+  /** Si true, no se renueva; el acceso sigue hasta premiumExpiresAt. */
+  premiumCancelAtPeriodEnd?: boolean;
+  /** Próximo cobro estimado (ISO), si la suscripción está autorizada. */
+  premiumNextPaymentAt?: string | null;
+  /** Cupos Boost restantes (4 AM+). */
+  boostsRemaining: number;
+  /** Cupos Heartshot restantes (4 AM+). */
+  heartshotsRemaining: number;
+  /** Fin del Boost activo (ISO), si hay uno en curso. */
+  boostExpiresAt?: string | null;
+  /** Modo pícaro: solo te ven quienes te dieron like (requiere Premium). */
+  rogueMode: boolean;
+  /** Modo Teleport: explorar Espacios de otra ciudad (requiere Premium). */
+  teleportMode: boolean;
+  /** Modo espía: siempre activo con plan 6 AM (no se puede desactivar). */
+  spyMode: boolean;
+  /**
+   * Si true, Discover está desactivado: no puede publicarse en Espacios.
+   */
+  discoverDisabled: boolean;
+  /** Ciudad Teleport activa (pin + ciudad resuelta del catálogo). */
+  teleportCity?: {
+    country: string;
+    city: string;
+    lat: number;
+    lng: number;
+  };
   remainingLikes: number | null;
   likesRechargeAt: string | null;
   followersCount?: number;
@@ -110,8 +155,18 @@ export interface AuthUser {
   followingVenuesCount?: number;
   /** Aceptar solicitudes de follow al instante (solo “me”). */
   autoAcceptFollowRequests: boolean;
-  /** Si true, quienes me siguen pueden ver mi actividad (solo “me”). */
+  /** Si true, quienes me siguen pueden ver mi actividad (solo “me”; default false al crear). */
   showActivityToFollowers: boolean;
+  /** Opt-in a emails promocionales (solo “me”; default false). */
+  marketingEmailsOptIn: boolean;
+  /** Cuenta con verificación de identidad aprobada. */
+  identityVerified: boolean;
+  /** Estado de la solicitud (solo “me”). */
+  identityVerification?: {
+    status: IdentityVerificationStatus;
+    rejectionReason?: string;
+    submittedAt?: string;
+  };
   moderationStatus: ModerationStatus;
   suspension?: {
     suspendedAt: string;
@@ -150,6 +205,8 @@ export interface Venue {
   ratingCount?: number;
   /** Reseña del viewer autenticado (si existe). */
   myReview?: VenueReview;
+  /** Personas publicadas ahora (solo con Modo espía activo). */
+  livePublishedCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -350,14 +407,51 @@ export interface Presence {
 }
 
 export interface DiscoverCard {
+  kind?: "profile";
   userId: string;
   profile: UserProfile;
   presenceId: string;
   age: number;
+  /** Cuenta con verificación de identidad aprobada. */
+  identityVerified?: boolean;
   /** Viewer ya sigue a esta persona. */
   isFollowing?: boolean;
   /** Viewer tiene una solicitud pendiente hacia esta persona. */
   isFollowRequested?: boolean;
+}
+
+/** Anuncio insertado en el deck de Discover (usuarios free). */
+export interface DiscoverAdCard {
+  kind: "ad";
+  id: string;
+  title: string;
+  subtitle?: string;
+  body?: string;
+  imageUrl: string;
+  ctaLabel: string;
+  /** Ruta in-app del landing (`/ads/:id`). */
+  href: string;
+  sponsorName?: string;
+}
+
+export type DiscoverDeckItem = DiscoverCard | DiscoverAdCard;
+
+export function isDiscoverAdCard(
+  item: DiscoverDeckItem
+): item is DiscoverAdCard {
+  return item.kind === "ad";
+}
+
+/** Detalle público de un anuncio (landing). */
+export interface AdDetail {
+  id: string;
+  title: string;
+  subtitle?: string;
+  body?: string;
+  imageUrl: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  sponsorName?: string;
 }
 
 /** Solicitud de follow entre usuarios (pendiente de aceptar/rechazar). */
@@ -450,22 +544,26 @@ export interface ReceivedLike {
   venueId: string;
   venueName?: string;
   user: {
-    /** Solo si `viewerPremium`; sin Premium no se revela identidad técnica. */
+    /** Solo si `canSeeLikes` / Heartshot; sin eso no se revela identidad técnica. */
     id?: string;
-    /** Solo si `viewerPremium`; sin Premium el cliente muestra un placeholder. */
+    /** Solo si `canSeeLikes` / Heartshot; sin eso el cliente muestra un placeholder. */
     name?: string;
     age: number;
-    /** Solo si `viewerPremium`; sin Premium la API no envía URL de foto. */
+    /** Solo si `canSeeLikes` / Heartshot; sin eso la API no envía URL de foto. */
     photo?: string;
   };
   /** Podés responder el like porque tenés presencia activa en ese Espacio. */
   canRespond: boolean;
+  /** Heartshot: identidad revelada aunque no seas Premium. */
+  isHeartshot?: boolean;
 }
 
 export interface ReceivedLikesResponse {
   likes: ReceivedLike[];
-  /** Estado Premium validado por la API para decidir si se revelan las fotos. */
+  /** Premium activo (cualquier plan). */
   viewerPremium: boolean;
+  /** Puede ver identidad de likes normales (plan 4 AM+ con see_likes). */
+  canSeeLikes: boolean;
 }
 
 export interface MatchSummary {
@@ -530,6 +628,103 @@ export interface AdminStats {
   openReports: number;
   promoPurchases: number;
   promoRevenueUyu: number;
+  /** Suscriptores Premium activos (expiry futuro o sin expiry). */
+  premiumActive: number;
+  /** Conteos por planId entre Premium activos. */
+  premiumByPlan: Partial<Record<PremiumPlanId, number>>;
+  /** Cobros Premium aprobados (histórico). */
+  premiumPurchasesApproved: number;
+  /** Suma amount de cobros Premium aprobados (moneda del catálogo, tip. USD). */
+  premiumRevenueUsd: number;
+}
+
+/** Serie mensual alineada con `AdminOverviewResponse.months` (12 valores). */
+export type AdminMonthlySeries = number[];
+
+export interface AdminOverviewNamedStat {
+  id?: string;
+  name: string;
+  value: number;
+}
+
+export interface AdminOverviewUsersTab {
+  cards: {
+    users: number;
+    admins: number;
+    matches: number;
+    openReports: number;
+    premiumActive: number;
+  };
+  /** Cobros Premium aprobados por mes, por plan. */
+  premiumByPlanMonthly: Record<PremiumPlanId, AdminMonthlySeries>;
+  /** Usuarios totales acumulados al cierre de cada mes. */
+  usersCumulativeMonthly: AdminMonthlySeries;
+}
+
+export interface AdminOverviewVenuesTab {
+  cards: {
+    venues: number;
+    ownerlessVenues: number;
+    activePresences: number;
+    bestRated: AdminOverviewNamedStat | null;
+    worstRated: AdminOverviewNamedStat | null;
+  };
+  presencesMonthly: AdminMonthlySeries;
+  /** Promedio de rating de reseñas activas creadas ese mes (0 si no hay). */
+  ratingsAvgMonthly: AdminMonthlySeries;
+}
+
+export interface AdminOverviewRequestsTab {
+  cards: {
+    pending: number;
+    approved: number;
+    rejected: number;
+  };
+  requestsMonthly: AdminMonthlySeries;
+  manageMonthly: AdminMonthlySeries;
+  suggestMonthly: AdminMonthlySeries;
+}
+
+export interface AdminOverviewTransactionsTab {
+  cards: {
+    promoRevenueUyu: number;
+    promoPurchases: number;
+    premiumRevenueUsd: number;
+    premiumPurchasesApproved: number;
+    /**
+     * Ganancias totales en USD:
+     * premiumUsd + (promoUyu / ADMIN_OVERVIEW_USD_UYU_RATE).
+     */
+    totalRevenueUsd: number;
+  };
+  revenueMonthly: {
+    promoUyu: AdminMonthlySeries;
+    premiumUsd: AdminMonthlySeries;
+    /** Suma mensual en USD con el mismo tipo de cambio fijo. */
+    totalUsd: AdminMonthlySeries;
+  };
+  transactionsMonthly: AdminMonthlySeries;
+}
+
+export interface AdminOverviewCitiesTab {
+  cards: {
+    activeCountries: number;
+    activeCities: number;
+    inactiveCountries: number;
+    inactiveCities: number;
+    topCountryByVenues: AdminOverviewNamedStat | null;
+  };
+  venuesByCountry: AdminOverviewNamedStat[];
+}
+
+export interface AdminOverviewResponse {
+  /** Claves `YYYY-MM` de los últimos 12 meses (más antiguo → actual). */
+  months: string[];
+  users: AdminOverviewUsersTab;
+  venues: AdminOverviewVenuesTab;
+  requests: AdminOverviewRequestsTab;
+  transactions: AdminOverviewTransactionsTab;
+  cities: AdminOverviewCitiesTab;
 }
 
 export interface AdminPromoPurchase {
@@ -560,6 +755,50 @@ export interface AdminPromoPurchasesResponse {
   pagination: PaginationMeta;
 }
 
+export interface AdminPremiumPurchase {
+  id: string;
+  planId: PremiumPlanId;
+  planName: string;
+  periodMonths: PremiumPeriodMonths;
+  periodLabel: string;
+  amount: number;
+  currency: string;
+  status: PremiumPurchaseStatus;
+  kind?: "subscription" | "charge";
+  createdAt: string;
+  startsAt?: string;
+  endsAt?: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface AdminPremiumPurchasesResponse {
+  purchases: AdminPremiumPurchase[];
+  pagination: PaginationMeta;
+}
+
+export interface AdminAuditEventItem {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  meta?: Record<string, unknown>;
+  createdAt: string;
+  actor: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface AdminAuditEventsResponse {
+  events: AdminAuditEventItem[];
+  pagination: PaginationMeta;
+}
+
 export interface AdminReport {
   id: string;
   reason: ReportReason;
@@ -584,4 +823,30 @@ export interface AdminReport {
     resolvedAt: string;
     resolvedBy: string;
   };
+}
+
+/** Solicitud de verificación de identidad (panel admin). */
+export interface AdminIdentityVerification {
+  userId: string;
+  email: string;
+  name: string;
+  photo?: string;
+  status: Exclude<IdentityVerificationStatus, "none">;
+  submittedAt?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  hasDocumentFront: boolean;
+  hasSelfie: boolean;
+}
+
+/** Ciudad del catálogo de proximidad / Espacios. */
+export interface AppCity {
+  id: string;
+  country: string;
+  name: string;
+  lat: number;
+  lng: number;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }

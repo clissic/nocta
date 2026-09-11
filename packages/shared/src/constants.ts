@@ -283,6 +283,351 @@ export const MAX_AGE = 99;
 export const DAILY_LIKE_LIMIT = 50;
 export const LIKE_RECHARGE_HOURS = 8;
 
+/** Planes Premium (2 / 4 / 6 A.M. vendibles). */
+export const PREMIUM_PLAN_IDS = ["nocta_2am", "nocta_4am", "nocta_6am"] as const;
+
+/**
+ * Tipo de cambio fijo UYU por 1 USD para unificar Ganancias totales del Resumen admin.
+ * Promos se cotizan en UYU; Premium en USD.
+ */
+export const ADMIN_OVERVIEW_USD_UYU_RATE = 39;
+
+export const PREMIUM_PERIOD_MONTHS = [1, 3, 6, 12] as const;
+
+export const PREMIUM_PERIOD_LABELS: Record<
+  (typeof PREMIUM_PERIOD_MONTHS)[number],
+  string
+> = {
+  1: "Mensual",
+  3: "Trimestral",
+  6: "Semestral",
+  12: "Anual",
+};
+
+/** Precios base (Nocta 2 A.M.). */
+export const PREMIUM_PERIOD_PRICES_USD: Record<
+  (typeof PREMIUM_PERIOD_MONTHS)[number],
+  number
+> = {
+  1: 12,
+  3: 32,
+  6: 57,
+  12: 100,
+};
+
+/** Precios Nocta 4 A.M. (+20% vs 2 AM, redondeado). */
+export const PREMIUM_4AM_PERIOD_PRICES_USD: Record<
+  (typeof PREMIUM_PERIOD_MONTHS)[number],
+  number
+> = {
+  1: 14,
+  3: 38,
+  6: 68,
+  12: 120,
+};
+
+/** Precios Nocta 6 A.M. (+20% vs 4 AM, redondeado). */
+export const PREMIUM_6AM_PERIOD_PRICES_USD: Record<
+  (typeof PREMIUM_PERIOD_MONTHS)[number],
+  number
+> = {
+  1: 17,
+  3: 46,
+  6: 82,
+  12: 144,
+};
+
+/** Cupos mensuales Boost / Heartshot por plan. */
+export const BOOST_MONTHLY_ALLOWANCE = 1;
+export const BOOST_MONTHLY_ALLOWANCE_6AM = 3;
+export const HEARTSHOT_MONTHLY_ALLOWANCE = 8;
+export const HEARTSHOT_MONTHLY_ALLOWANCE_6AM = 12;
+export const BOOST_DURATION_MS = 30 * 60 * 1000;
+/** Intervalo entre cargasargas de Boost/Heartshot (días). */
+export const PREMIUM_ALLOWANCE_CYCLE_DAYS = 30;
+
+/** Cada cuántos swipes (inclusive) aparece un anuncio en Discover (usuarios free). */
+export const AD_SWIPE_INTERVAL_MIN = 7;
+export const AD_SWIPE_INTERVAL_MAX = 10;
+
+/** Presencias activas simultáneas (Clone / teleport_plus = 3). */
+export const MAX_ACTIVE_PRESENCES_DEFAULT = 1;
+export const MAX_ACTIVE_PRESENCES_TELEPORT_PLUS = 3;
+
+export const PREMIUM_PURCHASE_STATUSES = [
+  "pending",
+  "approved",
+  "rejected",
+  "refunded",
+] as const;
+
+/** Estado de la suscripción recurrente en Mercado Pago / producto. */
+export const PREMIUM_SUBSCRIPTION_STATUSES = [
+  "none",
+  "pending",
+  "authorized",
+  "paused",
+  "cancelled",
+] as const;
+
+export type PremiumFeatureId =
+  | "unlimited_likes"
+  | "rewind"
+  | "see_likes"
+  | "teleport"
+  | "rogue_mode"
+  | "no_ads"
+  | "boost"
+  | "heartshot"
+  | "spy_mode"
+  | "teleport_plus";
+
+/** Beneficios que el dashboard siempre lista (incl. deshabilitados en planes inferiores). */
+export const PREMIUM_DASHBOARD_FEATURE_IDS: PremiumFeatureId[] = [
+  "unlimited_likes",
+  "rewind",
+  "no_ads",
+  "teleport",
+  "rogue_mode",
+  "see_likes",
+  "boost",
+  "heartshot",
+  "spy_mode",
+  "teleport_plus",
+];
+
+export const PREMIUM_FEATURE_COPY: Record<
+  PremiumFeatureId,
+  { label: string; description: string }
+> = {
+  unlimited_likes: {
+    label: "Likes ilimitados",
+    description: "Demostrá gusto sin límite",
+  },
+  rewind: {
+    label: "Retroceder cuando quieras",
+    description: "Deshacé el último swipe",
+  },
+  see_likes: {
+    label: "Ver quién te dio like",
+    description: "Conocé quién ya te eligió",
+  },
+  teleport: {
+    label: "Modo Teleport",
+    description: "Explorá Espacios de otras ciudades",
+  },
+  rogue_mode: {
+    label: "Modo pícaro",
+    description: "Solo te ven si les diste like",
+  },
+  no_ads: {
+    label: "Sin anuncios",
+    description: "Noche limpia, sin interrupciones",
+  },
+  boost: {
+    label: "Boost",
+    description: "Prioridad de aparición en Discover",
+  },
+  heartshot: {
+    label: "Heartshot",
+    description: "Like que revela quién sos",
+  },
+  spy_mode: {
+    label: "Modo espía",
+    description: "Ves cuántas personas hay publicadas en cada Espacio (siempre activo en 6 A.M.)",
+  },
+  teleport_plus: {
+    label: "Clone",
+    description: "Publicate en hasta 3 Espacios a la vez",
+  },
+};
+
+const PLAN_2AM_FEATURES: PremiumFeatureId[] = [
+  "unlimited_likes",
+  "rewind",
+  "teleport",
+  "rogue_mode",
+  "no_ads",
+];
+
+const PLAN_4AM_FEATURES: PremiumFeatureId[] = [
+  ...PLAN_2AM_FEATURES,
+  "see_likes",
+  "boost",
+  "heartshot",
+];
+
+const PLAN_6AM_FEATURES: PremiumFeatureId[] = [
+  ...PLAN_4AM_FEATURES,
+  "spy_mode",
+  "teleport_plus",
+];
+
+export const PREMIUM_PLANS: Array<{
+  id: (typeof PREMIUM_PLAN_IDS)[number];
+  name: string;
+  tagline: string;
+  comingSoon: boolean;
+  features: PremiumFeatureId[];
+  /** @deprecated Preferir features + PREMIUM_FEATURE_COPY; se mantiene para listas simples. */
+  featureLabels: string[];
+}> = [
+  {
+    id: "nocta_2am",
+    name: "Nocta 2 A.M.",
+    tagline: "La noche recién arranca",
+    comingSoon: false,
+    features: PLAN_2AM_FEATURES,
+    featureLabels: PLAN_2AM_FEATURES.map((id) => PREMIUM_FEATURE_COPY[id].label),
+  },
+  {
+    id: "nocta_4am",
+    name: "Nocta 4 A.M.",
+    tagline: "Cuando la noche pide más",
+    comingSoon: false,
+    features: PLAN_4AM_FEATURES,
+    featureLabels: PLAN_4AM_FEATURES.map((id) => PREMIUM_FEATURE_COPY[id].label),
+  },
+  {
+    id: "nocta_6am",
+    name: "Nocta 6 A.M.",
+    tagline: "Hasta que salga el sol",
+    comingSoon: false,
+    features: PLAN_6AM_FEATURES,
+    featureLabels: PLAN_6AM_FEATURES.map((id) => PREMIUM_FEATURE_COPY[id].label),
+  },
+];
+
+export function premiumFeatureItems(features: PremiumFeatureId[]) {
+  return features.map((id) => ({
+    id,
+    label: PREMIUM_FEATURE_COPY[id].label,
+    description: PREMIUM_FEATURE_COPY[id].description,
+  }));
+}
+
+/** Lista de beneficios para dashboard: incluidos o bloqueados según el plan. */
+export function premiumDashboardFeatureItems(planId?: string | null) {
+  const plan = planId ? getPremiumPlan(planId) : undefined;
+  const included = new Set(plan?.features ?? []);
+  return PREMIUM_DASHBOARD_FEATURE_IDS.map((id) => {
+    let description = PREMIUM_FEATURE_COPY[id].description;
+    if (id === "boost" && included.has("boost")) {
+      const n = monthlyBoostAllowance(planId);
+      description = `Prioridad en Discover (${n} por mes)`;
+    }
+    if (id === "heartshot" && included.has("heartshot")) {
+      const n = monthlyHeartshotAllowance(planId);
+      description = `Like que revela quién sos (${n} por mes)`;
+    }
+    return {
+      id,
+      label: PREMIUM_FEATURE_COPY[id].label,
+      description,
+      included: included.has(id),
+    };
+  });
+}
+
+export function planHasFeature(
+  planId: string | null | undefined,
+  feature: PremiumFeatureId
+) {
+  const plan = planId ? getPremiumPlan(planId) : undefined;
+  return Boolean(plan?.features.includes(feature));
+}
+
+export function monthlyBoostAllowance(planId?: string | null) {
+  if (planId === "nocta_6am") return BOOST_MONTHLY_ALLOWANCE_6AM;
+  return BOOST_MONTHLY_ALLOWANCE;
+}
+
+export function monthlyHeartshotAllowance(planId?: string | null) {
+  if (planId === "nocta_6am") return HEARTSHOT_MONTHLY_ALLOWANCE_6AM;
+  return HEARTSHOT_MONTHLY_ALLOWANCE;
+}
+
+export function maxActivePresencesForPlan(planId?: string | null) {
+  if (planHasFeature(planId, "teleport_plus")) {
+    return MAX_ACTIVE_PRESENCES_TELEPORT_PLUS;
+  }
+  return MAX_ACTIVE_PRESENCES_DEFAULT;
+}
+
+export function premiumPeriodPriceUsd(
+  months: (typeof PREMIUM_PERIOD_MONTHS)[number],
+  planId: string = "nocta_2am"
+) {
+  if (planId === "nocta_6am") {
+    return PREMIUM_6AM_PERIOD_PRICES_USD[months];
+  }
+  if (planId === "nocta_4am") {
+    return PREMIUM_4AM_PERIOD_PRICES_USD[months];
+  }
+  return PREMIUM_PERIOD_PRICES_USD[months];
+}
+
+export function premiumPeriodLabel(
+  months: (typeof PREMIUM_PERIOD_MONTHS)[number]
+) {
+  return PREMIUM_PERIOD_LABELS[months];
+}
+
+/** Precio “lleno” = precio 1 mes × meses (base para % de ahorro). */
+export function premiumPeriodFullPriceUsd(
+  months: (typeof PREMIUM_PERIOD_MONTHS)[number],
+  planId: string = "nocta_2am"
+) {
+  return premiumPeriodPriceUsd(1, planId) * months;
+}
+
+/** % de ahorro vs precio mes a mes; redondeado al entero más cercano (0 si 1 mes). */
+export function premiumPeriodSavingsPercent(
+  months: (typeof PREMIUM_PERIOD_MONTHS)[number],
+  planId: string = "nocta_2am"
+) {
+  if (months === 1) return 0;
+  const full = premiumPeriodFullPriceUsd(months, planId);
+  const price = premiumPeriodPriceUsd(months, planId);
+  return Math.round(((full - price) / full) * 100);
+}
+
+export function boostAllowanceForPeriod(
+  periodMonths: number,
+  planId?: string | null
+) {
+  return monthlyBoostAllowance(planId) * Math.max(1, periodMonths);
+}
+
+export function heartshotAllowanceForPeriod(
+  periodMonths: number,
+  planId?: string | null
+) {
+  return monthlyHeartshotAllowance(planId) * Math.max(1, periodMonths);
+}
+
+export function getPremiumPlan(id: string) {
+  return PREMIUM_PLANS.find((plan) => plan.id === id);
+}
+
+/** Orden de planes (mayor = más alto). */
+export function premiumPlanRank(planId?: string | null) {
+  const idx = PREMIUM_PLAN_IDS.indexOf(
+    planId as (typeof PREMIUM_PLAN_IDS)[number]
+  );
+  return idx >= 0 ? idx : -1;
+}
+
+/** True si `candidatePlanId` es inferior al plan actual. */
+export function isPremiumPlanDowngrade(
+  currentPlanId?: string | null,
+  candidatePlanId?: string | null
+) {
+  const current = premiumPlanRank(currentPlanId);
+  const candidate = premiumPlanRank(candidatePlanId);
+  return current >= 0 && candidate >= 0 && candidate < current;
+}
+
 export const MAX_PHOTO_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_PHOTO_UPLOAD_FILES = 6;
 export const ALLOWED_PHOTO_MIME_TYPES = [
@@ -364,6 +709,37 @@ export const VENUE_CLAIM_FILE_MIME_TYPES = [
 ] as const;
 export const VENUE_CLAIM_FILE_EXTENSIONS = [
   ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+] as const;
+
+/** Verificación de identidad (DNI/pasaporte + selfie). */
+export const IDENTITY_VERIFICATION_STATUSES = [
+  "none",
+  "pending",
+  "approved",
+  "rejected",
+] as const;
+
+export const IDENTITY_VERIFICATION_STATUS_LABELS: Record<
+  (typeof IDENTITY_VERIFICATION_STATUSES)[number],
+  string
+> = {
+  none: "Sin solicitud",
+  pending: "Pendiente",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+};
+
+export const MAX_IDENTITY_VERIFICATION_FILE_BYTES = 2 * 1024 * 1024;
+export const IDENTITY_VERIFICATION_FILE_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+export const IDENTITY_VERIFICATION_FILE_EXTENSIONS = [
   ".jpg",
   ".jpeg",
   ".png",
@@ -475,10 +851,13 @@ export const NOTIFICATION_TYPES = [
   "venue_new_review",
   "presence_expired",
   "likes_recharged",
+  "premium_activated",
   "venue_request_resolved",
   "report_created",
   "report_resolved",
   "followed_presence",
+  "identity_verification_approved",
+  "identity_verification_rejected",
 ] as const;
 
 export const NOTIFICATION_TYPE_LABELS: Record<
@@ -497,10 +876,13 @@ export const NOTIFICATION_TYPE_LABELS: Record<
   venue_new_review: "Nueva reseña del Espacio",
   presence_expired: "Presencia vencida",
   likes_recharged: "Likes recargados",
+  premium_activated: "Premium activado",
   venue_request_resolved: "Solicitud de Espacio resuelta",
   report_created: "Nueva denuncia",
   report_resolved: "Denuncia revisada",
   followed_presence: "Alguien que seguís se publicó",
+  identity_verification_approved: "Verificación aprobada",
+  identity_verification_rejected: "Verificación rechazada",
 };
 
 /** Días que vive una notificación después de marcarse como leída. */
@@ -512,6 +894,7 @@ export const NOTIFICATIONS_PAGE_SIZE = 10;
 
 export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
 export const EMAIL_VERIFICATION_TTL_MINUTES = 15;
+export const PASSWORD_RESET_TTL_MINUTES = 15;
 
 export const LOOKING_FOR_LABELS: Record<(typeof LOOKING_FOR)[number], string> = {
   citas: "Citas",
@@ -859,8 +1242,30 @@ export const VENUE_CITIES_BY_COUNTRY = {
   Brasil: BRAZIL_CITIES,
 } as const;
 
-export const DEFAULT_URUGUAY_CITY = URUGUAY_CITIES[0];
-export const DEFAULT_VENUE_COUNTRY = "Uruguay" as const;
+export const ALL_VENUE_CITIES = (
+  Object.entries(VENUE_CITIES_BY_COUNTRY) as Array<
+    [
+      keyof typeof VENUE_CITIES_BY_COUNTRY,
+      (typeof VENUE_CITIES_BY_COUNTRY)[keyof typeof VENUE_CITIES_BY_COUNTRY],
+    ]
+  >
+).flatMap(([country, cities]) =>
+  cities.map((city) => ({
+    country,
+    id: city.id,
+    label: city.label,
+    lat: city.lat,
+    lng: city.lng,
+  }))
+);
+
+export type VenueCityCandidate = {
+  country: (typeof ENABLED_VENUE_COUNTRIES)[number];
+  id?: string;
+  label: string;
+  lat: number;
+  lng: number;
+};
 
 export function isEnabledVenueCountry(
   country: string
@@ -868,12 +1273,90 @@ export function isEnabledVenueCountry(
   return ENABLED_VENUE_COUNTRIES.some((candidate) => candidate === country);
 }
 
+/** Catálogo inicial para seed de AppCity (no es fuente runtime de proximidad). */
+export const SEED_VENUE_CITIES: VenueCityCandidate[] = ALL_VENUE_CITIES.map(
+  (city) => ({
+    country: city.country,
+    id: city.id,
+    label: city.label,
+    lat: city.lat,
+    lng: city.lng,
+  })
+);
+
+export type VenueCityMatch = {
+  country: (typeof ENABLED_VENUE_COUNTRIES)[number];
+  city: string;
+  lat: number;
+  lng: number;
+  distanceKm: number;
+};
+
+function haversineKm(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const r = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(a));
+}
+
+/** Ciudad más cercana dentro de una lista (catálogo DB o seed). */
+export function nearestVenueCityFrom(
+  cities: Array<{
+    country: string;
+    label?: string;
+    city?: string;
+    lat: number;
+    lng: number;
+  }>,
+  lat: number,
+  lng: number
+): VenueCityMatch | null {
+  let best: VenueCityMatch | null = null;
+  for (const candidate of cities) {
+    const cityLabel = (candidate.label ?? candidate.city ?? "").trim();
+    if (!cityLabel || !isEnabledVenueCountry(candidate.country)) continue;
+    const distanceKm = haversineKm(lat, lng, candidate.lat, candidate.lng);
+    if (!best || distanceKm < best.distanceKm) {
+      best = {
+        country: candidate.country,
+        city: cityLabel,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        distanceKm,
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * @deprecated Preferir `/api/cities/nearest` o `nearestVenueCityFrom` con ciudades activas de DB.
+ * Fallback local al seed estático.
+ */
+export function nearestVenueCity(lat: number, lng: number): VenueCityMatch {
+  return nearestVenueCityFrom(SEED_VENUE_CITIES, lat, lng)!;
+}
+
+export const DEFAULT_URUGUAY_CITY = URUGUAY_CITIES[0];
+export const DEFAULT_VENUE_COUNTRY = "Uruguay" as const;
+
+/** @deprecated Preferir GET /api/cities?country=… */
 export function venueCitiesForCountry(country: string) {
   return isEnabledVenueCountry(country)
     ? VENUE_CITIES_BY_COUNTRY[country]
     : URUGUAY_CITIES;
 }
 
+/** @deprecated Preferir validación async contra AppCity en API. */
 export function isVenueCity(country: string, city: string): boolean {
   return venueCitiesForCountry(country).some(
     (candidate) => candidate.label === city

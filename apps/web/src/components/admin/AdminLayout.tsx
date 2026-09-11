@@ -1,8 +1,11 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { OverflowFade } from "../OverflowFade";
 
 export const ADMIN_NAV = [
   { to: "/admin/overview", label: "Resumen", icon: "bi-speedometer2", end: true },
   { to: "/admin/requests", label: "Solicitudes", icon: "bi-inbox", end: true },
+  { to: "/admin/verifications", label: "Verificaciones", icon: "bi-person-vcard", end: true },
+  { to: "/admin/cities", label: "Ciudades", icon: "bi-geo", end: true },
   { to: "/admin/venues", label: "Espacios", icon: "bi-geo-alt" },
   { to: "/admin/content", label: "Contenido", icon: "bi-newspaper", end: true },
   { to: "/admin/users", label: "Usuarios", icon: "bi-people", end: true },
@@ -27,9 +30,15 @@ export function AdminLayout() {
 
   return (
     <div className="admin-shell fade-in">
-      <aside className="admin-sidebar d-none d-lg-flex" aria-label="Navegación admin">
+      <aside
+        className="admin-sidebar d-none d-lg-flex"
+        aria-label="Navegación admin"
+      >
         <p className="admin-sidebar-title">Panel</p>
-        <div className="admin-nav">
+        <OverflowFade
+          className="admin-nav"
+          fadeClassName="admin-sidebar-nav-fade"
+        >
           {ADMIN_NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -43,12 +52,15 @@ export function AdminLayout() {
               <span>{item.label}</span>
             </NavLink>
           ))}
-        </div>
+        </OverflowFade>
       </aside>
 
-      <div className="admin-content">
+      <OverflowFade
+        className="admin-content"
+        fadeClassName="admin-content-fade"
+      >
         <Outlet />
-      </div>
+      </OverflowFade>
     </div>
   );
 }

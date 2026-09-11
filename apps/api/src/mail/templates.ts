@@ -123,14 +123,16 @@ export function verificationEmailHtml(opts: {
 export function passwordResetEmailHtml(opts: {
   name?: string;
   resetUrl: string;
+  ttlMinutes?: number;
 }): string {
   const greet = opts.name ? `Hola ${escapeHtml(opts.name)}` : "Hola";
+  const ttl = opts.ttlMinutes ?? 15;
   return layout(
     "Restablecer contraseña — Nocta",
     `
     <h1 class="email-title" style="margin:0 0 20px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">Restablecer contraseña</h1>
     <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:18px;line-height:1.55;">
-      ${greet}, recibimos un pedido para cambiar tu contraseña. El link expira en 1 hora.
+      ${greet}, recibimos un pedido para cambiar tu contraseña. El link expira en ${ttl} minutos.
     </p>
     <div style="text-align:center;">${ctaButton(opts.resetUrl, "Elegir nueva contraseña")}</div>
     <p style="margin:28px 0 0;color:${COLORS.muted2};font-size:13px;line-height:1.55;word-break:break-all;">
@@ -372,5 +374,70 @@ export function accountSuspendedEmailHtml(opts: {
       ${until}
     `,
     "Si necesitás asistencia, respondé este correo.<br/>© Nocta"
+  );
+}
+
+export function identityVerificationSubmittedHtml(opts: {
+  userName?: string;
+  userEmail: string;
+  userId: string;
+  adminUrl: string;
+}): string {
+  const name = opts.userName?.trim() || "Usuario";
+  return layout(
+    "Nueva solicitud de verificación — Nocta",
+    `
+    <h1 class="email-title" style="margin:0 0 20px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">Verificación de identidad</h1>
+    <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:18px;line-height:1.55;">
+      <strong style="color:${COLORS.text};">${escapeHtml(name)}</strong> (${escapeHtml(opts.userEmail)}) envió una solicitud de verificación.
+    </p>
+    <p style="margin:16px 0 0;color:${COLORS.muted2};font-size:14px;">ID: ${escapeHtml(opts.userId)}</p>
+    <div style="text-align:center;">${ctaButton(opts.adminUrl, "Revisar solicitudes")}</div>
+    `,
+    `Notificación interna para administradores de Nocta.<br/>© Nocta`
+  );
+}
+
+export function identityVerificationApprovedHtml(opts: {
+  name?: string;
+  profileUrl: string;
+}): string {
+  const greet = opts.name ? `Hola ${escapeHtml(opts.name)}` : "Hola";
+  return layout(
+    "Cuenta verificada — Nocta",
+    `
+    <h1 class="email-title" style="margin:0 0 20px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">Cuenta verificada</h1>
+    <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:18px;line-height:1.55;">
+      ${greet}, tu verificación de identidad fue aprobada. Ya podés mostrar la insignia de verificado en Nocta.
+    </p>
+    <div style="text-align:center;">${ctaButton(opts.profileUrl, "Ir a mi perfil")}</div>
+    `,
+    "© Nocta"
+  );
+}
+
+export function identityVerificationRejectedHtml(opts: {
+  name?: string;
+  reason: string;
+  profileUrl: string;
+}): string {
+  const greet = opts.name ? `Hola ${escapeHtml(opts.name)}` : "Hola";
+  return layout(
+    "Verificación no aprobada — Nocta",
+    `
+    <h1 class="email-title" style="margin:0 0 20px;font-size:29px;line-height:1.15;font-weight:700;letter-spacing:-0.035em;color:${COLORS.text};">Verificación no aprobada</h1>
+    <p class="email-copy" style="margin:0;color:${COLORS.muted};font-size:18px;line-height:1.55;">
+      ${greet}, no pudimos aprobar tu verificación de identidad.
+    </p>
+    <p style="margin:18px 0 0;color:${COLORS.muted};font-size:16px;line-height:1.55;">
+      Motivo:
+      <strong style="display:block;margin-top:10px;color:${COLORS.text};">${escapeHtml(opts.reason)}</strong>
+    </p>
+    <p style="margin:18px 0 0;color:${COLORS.muted};font-size:16px;line-height:1.55;">
+      Podés volver a enviar una nueva solicitud desde Configuración.
+    </p>
+    <div style="text-align:center;">${ctaButton(opts.profileUrl, "Ir a mi perfil")}</div>
+    `,
+    "© Nocta"
   );
 }

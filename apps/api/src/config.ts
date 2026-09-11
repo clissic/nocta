@@ -95,6 +95,12 @@ export const config = {
     /** Resend (HTTPS). En `auto`, gana si hay key. */
     resendApiKey: env("RESEND_API_KEY"),
   },
+  mercadoPago: {
+    accessToken: env("MP_ACCESS_TOKEN"),
+    /** Moneda de Checkout (USD / UYU / ARS según la cuenta). */
+    currency: env("MP_CURRENCY", "USD").toUpperCase() || "USD",
+    webhookSecret: env("MP_WEBHOOK_SECRET"),
+  },
   oauth: {
     google: {
       clientId: env("GOOGLE_CLIENT_ID"),

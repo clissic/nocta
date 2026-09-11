@@ -4,6 +4,7 @@ import { Follow } from "../models/Follow.js";
 import { User } from "../models/User.js";
 import { blockedPeerIds } from "../models/Block.js";
 import { resolveShowActivityToFollowers } from "./activityVisibility.js";
+import { isPremiumActive } from "./premium.js";
 
 /** Notifica a seguidores del actor (opcionalmente solo Premium). */
 export async function notifyUserFollowers(opts: {
@@ -42,8 +43,10 @@ export async function notifyUserFollowers(opts: {
     const premiumUsers = await User.find({
       _id: { $in: followerIds },
       premium: true,
-    }).select("_id");
-    followerIds = premiumUsers.map((u) => u._id.toString());
+    }).select("_id premium premiumExpiresAt");
+    followerIds = premiumUsers
+      .filter((u) => isPremiumActive(u))
+      .map((u) => u._id.toString());
     if (!followerIds.length) return;
   }
 

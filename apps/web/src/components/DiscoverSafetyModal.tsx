@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
-export type DiscoverSafetyAction = "share" | "block" | "report";
+export type DiscoverSafetyAction = "block" | "report";
 
 type Props = {
   action: DiscoverSafetyAction;
@@ -15,12 +15,6 @@ const COPY: Record<
   DiscoverSafetyAction,
   { title: string; description: (name: string) => string; confirm: string }
 > = {
-  share: {
-    title: "Compartir perfil",
-    description: () =>
-      "Esta función está en desarrollo y estará disponible próximamente.",
-    confirm: "Entendido",
-  },
   block: {
     title: "Bloquear perfil",
     description: (name) => `¿Quieres bloquear a ${name}?`,
@@ -74,11 +68,7 @@ export function DiscoverSafetyModal({
         <div className="discover-safety-modal-icon" aria-hidden="true">
           <i
             className={`bi ${
-              action === "share"
-                ? "bi-share"
-                : action === "block"
-                  ? "bi-slash-circle"
-                  : "bi-flag"
+              action === "block" ? "bi-slash-circle" : "bi-flag"
             }`}
           />
         </div>
@@ -92,20 +82,16 @@ export function DiscoverSafetyModal({
           </p>
         )}
         <div className="discover-safety-modal-actions">
-          {action !== "share" && (
-            <button
-              className="btn btn-outline-light"
-              type="button"
-              disabled={busy}
-              onClick={onClose}
-            >
-              Cancelar
-            </button>
-          )}
           <button
-            className={`btn ${
-              action === "share" ? "btn-primary" : "btn-danger"
-            }`}
+            className="btn btn-outline-light"
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancelar
+          </button>
+          <button
+            className="btn btn-danger"
             type="button"
             disabled={busy}
             autoFocus

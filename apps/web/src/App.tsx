@@ -1,7 +1,8 @@
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { AppLayout } from "./components/AppLayout";
 import { AdminLayout } from "./components/admin/AdminLayout";
+import { RequireVenueLocation } from "./components/RequireVenueLocation";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
@@ -26,13 +27,20 @@ import { AdminVenueCreatePage } from "./pages/admin/AdminVenueCreatePage";
 import { AdminContentPage } from "./pages/admin/AdminContentPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminReportsPage } from "./pages/admin/AdminReportsPage";
+import { AdminVerificationsPage } from "./pages/admin/AdminVerificationsPage";
+import { AdminCitiesPage } from "./pages/admin/AdminCitiesPage";
 import { AdminTransactionsPage } from "./pages/admin/AdminTransactionsPage";
 import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
 import { AdminVenueRequestPage } from "./pages/AdminVenueRequestPage";
+import { PremiumPage } from "./pages/PremiumPage";
 import { NoctaLoading } from "./components/NoctaLoading";
 import { UserReportPage } from "./pages/UserReportPage";
 import { ReportResolutionPage } from "./pages/ReportResolutionPage";
 import { BlockedUsersPage } from "./pages/BlockedUsersPage";
+import { TermsPage } from "./pages/TermsPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { AdPage } from "./pages/AdPage";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -55,7 +63,7 @@ function Protected({ children }: { children: React.ReactNode }) {
 
 function RequireVerified({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (user && !user.emailVerified && user.role === "user") {
+  if (user && !user.emailVerified) {
     return <Navigate to="/verify-email" replace />;
   }
   return children;
@@ -63,7 +71,7 @@ function RequireVerified({ children }: { children: React.ReactNode }) {
 
 function RequireProfile({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (user && !user.profileComplete && user.role === "user") {
+  if (user && !user.profileComplete) {
     return <Navigate to="/onboarding" replace />;
   }
   return children;
@@ -80,8 +88,12 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/terminos" element={<TermsPage />} />
 
       <Route
         path="/onboarding"
@@ -107,19 +119,25 @@ export default function App() {
       >
         <Route
           index
-          element={
-            <AdminHomeRedirect>
-              <Navigate to="/venues" replace />
-            </AdminHomeRedirect>
-          }
+          element={<Navigate to="/venues" replace />}
         />
-        <Route path="venues" element={<VenuesPage />} />
-        <Route path="venues/:id/manage" element={<VenueManagePage />} />
-        <Route path="venues/:id/edit" element={<VenueEditPage />} />
-        <Route path="venues/:id" element={<VenueDetailPage />} />
+        <Route
+          path="venues"
+          element={
+            <RequireVenueLocation>
+              <Outlet />
+            </RequireVenueLocation>
+          }
+        >
+          <Route index element={<VenuesPage />} />
+          <Route path=":id/manage" element={<VenueManagePage />} />
+          <Route path=":id/edit" element={<VenueEditPage />} />
+          <Route path=":id" element={<VenueDetailPage />} />
+        </Route>
         <Route path="likes" element={<LikesPage />} />
         <Route path="muro" element={<Navigate to="/venues" replace />} />
         <Route path="discover" element={<DiscoverPage />} />
+        <Route path="ads/:id" element={<AdPage />} />
         <Route path="report/:userId" element={<UserReportPage />} />
         <Route path="reports/:reportId" element={<ReportResolutionPage />} />
         <Route path="matches" element={<MatchesPage />} />
@@ -129,6 +147,7 @@ export default function App() {
           <Route index element={<ProfilePage />} />
           <Route path="blocked" element={<BlockedUsersPage />} />
         </Route>
+        <Route path="premium" element={<PremiumPage />} />
         <Route path="profile/promos" element={<MyPromosPage />} />
         <Route path="profile/venue-request" element={<VenueRequestPage />} />
         <Route
@@ -147,6 +166,8 @@ export default function App() {
           <Route path="content" element={<AdminContentPage />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="reports" element={<AdminReportsPage />} />
+          <Route path="verifications" element={<AdminVerificationsPage />} />
+          <Route path="cities" element={<AdminCitiesPage />} />
           <Route path="transactions" element={<AdminTransactionsPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
           <Route path="venue-requests/:id" element={<AdminVenueRequestPage />} />
@@ -156,10 +177,4 @@ export default function App() {
       <Route path="*" element={<Navigate to="/venues" replace />} />
     </Routes>
   );
-}
-
-function AdminHomeRedirect({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  if (user?.role === "admin") return <Navigate to="/admin/overview" replace />;
-  return children;
 }

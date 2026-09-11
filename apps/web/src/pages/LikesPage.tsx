@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { ReceivedLike, ReceivedLikesResponse } from "@nocta/shared";
+import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
 import { PremiumPackagesModal } from "../components/PremiumPackagesModal";
@@ -33,17 +34,21 @@ function formatLikeTime(iso: string) {
 export function LikesPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { refresh } = useAuth();
   const [likes, setLikes] = useState<ReceivedLike[]>([]);
-  const [viewerPremium, setViewerPremium] = useState(false);
+  const [canSeeLikes, setCanSeeLikes] = useState(false);
   const [premiumModalOpen, setPremiumModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [actionLike, setActionLike] = useState<ReceivedLike | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
       const data = await api<ReceivedLikesResponse>("/api/discover/likes");
       setLikes(data.likes ?? []);
-      setViewerPremium(data.viewerPremium);
+      setCanSeeLikes(Boolean(data.canSeeLikes));
     } catch (err) {
       toast.error(
         err instanceof ApiError ? err.message : "No se pudieron cargar los likes"
@@ -58,18 +63,87 @@ export function LikesPage() {
     void load();
   }, []);
 
+  useEffect(() => {
+    const status = searchParams.get("premium");
+    if (!status) return;
+    if (status === "success") {
+      toast.success("Premium activado. ¡Bienvenido a Nocta Premium!");
+      void refresh().then(() => void load());
+    } else if (status === "pending") {
+      toast.info("Pago pendiente. Te avisamos cuando se confirme.");
+    } else if (status === "failure") {
+      toast.error("No se completó el pago. Podés intentar de nuevo.");
+      setPremiumModalOpen(true);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("premium");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, toast, refresh]);
+
+  function isRevealed(like: ReceivedLike) {
+    return Boolean(like.isHeartshot || (canSeeLikes && like.user.id));
+  }
+
   function openLike(like: ReceivedLike) {
-    if (!viewerPremium || !like.user.id) {
+    if (like.isHeartshot && like.user.id) {
+      setActionLike(like);
+      return;
+    }
+    if (!canSeeLikes || !like.user.id) {
       setPremiumModalOpen(true);
       return;
     }
-    navigate(`/discover?userId=${encodeURIComponent(like.user.id)}`);
+    if (!like.canRespond) {
+      toast.info("Publicate en este Espacio para abrir Discover");
+      navigate(`/venues/${encodeURIComponent(like.venueId)}`);
+      return;
+    }
+    navigate(
+      `/discover?userId=${encodeURIComponent(like.user.id)}&venueId=${encodeURIComponent(like.venueId)}`
+    );
+  }
+
+  async function respondToHeartshot(direction: "like" | "pass") {
+    if (!actionLike?.user.id || actionBusy) return;
+    if (!actionLike.canRespond) {
+      toast.error("Publicate en el mismo Espacio para responder");
+      navigate(`/venues/${encodeURIComponent(actionLike.venueId)}`);
+      return;
+    }
+    setActionBusy(true);
+    try {
+      const res = await api<{ match?: { id: string } | null }>(
+        "/api/discover/swipe",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            toUserId: actionLike.user.id,
+            direction,
+            venueId: actionLike.venueId,
+          }),
+        }
+      );
+      setLikes((prev) => prev.filter((item) => item.id !== actionLike.id));
+      setActionLike(null);
+      if (direction === "like" && res.match?.id) {
+        toast.success("¡Es un match!");
+        navigate(`/matches/${res.match.id}`);
+      } else if (direction === "like") {
+        toast.success("Like enviado");
+      } else {
+        toast.info("Heartshot rechazado");
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo responder"
+      );
+    } finally {
+      setActionBusy(false);
+    }
   }
 
   if (loading) {
-    return (
-      <NoctaLoading />
-    );
+    return <NoctaLoading />;
   }
 
   if (!likes.length) {
@@ -117,16 +191,21 @@ export function LikesPage() {
 
       <div className="likes-grid">
         {likes.map((like) => {
+          const revealed = isRevealed(like);
           return (
             <article
               key={like.id}
-              className={`likes-card${viewerPremium ? "" : " is-locked"}`}
+              className={`likes-card${revealed ? "" : " is-locked"}${
+                like.isHeartshot ? " is-heartshot" : ""
+              }`}
               role="button"
               tabIndex={0}
               aria-label={
-                viewerPremium
-                  ? `Ver el perfil de ${like.user.name} en Discover`
-                  : `Conocer quién te dio like en ${like.venueName}`
+                like.isHeartshot && like.user.name
+                  ? `Responder Heartshot de ${like.user.name}`
+                  : revealed
+                    ? `Ver el perfil de ${like.user.name} en Discover`
+                    : `Conocer quién te dio like en ${like.venueName}`
               }
               onClick={() => openLike(like)}
               onKeyDown={(event) => {
@@ -137,7 +216,7 @@ export function LikesPage() {
               }}
             >
               <div className="likes-card-media">
-                {viewerPremium && (like.user.photo || FALLBACK_PHOTO) ? (
+                {revealed && (like.user.photo || FALLBACK_PHOTO) ? (
                   <img src={like.user.photo || FALLBACK_PHOTO} alt="" />
                 ) : (
                   <div className="likes-card-locked-media" aria-hidden="true">
@@ -148,9 +227,15 @@ export function LikesPage() {
                   </div>
                 )}
                 <div className="likes-card-fade" />
+                {like.isHeartshot ? (
+                  <span className="likes-card-heartshot-badge">
+                    <i className="bi bi-arrow-through-heart" aria-hidden="true" />
+                    Heartshot
+                  </span>
+                ) : null}
                 <div className="likes-card-caption">
                   <h2 className="likes-card-name">
-                    {viewerPremium && like.user.name ? (
+                    {revealed && like.user.name ? (
                       <>
                         {like.user.name}
                         <span> · {like.user.age}</span>
@@ -176,6 +261,66 @@ export function LikesPage() {
           );
         })}
       </div>
+
+      {actionLike && (
+        <div className="logout-confirm-layer" role="presentation">
+          <button
+            type="button"
+            className="logout-confirm-backdrop"
+            aria-label="Cerrar"
+            onClick={() => setActionLike(null)}
+          />
+          <section
+            className="logout-confirm-dialog likes-heartshot-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="likes-heartshot-title"
+          >
+            <div className="likes-heartshot-dialog-photo" aria-hidden="true">
+              <img
+                src={actionLike.user.photo || FALLBACK_PHOTO}
+                alt=""
+              />
+            </div>
+            <h2 id="likes-heartshot-title">
+              {actionLike.user.name ?? "Alguien"} te mandó un Heartshot
+            </h2>
+            <p>
+              {actionLike.canRespond
+                ? "Podés darle like para matchear o rechazarlo."
+                : "Publicate en el mismo Espacio para poder responder."}
+            </p>
+            <div className="logout-confirm-actions">
+              {!actionLike.canRespond ? (
+                <Link
+                  className="btn btn-primary"
+                  to={`/venues/${encodeURIComponent(actionLike.venueId)}`}
+                  onClick={() => setActionLike(null)}
+                >
+                  Publicate en este Espacio
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-outline-light"
+                disabled={actionBusy || !actionLike.canRespond}
+                onClick={() => void respondToHeartshot("pass")}
+              >
+                Rechazar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={actionBusy || !actionLike.canRespond}
+                onClick={() => void respondToHeartshot("like")}
+              >
+                Dar like
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {premiumModalOpen && (
         <PremiumPackagesModal onClose={() => setPremiumModalOpen(false)} />
       )}

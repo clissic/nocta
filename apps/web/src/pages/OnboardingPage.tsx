@@ -43,6 +43,7 @@ import {
   type Language,
   type LookingFor,
   type Pets,
+  type PremiumPlanId,
   type ProfileSocials,
   type SexualOrientation,
   type SocialNetwork,
@@ -51,6 +52,8 @@ import {
 } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
 import { NoctaWordmark } from "../components/NoctaWordmark";
+import { PremiumPackagesModal } from "../components/PremiumPackagesModal";
+import { PremiumPlanCards } from "../components/PremiumPlanCards";
 import { api, ApiError } from "../lib/api";
 import { LOOKING_FOR_ICONS } from "../lib/lookingForIcons";
 
@@ -64,7 +67,11 @@ const STEPS = [
   ["Trabajo", "Puesto, compañía y estudios", "bi-briefcase"],
   ["Qué buscás", "Intención y gustos", "bi-stars"],
   ["Tus fotos", "Elegí las fotos de tu perfil", "bi-images"],
+  ["Planazos", "Elegí un plan Premium o seguí gratis", "bi-gem"],
 ] as const;
+
+const PHOTOS_STEP = 4;
+const PLANAZOS_STEP = 5;
 
 const id = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -191,6 +198,10 @@ export function OnboardingPage() {
     if (!Number.isFinite(raw)) return 0;
     return Math.min(STEPS.length - 1, Math.max(0, Math.floor(raw) - 1));
   });
+  /** Tras guardar el perfil, se puede ver Planazos (y volver a fotos) sin redirigir al home. */
+  const [planazosOffer, setPlanazosOffer] = useState(
+    () => params.get("offer") === "1" || Math.floor(Number(params.get("step"))) === 6
+  );
   const [name, setName] = useState(user?.profile?.name ?? "");
   const [birthDate, setBirthDate] = useState(
     user?.profile?.birthDate?.slice(0, 10) ?? ""
@@ -248,9 +259,12 @@ export function OnboardingPage() {
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [premiumModalPlanId, setPremiumModalPlanId] =
+    useState<PremiumPlanId | null>(null);
 
-  if (user?.role === "admin") return <Navigate to="/admin/overview" replace />;
-  if (user?.profileComplete && !editing) return <Navigate to="/" replace />;
+  if (user?.profileComplete && !editing && !planazosOffer) {
+    return <Navigate to="/" replace />;
+  }
 
   function toggle<T>(list: T[], value: T, update: (next: T[]) => void) {
     update(
@@ -391,8 +405,17 @@ export function OnboardingPage() {
           body: form,
         });
       }
+      // Activar Planazos antes de setUser: si el perfil queda complete primero,
+      // el guard redirige al home y se salta el último paso.
+      setPlanazosOffer(true);
+      setStep(PLANAZOS_STEP);
       setUser(response.user);
-      navigate(editing ? "/profile" : "/");
+      navigate(
+        editing
+          ? "/onboarding?edit=1&step=6&offer=1"
+          : "/onboarding?step=6&offer=1",
+        { replace: true }
+      );
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "No se pudo guardar el perfil"
@@ -400,6 +423,10 @@ export function OnboardingPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function finishOnboarding() {
+    navigate(editing ? "/profile" : "/");
   }
 
   const [title, subtitle, icon] = STEPS[step]!;
@@ -769,7 +796,7 @@ export function OnboardingPage() {
                 </div>
               )}
 
-              {step === 4 && (
+              {step === PHOTOS_STEP && (
                 <div className="d-grid gap-3">
                   <input
                     ref={inputRef}
@@ -822,24 +849,47 @@ export function OnboardingPage() {
                   </div>
                 </div>
               )}
+
+              {step === PLANAZOS_STEP && (
+                <PremiumPlanCards
+                  className="onboard-planazos"
+                  intro="Desbloqueá más likes, Boost, Heartshot y sin anuncios. Podés omitir y seguir gratis cuando quieras."
+                  onSelectPlan={setPremiumModalPlanId}
+                />
+              )}
             </div>
             {error && <p className="text-danger small mt-3">{error}</p>}
             <div className="onboard-nav">
               {step > 0 ? (
                 <button
                   className="btn btn-outline-light"
-                  onClick={() => setStep(step - 1)}
+                  onClick={() => {
+                    if (step === PLANAZOS_STEP) {
+                      setStep(PHOTOS_STEP);
+                      navigate(
+                        editing
+                          ? "/onboarding?edit=1&step=5&offer=1"
+                          : "/onboarding?step=5&offer=1",
+                        { replace: true }
+                      );
+                      return;
+                    }
+                    setStep(step - 1);
+                  }}
                 >
                   Atrás
                 </button>
               ) : (
                 <span />
               )}
-              {step < STEPS.length - 1 ? (
-                <button className="btn btn-primary" onClick={next}>
-                  Siguiente
+              {step === PLANAZOS_STEP ? (
+                <button
+                  className="btn btn-outline-light"
+                  onClick={finishOnboarding}
+                >
+                  Omitir
                 </button>
-              ) : (
+              ) : step === PHOTOS_STEP ? (
                 <button
                   className="btn btn-primary"
                   disabled={busy}
@@ -851,11 +901,21 @@ export function OnboardingPage() {
                       ? "Guardar cambios"
                       : "Guardar y Continuar"}
                 </button>
+              ) : (
+                <button className="btn btn-primary" onClick={next}>
+                  Siguiente
+                </button>
               )}
             </div>
           </div>
         </main>
       </div>
+      {premiumModalPlanId ? (
+        <PremiumPackagesModal
+          planId={premiumModalPlanId}
+          onClose={() => setPremiumModalPlanId(null)}
+        />
+      ) : null}
     </div>
   );
 }

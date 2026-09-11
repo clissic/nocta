@@ -1,4 +1,4 @@
-﻿# Nocta
+# Nocta
 
 App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publicarse en un boliche, bar, pub, cervecería, fiesta privada, concierto o festival. Solo ves (y matcheás) con quienes también se publicaron en ese espacio.
 
@@ -25,7 +25,7 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 | Rol | Qué puede hacer |
 |-----|-----------------|
 | **user** | Registro → código email → onboarding (≥ `MIN_PHOTOS` fotos), Espacios, Likes recibidos, publicar presencia, Discover, match, chat, follows, solicitar integración de espacio, gestionar noticias/promos de espacios donde sea `ownerId` |
-| **admin** | Dashboard por secciones: resumen operativo, solicitudes, Espacios, contenido, usuarios, denuncias, transacciones y auditoría preparada. Al entrar a `/` se redirige a `/admin/overview` |
+| **admin** | Misma experiencia de app que un usuario (Espacios, Discover, etc.) y además acceso al **Panel** desde el menú de cuenta. Al entrar a `/` se redirige a `/venues` |
 
 **Organizador de espacio:** no es un rol. Es `Venue.ownerId → User`. Un usuario puede ser organizador de varios espacios; aparecen en su perfil.
 
@@ -34,11 +34,11 @@ Flujo usuario:
 1. Auth (email/password u OAuth Google; Apple y Microsoft UI deshabilitadas “próximamente”) → onboarding
 2. Espacios (búsqueda + filtro por tipo + paginación) → publicar presencia
 3. Discover del espacio → like/pass → match → chat
-4. Likes: Premium revela fotos y abre ese perfil en Discover; sin Premium las fotos quedan bloqueadas y se ofrecen paquetes
+4. Likes: plan **4 AM+** (`see_likes`) revela fotos y abre ese perfil en Discover; free / 2 AM las fotos quedan bloqueadas y se ofrecen paquetes
 
 Nav principal (mobile + tablet/desktop): **Espacios → Likes → Discover → Matches → Perfil**.
 
-Regla de negocio: **una sola presencia activa** a la vez; el deck es por `venueId`.
+Regla de negocio: **una sola presencia activa** por defecto; con **Clone (6 A.M.)** hasta **3** Espacios a la vez. El deck de Discover es por `venueId`.
 
 Ciudad piloto: **Montevideo**. El catálogo de seed tiene 113 Espacios reales (bar / pub / boliche / cervecería / concierto) con dirección y coordenadas; ninguno nace con organizador (`ownerId` vacío hasta que Admin asigne o se apruebe el formulario de perfil).
 
@@ -97,9 +97,9 @@ Al boot (además del seed en memory / `SEED_ON_EMPTY`): `syncPilotVenues()`, `en
 | Cuenta | Email | Password | Notas |
 |--------|-------|----------|--------|
 | Admin | `admin@nocta.app` | `Admin1234!` | Configurable con `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
-| Sofía | `sofia@nocta.app` | `Demo1234!` | Premium en seed |
-| Mateo | `mateo@nocta.app` | `Demo1234!` | Incluye compra demo de “Promo Nocta” en Jackson Bar |
-| Valentina | `valentina@nocta.app` | `Demo1234!` | |
+| Sofía | `sofia@nocta.app` | `Demo1234!` | Premium **2 AM** en seed |
+| Mateo | `mateo@nocta.app` | `Demo1234!` | Premium **4 AM** + compra demo de “Promo Nocta” en Jackson Bar |
+| Valentina | `valentina@nocta.app` | `Demo1234!` | Premium **6 AM** (Espía + Clone) |
 
 Los tres users demo quedan publicados en **Jackson Bar** (útiles para probar Discover / match). También hay follows demo hacia Malafama y Volvé Mi Negra.
 
@@ -291,9 +291,9 @@ Respuesta listado público de Espacios:
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `GET` | `/api/presence/me` | Presencia activa (o `null`); expira vencidas del user |
-| `POST` | `/api/presence` | `{ venueId, hours }` — `hours: null` = permanente; revoca otras activas |
-| `DELETE` | `/api/presence/me` | Revoca presencia activa |
+| `GET` | `/api/presence/me` | `presence` (más reciente), `presences[]`, `maxPresences` (1 o 3 con Clone); expira vencidas del user |
+| `POST` | `/api/presence` | `{ venueId, hours }` — `hours: null` = permanente; sin Clone revoca otras activas; con Clone suma hasta 3; bloqueado si `discoverDisabled` |
+| `DELETE` | `/api/presence/me` | Revoca presencia(s); `?venueId=` para una sola (Clone); limpia likes salientes y entrantes de esos Espacios (los matches/chats se conservan) |
 
 Presets UI: `PRESENCE_PRESETS` — 24h / 48h / 1 semana / permanente.
 
@@ -302,9 +302,20 @@ Presets UI: `PRESENCE_PRESETS` — 24h / 48h / 1 semana / permanente.
 | Método | Ruta | Notas |
 |--------|------|--------|
 | `GET` | `/api/discover/feed` | Deck del `venueId` activo + `likeAllowance`; sin presencia → `400` `NO_PRESENCE`. Cards con `isFollowing` / `isFollowRequested`. Acepta `?userId=` para priorizar esa persona si quien consulta es Premium |
-| `GET` | `/api/discover/likes` | Likes **recibidos** pendientes. Excluye bloqueados y devuelve `viewerPremium`. Sin Premium **no** envía `user.id`, `name` ni `photo`. Con Premium sí. Cada ítem trae `canRespond` si tenés presencia en ese `venueId` |
+| `GET` | `/api/discover/likes` | Likes **recibidos** pendientes. Excluye bloqueados; `viewerPremium` + `canSeeLikes` (plan **4 AM+** con `see_likes`). Sin `canSeeLikes` **no** envía `user.id`, `name` ni `photo` (salvo Heartshot). Cada ítem trae `canRespond` si tenés presencia en ese `venueId` |
 | `POST` | `/api/discover/swipe` | `{ toUserId, direction }` → `{ ok, match, likeAllowance }`; rechaza pares bloqueados; sin cuota → `429 LIKES_EXHAUSTED` |
 | `POST` | `/api/discover/rewind` | Deshace el último swipe del espacio activo; si era like, borra match+mensajes y `refundLike`; nunca restaura perfiles bloqueados |
+
+### Anuncios (Discover)
+
+Anuncios insertados en el deck de Discover (client-side) cada **7–10** swipes de perfil. Like abre `/ads/:id`; pass saltea. Usuarios Premium con feature `no_ads` (todos los planes) no reciben anuncios.
+
+| Método | Ruta | Notas |
+|--------|------|--------|
+| `GET` | `/api/ads/next` | Próximo anuncio ponderado (`weight`) o `{ ad: null }` si Premium con Sin anuncios / sin creatividades |
+| `GET` | `/api/ads/:id` | Detalle del anuncio (landing) |
+
+Seed demo: 3 creatividades vía `ensureDemoAds()` al sembrar / asegurar cuentas demo.
 
 ### Notificaciones
 
@@ -327,6 +338,7 @@ Lógica del feed:
 - Límite interno de candidatos: **40**
 - Usuarios estándar: 50 likes; al consumir el último comienza recarga de 8h
 - Premium: likes ilimitados; los `pass` no consumen cuota
+- Boost / Heartshot (4 AM+): se cargan la cuota **mensual** del plan al comprar y otra vez cada **30 días** durante el periodo pagado (p. ej. 3 meses → cargasargas en día 0, 30 y 60). Si cancela, siguen hasta `premiumExpiresAt`
 - En UI, con cuota agotada el gesto puede animar pero la API responde `429` y no registra el swipe
 
 Match: like mutuo en el mismo `venueId`; par ordenado + índice unique.
@@ -338,19 +350,22 @@ Match: like mutuo en el mismo `venueId`; par ordenado + índice unique.
 | `GET` | `/api/matches` | Summaries (otro user, venue, lastMessage); omite peers bloqueados |
 | `GET` | `/api/matches/:id/messages` | Thread (participantes; `403` si bloqueado) |
 | `POST` | `/api/matches/:id/messages` | `{ body }` máx 2000 |
-| `DELETE` | `/api/matches/:id` | Unmatch / disuelve el match |
+| `DELETE` | `/api/matches/:id` | Unmatch / disuelve el match (conserva mensajes del chat para auditoría) |
 | `POST` | `/api/matches/:id/report` | `{ reason, details?, unmatch? }` (`unmatch` default `true`) → crea `Report` |
 | `POST` | `/api/matches/:id/block` | Crea `Block` + disuelve **todos** los matches entre el par |
 
 ### Admin
 
 Todas bajo `requireAuth` + `requireAdmin`.
-Las listas del Dashboard muestran 10 registros por página: usuarios, Espacios,
-solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticias.
+Las listas del Dashboard muestran 10 registros por página, con acordeón de
+**Filtros** y paginación: usuarios, Espacios, solicitudes, verificaciones,
+ciudades, denuncias, transacciones, auditoría y, por cada Espacio, promociones
+y noticias.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `GET` | `/api/admin/stats` | Usuarios, administradores, Espacios activos/sin Organizador, presencias, matches, solicitudes/denuncias pendientes y métricas de compras de promos |
+| `GET` | `/api/admin/stats` | Snapshot de KPIs (compatibilidad): usuarios, admins, Espacios, presencias, matches, solicitudes/denuncias y métricas de promos/Premium |
+| `GET` | `/api/admin/overview` | Resumen por pestañas: KPIs + series mensuales (últimos 12 meses). Ganancias totales en USD = Premium USD + (promos UYU ÷ 39) |
 | `GET` | `/api/admin/users` | Cuentas paginadas (`page`, `limit` mínimo 10, `q`, `role?`), incluidos usuarios y administradores |
 | `GET` | `/api/admin/users/:id` | Ficha completa de una cuenta para consultas administrativas |
 | `PATCH` | `/api/admin/users/:id` | Edita rol, email, verificación, Premium y datos del perfil; impide degradar al último administrador |
@@ -362,6 +377,8 @@ solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticia
 | `GET` | `/api/admin/reports` | Denuncias paginadas (`page`, `limit` mínimo 10, `status?`) |
 | `POST` | `/api/admin/reports/:id/actions` | Resolución única con explicación obligatoria: descartar o suspender 30/90/180/360 días o permanentemente; revoca sesiones/presencia y envía emails |
 | `GET` | `/api/admin/promo-purchases` | Compras internas de promos, read-only y paginadas (`page`, `limit`; default/mínimo 10) |
+| `GET` | `/api/admin/premium-purchases` | Cobros Premium Mercado Pago, read-only y paginados (`page`, `limit`) |
+| `GET` | `/api/admin/audit` | Eventos de auditoría paginados (`page`, `limit`, `q?`, `action?`) |
 | `PATCH`/`DELETE` | `/api/admin/promotions/:id` | Editar / soft-delete promo |
 | `PATCH`/`DELETE` | `/api/admin/news/:id` | Editar / soft-delete noticia |
 
@@ -369,7 +386,7 @@ solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticia
 
 | Modelo | Campos clave |
 |--------|----------------|
-| **User** | email, passwordHash?, role, profile, profileComplete, emailVerified, premium, remainingLikes, likesRechargeAt, oauthAccounts, authProvider, followersCount, followingUsersCount, followingVenuesCount, autoAcceptFollowRequests, showActivityToFollowers (legado hideActivityFromFollowers), tokens de verificación/reset |
+| **User** | email, passwordHash?, role, profile, profileComplete, emailVerified, premium, premiumPlanId, premiumExpiresAt, premiumPeriodMonths, premiumAllowanceNextAt, premiumAllowanceCyclesLeft, boostsRemaining, heartshotsRemaining, remainingLikes, likesRechargeAt, oauthAccounts, authProvider, followersCount, followingUsersCount, followingVenuesCount, autoAcceptFollowRequests, showActivityToFollowers (legado hideActivityFromFollowers), tokens de verificación/reset |
 | **Venue** | name, type, address, country, city, description, photos, location?, ownerId?, followersCount, ratingAvg, ratingCount, active |
 | **VenueReview** | venueId, userId, rating (1–5), body?, photos (≤3), active — unique `(userId, venueId)` |
 | **ActivityEvent** | actorId, type (`venue_review_created`\|`venue_review_updated`\|`venue_followed`\|`user_post_created`), venueId?, reviewId?, postId?, payload, active |
@@ -396,7 +413,7 @@ solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticia
 - `syncPilotVenues()` en cada boot: limpia entradas antiguas sin organizador y hace upsert de los 113. Nunca borra Espacios registrados ni pisa datos editados por un Organizador.
 - Dirección visible = calle; `location` queda en el catálogo (sin Nominatim en cada boot)
 - Fotos de catálogo: la UI lee `apps/web/public/images/venues/{NombreEspacio}Img.webp` (URL `/images/venues/…`) a partir del nombre. Convención: PascalCase sin acentos ni signos + `Img.webp` (`Jackson Bar` → `JacksonBarImg.webp`, `Negroni` → `NegroniImg.webp`). Si falta el archivo, cae al placeholder. Una foto subida a `/uploads/` (organizador) pisa esa portada.
-- Users demo Sofía (premium) / Mateo / Valentina con perfil completo y presencia 48h en **Jackson Bar**
+- Users demo Sofía (premium) / Mateo / Valentina con perfil completo y presencia 48h en **Jackson Bar**; creatividades demo de anuncios (`ensureDemoAds`)
 - Follows user↔user y de Espacios, noticias, reseñas, eventos de actividad y `PromoPurchase` demo de Mateo
 - Auto-ejecución al boot si `MONGODB_URI=memory` (o Atlas vacío con `SEED_ON_EMPTY`)
 - En cada boot: `syncPilotVenues` + `ensureDemoAccounts` + normalización de `lookingFor` a 1 opción
@@ -408,8 +425,9 @@ solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticia
 - [x] Perfil / onboarding
 - [x] Venues CRUD admin + listado público paginado (9) + búsqueda/filtro
 - [x] Promociones (CRUD organizador/admin; compras solo seed / listado `me`)
-- [x] Presencia (24h / 48h / 1 semana / permanente; una activa)
+- [x] Presencia (24h / 48h / 1 semana / permanente; 1 activa por defecto, hasta 3 con Clone / 6 A.M.)
 - [x] Discover + swipe + rewind + match + likes
+- [x] Anuncios en Discover (cada 7–10 swipes; Sin anuncios en todos los Premium)
 - [x] Chat por match + unmatch / report / block
 - [x] Panel admin por secciones
 - [x] Organizador por `ownerId` + solicitudes + noticias
@@ -431,6 +449,7 @@ solicitudes, denuncias, transacciones y, por cada Espacio, promociones y noticia
 - React 19 + Vite + TypeScript
 - Bootstrap 5 + Bootstrap Icons
 - Path: `apps/web`
+- Recharts (gráficas del Resumen admin)
 - Estilos tema: `src/theme.css` (dark + lima; anillos de foco de `.btn` en lima, sin flash azul default de Bootstrap)
 - Mapas: CARTO raster `dark_all` + Leaflet; configurar `VITE_CARTO_BASEMAPS_API_KEY` en `apps/web/.env.local` (las atribuciones OSM/CARTO permanecen visibles)
 - Assets: `public/images/` — logos Nocta (`nocta-logo-limaneon-nobg.png`, blanco/negro); fotos de Espacios en `public/images/venues/{Nombre}Img.webp` (listado y detalle las piden por nombre). Si falta el archivo, caen al placeholder. `index.html` puede referenciar favicon
@@ -464,30 +483,31 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 | `/login` · `/register` | Auth con escena Nocta; login local/OAuth informa suspensiones temporales o permanentes con fecha de inicio/fin; Apple/Microsoft deshabilitados (toast) |
 | `/verify-email` | OTP 6 dígitos, pegado y reenvío con cooldown |
 | `/auth/callback` | Recibe `?token=` post-OAuth |
-| `/onboarding` | 5 pasos: datos + identidad + ubicación → estilo de vida → trabajo → búsqueda (1) + gustos → fotos |
-| `/` | Redirect a `/venues` (user) o `/admin/overview` (admin) |
+| `/onboarding` | 6 pasos: datos + identidad + ubicación → estilo de vida → trabajo → búsqueda (1) + gustos → fotos (guardar) → Planazos (3 planes Premium; Omitir) |
+| `/` | Redirect a `/venues` |
 | `/venues` | Home de usuario. Cards 1/2/3 cols; strip “Publicado” 24h + CTA Discover; CTA para solicitar un Espacio faltante; ícono verificado si hay `ownerId` |
 | `/venues/:id` | Foto + mapa (`col-12` / `col-md-5`); reseñas y CTA (`col-12` / `col-md-7`); ícono de organizador al lado del nombre |
 | `/venues/:id/manage` | Organizador: descripción, seguidores, acceso a edición, noticias, promos y Mercado Pago “próximamente” |
 | `/venues/:id/edit` | Edición separada del Espacio: identidad, País/Ciudad, mapa, descripción y reemplazo opcional de portada |
-| `/likes` | Likes recibidos pendientes: Premium ve foto/nombre + Discover; sin Premium placeholder (sin name/foto/id) + modal; grilla 2 cols en mobile |
+| `/likes` | Likes recibidos pendientes: plan **4 AM+** ve foto/nombre + Discover; free / 2 AM placeholder + modal; grilla 2 cols en mobile |
 | `/muro` | Redirect a `/venues` (pantalla retirada) |
-| `/discover` | Sin presencia: portada. Con presencia: swipe + rewind/pass/like/follow; detalle ampliado con compartir (próximamente), bloquear y denunciar |
+| `/discover` | Sin presencia: portada. Varias (Clone): picker de Espacios. Con una elegida: swipe (← pass / → like / ↑ Heartshot) + botones; Boost en header; rewind Premium; likes agotados → CTA Premium; detalle con bloquear/denunciar. Cada 7–10 swipes (usuarios sin `no_ads`) inserta un anuncio: like → `/ads/:id`, pass saltea |
+| `/ads/:id` | Landing del anuncio (imagen, copy, CTA externo o in-app) |
 | `/report/:userId` | Formulario protegido para denunciar un perfil por motivo y detalles |
 | `/reports/:reportId` | Resultado de una denuncia propia (descarte o medidas aplicadas) |
 | `/matches` | Vacío animado o lista/grilla; menú eliminar / denunciar / bloquear |
-| `/matches/:id` | Chat. En desktop (≥992): perfil a la izquierda (carrusel de fotos, datos, bloquear/denunciar al final del scroll) y conversación a la derecha |
+| `/matches/:id` | Chat. En desktop (≥992): perfil a la izquierda (carrusel de fotos, datos, eliminar match / bloquear / denunciar al final del scroll) y conversación a la derecha. Unmatch conserva mensajes para auditoría |
 | `/notifications` | Inbox completo (10 por página); campana muestra las últimas 5 + Ver más |
 | `/profile` | Hero + galería; Mis reseñas; contadores; Mis promos / Mis espacios; cuatro acciones con popover (configuración, solicitudes, editar y eliminar); borrado con confirmación escrita; acceso al dashboard si es admin; **único sitio con footer** |
 | `/profile/blocked` | Lista paginada de usuarios bloqueados con opción para desbloquear |
 | `/profile/promos` | Mis promos + QR |
 | `/profile/venue-request` | Pestañas Registrar/Reclamar: el alta **no** pide portada (la publica el admin); sugerencia u Organizador con comprobantes; reclamación sin cambios |
-| `/admin/overview` | KPIs operativos y accesos a todos los módulos |
-| `/admin/requests` · `/admin/venues` · `/admin/content` | Pendientes create → modal Aceptar/Rechazar (+ WebP al aprobar); reclamaciones → detalle; Espacios y contenido |
-| `/admin/users` | Usuarios y administradores; modal para editar cuenta/perfil, asignar rol y consultar suspensiones |
-| `/admin/reports` | Denuncias paginadas; fichas de ambas personas y modal Acciones para descartar con motivo o suspender por duración |
-| `/admin/transactions` | Compras internas de promos, read-only y paginadas; conciliación externa pendiente |
-| `/admin/audit` | Estado vacío estructurado; registro real de auditoría pendiente |
+| `/admin/overview` | Resumen con pestañas (Usuarios, Espacios, Solicitudes, Transacciones, Ciudades): KPIs + gráficas de 12 meses |
+| `/admin/requests` · `/admin/venues` · `/admin/content` · `/admin/cities` · `/admin/verifications` | Listas con acordeón **Filtros** + paginación |
+| `/admin/users` | Usuarios y administradores; filtros (búsqueda + rol) en acordeón; modal para editar cuenta/perfil |
+| `/admin/reports` | Denuncias paginadas con filtros en acordeón; fichas y modal Acciones |
+| `/admin/transactions` | Premium / promos en filtros; tarjetas paginadas |
+| `/admin/audit` | Tabla de auditoría con filtros (búsqueda + acción) y paginación |
 
 ### Consumo API
 

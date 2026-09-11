@@ -1,8 +1,10 @@
 export {
   ensureUploadsDir,
   ensureClaimEvidenceDir,
+  ensureIdentityVerificationDir,
   UPLOADS_DIR,
   CLAIM_EVIDENCE_DIR,
+  IDENTITY_VERIFICATION_DIR,
   publicUploadUrl,
 } from "./paths.js";
 export {
@@ -36,3 +38,10 @@ export {
   type ClaimEvidenceFile,
 } from "./claimEvidence.js";
 export { uploadVenueRequestFiles } from "./venueRequestUpload.js";
+export {
+  uploadIdentityVerificationFiles,
+  collectIdentityVerificationFiles,
+  identityVerificationRequestFiles,
+  deleteIdentityVerificationFiles,
+  safeIdentityVerificationPath,
+} from "./identityVerification.js";

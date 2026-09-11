@@ -17,7 +17,6 @@ type DiscoverProfileDetailProps = {
   card: DiscoverCard;
   photoIndex: number;
   onCollapse?: () => void;
-  onShare: () => void;
   onBlock: () => void;
   onReport: () => void;
 };
@@ -26,7 +25,6 @@ export function DiscoverProfileDetail({
   card,
   photoIndex,
   onCollapse,
-  onShare,
   onBlock,
   onReport,
 }: DiscoverProfileDetailProps) {
@@ -187,15 +185,6 @@ export function DiscoverProfileDetail({
         )}
 
         <div className="discover-detail-safety-actions" ref={actionsRef}>
-          <button
-            type="button"
-            aria-label="Compartir perfil"
-            data-bs-toggle="popover"
-            data-bs-content="Compartir perfil"
-            onClick={onShare}
-          >
-            <i className="bi bi-share" aria-hidden="true" />
-          </button>
           <button
             type="button"
             className="is-block"

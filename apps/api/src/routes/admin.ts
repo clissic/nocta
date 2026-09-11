@@ -10,10 +10,11 @@ import {
   ENABLED_VENUE_COUNTRIES,
   FITNESS,
   INTERESTS,
-  isVenueCity,
   LANGUAGES,
   LOOKING_FOR,
   PETS,
+  PREMIUM_PERIOD_MONTHS,
+  PREMIUM_PLAN_IDS,
   SEXUAL_ORIENTATIONS,
   SOCIAL_NETWORKS,
   SUSPENSION_DURATION_LABELS,
@@ -23,6 +24,8 @@ import {
   VENUE_TYPES,
   WORK_STATUS,
   ZODIAC_SIGNS,
+  getPremiumPlan,
+  premiumPeriodLabel,
 } from "@nocta/shared";
 import { requireAuth, requireAdmin, type AuthedRequest } from "../middleware/auth.js";
 import { User } from "../models/User.js";
@@ -40,24 +43,29 @@ import {
   serializeVenue,
   serializeVenueRequest,
   serializeVenueNews,
+  publicAssetUrl,
 } from "../utils/serialize.js";
 import { isObjectId, paramId } from "../utils/ids.js";
-import { expireStalePresences } from "../utils/presence.js";
+import { expireStalePresences, endActivePresences } from "../utils/presence.js";
 import { resolveVenueLocation } from "../utils/geocode.js";
 import {
   sendAccountSuspendedEmail,
   sendReportResolutionEmail,
   sendVenueRequestApprovedEmail,
   sendVenueRequestRejectedEmail,
+  sendIdentityVerificationApprovedEmail,
+  sendIdentityVerificationRejectedEmail,
 } from "../mail/mailer.js";
 import { createNotification } from "../utils/notify.js";
 import {
   assertUploadsAreImages,
   assertVenueCoverUpload,
   collectUploadedFiles,
+  deleteIdentityVerificationFiles,
   deleteLocalUploads,
   handleMulterError,
   safeClaimEvidencePath,
+  safeIdentityVerificationPath,
   uploadSinglePhoto,
 } from "../uploads/index.js";
 import {
@@ -65,6 +73,19 @@ import {
   resolveUserTimeZone,
 } from "../utils/promoValidity.js";
 import { getActiveSuspension } from "../utils/moderation.js";
+import { AppCity } from "../models/AppCity.js";
+import {
+  isActiveAppCity,
+  serializeAppCity,
+} from "../utils/appCities.js";
+import {
+  adminGrantPremium,
+  revokePremium,
+} from "../utils/premium.js";
+import { PremiumPurchase } from "../models/PremiumPurchase.js";
+import { AdminAuditEvent } from "../models/AdminAuditEvent.js";
+import { recordAdminAudit } from "../utils/adminAudit.js";
+import { buildAdminOverview } from "../utils/adminOverview.js";
 
 const router = Router();
 
@@ -147,11 +168,33 @@ const adminUserUpdateSchema = z
     email: z.string().trim().email().max(254).optional(),
     role: z.enum(["user", "admin"]).optional(),
     premium: z.boolean().optional(),
+    premiumPlanId: z.enum(PREMIUM_PLAN_IDS).optional(),
+    premiumPeriodMonths: z
+      .number()
+      .refine((v): v is (typeof PREMIUM_PERIOD_MONTHS)[number] =>
+        (PREMIUM_PERIOD_MONTHS as readonly number[]).includes(v)
+      )
+      .optional(),
     emailVerified: z.boolean().optional(),
+    boostsRemaining: z.number().int().min(0).max(999).optional(),
+    heartshotsRemaining: z.number().int().min(0).max(999).optional(),
+    spyMode: z.boolean().optional(),
+    teleportMode: z.boolean().optional(),
+    discoverDisabled: z.boolean().optional(),
+    rogueMode: z.boolean().optional(),
     profile: adminProfileUpdateSchema.optional(),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, "No hay cambios");
+  .refine((value) => Object.keys(value).length > 0, "No hay cambios")
+  .superRefine((value, ctx) => {
+    if (value.premium === true && !value.premiumPlanId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["premiumPlanId"],
+        message: "Elegí un plan Premium",
+      });
+    }
+  });
 
 const photoUrlSchema = z
   .string()
@@ -171,41 +214,31 @@ const approveCreateLocationSchema = z.object({
   lng: z.number().finite().min(-180).max(180),
 });
 
-const approveCreateSchema = z
-  .object({
-    name: z.string().trim().min(2).max(120),
-    type: z.enum(VENUE_TYPES),
-    address: z.string().trim().min(5).max(200),
-    country: z.enum(enabledVenueCountries).default(DEFAULT_VENUE_COUNTRY),
-    city: z.string().trim().min(2).default(DEFAULT_URUGUAY_CITY.label),
-    description: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() ? v.trim() : undefined),
-      z.string().max(1000).optional()
-    ),
-    contactEmail: z.preprocess(
-      (v) => (typeof v === "string" && !v.trim() ? undefined : v),
-      z.string().email().optional()
-    ),
-    contactPhone: z.preprocess(
-      (v) => (typeof v === "string" && !v.trim() ? undefined : v),
-      z.string().trim().max(40).optional()
-    ),
-    location: approveCreateLocationSchema,
-    geocodedAddress: z.string().trim().min(3).max(300),
-    adminNote: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 500) : undefined),
-      z.string().max(500).optional()
-    ),
-  })
-  .superRefine((data, ctx) => {
-    if (!isVenueCity(data.country, data.city)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["city"],
-        message: "La ciudad no corresponde al país seleccionado",
-      });
-    }
-  });
+const approveCreateSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  type: z.enum(VENUE_TYPES),
+  address: z.string().trim().min(5).max(200),
+  country: z.enum(enabledVenueCountries).default(DEFAULT_VENUE_COUNTRY),
+  city: z.string().trim().min(2).default(DEFAULT_URUGUAY_CITY.label),
+  description: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() ? v.trim() : undefined),
+    z.string().max(1000).optional()
+  ),
+  contactEmail: z.preprocess(
+    (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+    z.string().email().optional()
+  ),
+  contactPhone: z.preprocess(
+    (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+    z.string().trim().max(40).optional()
+  ),
+  location: approveCreateLocationSchema,
+  geocodedAddress: z.string().trim().min(3).max(300),
+  adminNote: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 500) : undefined),
+    z.string().max(500).optional()
+  ),
+});
 
 function parseApproveCreateBody(raw: Record<string, unknown>) {
   let location: unknown = raw.location;
@@ -261,6 +294,14 @@ function formatRejectionMessage(
 
 router.get("/stats", async (_req: AuthedRequest, res) => {
   await expireStalePresences();
+  const now = new Date();
+  const premiumActiveFilter = {
+    premium: true,
+    $or: [
+      { premiumExpiresAt: null },
+      { premiumExpiresAt: { $gt: now } },
+    ],
+  };
   const [
     users,
     admins,
@@ -271,6 +312,9 @@ router.get("/stats", async (_req: AuthedRequest, res) => {
     pendingRequests,
     openReports,
     promoMetrics,
+    premiumActive,
+    premiumByPlanRows,
+    premiumPurchaseMetrics,
   ] =
     await Promise.all([
       User.countDocuments({ role: "user" }),
@@ -290,7 +334,34 @@ router.get("/stats", async (_req: AuthedRequest, res) => {
           },
         },
       ]),
+      User.countDocuments(premiumActiveFilter),
+      User.aggregate<{ _id: string | null; count: number }>([
+        { $match: premiumActiveFilter },
+        { $group: { _id: "$premiumPlanId", count: { $sum: 1 } } },
+      ]),
+      PremiumPurchase.aggregate<{ purchases: number; revenueUsd: number }>([
+        { $match: { status: "approved" } },
+        {
+          $group: {
+            _id: null,
+            purchases: { $sum: 1 },
+            revenueUsd: { $sum: { $ifNull: ["$amount", 0] } },
+          },
+        },
+      ]),
     ]);
+
+  const premiumByPlan: Partial<
+    Record<(typeof PREMIUM_PLAN_IDS)[number], number>
+  > = {};
+  for (const row of premiumByPlanRows) {
+    if (
+      row._id &&
+      (PREMIUM_PLAN_IDS as readonly string[]).includes(row._id)
+    ) {
+      premiumByPlan[row._id as (typeof PREMIUM_PLAN_IDS)[number]] = row.count;
+    }
+  }
 
   return res.json({
     stats: {
@@ -304,8 +375,17 @@ router.get("/stats", async (_req: AuthedRequest, res) => {
       openReports,
       promoPurchases: promoMetrics[0]?.purchases ?? 0,
       promoRevenueUyu: promoMetrics[0]?.revenueUyu ?? 0,
+      premiumActive,
+      premiumByPlan,
+      premiumPurchasesApproved: premiumPurchaseMetrics[0]?.purchases ?? 0,
+      premiumRevenueUsd: premiumPurchaseMetrics[0]?.revenueUsd ?? 0,
     },
   });
+});
+
+router.get("/overview", async (_req: AuthedRequest, res) => {
+  const overview = await buildAdminOverview();
+  return res.json({ overview });
 });
 
 router.get("/users", async (req: AuthedRequest, res) => {
@@ -372,6 +452,7 @@ router.patch("/users/:id", async (req: AuthedRequest, res) => {
 
   const user = await User.findById(id);
   if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+  const previousRole = user.role;
 
   if (parsed.data.email) {
     const email = parsed.data.email.toLowerCase();
@@ -393,10 +474,7 @@ router.patch("/users/:id", async (req: AuthedRequest, res) => {
     }
     user.role = parsed.data.role;
   }
-  if (parsed.data.premium !== undefined) {
-    user.premium = parsed.data.premium;
-    if (user.premium) user.likesRechargeAt = null;
-  }
+
   if (parsed.data.emailVerified !== undefined) {
     user.emailVerified = parsed.data.emailVerified;
     if (user.emailVerified) {
@@ -435,8 +513,256 @@ router.patch("/users/:id", async (req: AuthedRequest, res) => {
     user.markModified("profile");
   }
 
+  if (parsed.data.boostsRemaining !== undefined) {
+    user.boostsRemaining = parsed.data.boostsRemaining;
+  }
+  if (parsed.data.heartshotsRemaining !== undefined) {
+    user.heartshotsRemaining = parsed.data.heartshotsRemaining;
+  }
+  if (parsed.data.spyMode !== undefined) {
+    user.spyMode = parsed.data.spyMode;
+  }
+  if (parsed.data.teleportMode !== undefined) {
+    user.teleportMode = parsed.data.teleportMode;
+  }
+  if (parsed.data.discoverDisabled !== undefined) {
+    user.discoverDisabled = parsed.data.discoverDisabled;
+  }
+  if (parsed.data.rogueMode !== undefined) {
+    user.rogueMode = parsed.data.rogueMode;
+  }
+
   await user.save();
-  return res.json({ user: serializeUser(user) });
+
+  if (parsed.data.discoverDisabled === true) {
+    await endActivePresences(id, "revoked");
+  }
+  let result = user;
+  let premiumAction: "grant" | "revoke" | "update_plan" | null = null;
+  if (parsed.data.premium === true) {
+    const granted = await adminGrantPremium({
+      userId: id,
+      planId: parsed.data.premiumPlanId ?? "nocta_2am",
+      periodMonths: parsed.data.premiumPeriodMonths ?? 1,
+    });
+    if (!granted) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    result = granted;
+    premiumAction = "grant";
+  } else if (parsed.data.premium === false) {
+    const revoked = await revokePremium(id);
+    if (!revoked) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    result = revoked;
+    premiumAction = "revoke";
+  } else if (
+    parsed.data.premiumPlanId !== undefined ||
+    parsed.data.premiumPeriodMonths !== undefined
+  ) {
+    if (!result.premium) {
+      return res.status(400).json({
+        error: "Activá Premium para asignar plan o periodo",
+      });
+    }
+    const granted = await adminGrantPremium({
+      userId: id,
+      planId:
+        parsed.data.premiumPlanId ??
+        (result.premiumPlanId as (typeof PREMIUM_PLAN_IDS)[number]) ??
+        "nocta_2am",
+      periodMonths:
+        parsed.data.premiumPeriodMonths ??
+        ((result.premiumPeriodMonths as
+          | (typeof PREMIUM_PERIOD_MONTHS)[number]
+          | undefined) ||
+          1),
+    });
+    if (!granted) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    result = granted;
+    premiumAction = "update_plan";
+  }
+
+  // Re-apply cupos if set after grant (grant resets allowances)
+  if (
+    premiumAction &&
+    (parsed.data.boostsRemaining !== undefined ||
+      parsed.data.heartshotsRemaining !== undefined)
+  ) {
+    if (parsed.data.boostsRemaining !== undefined) {
+      result.boostsRemaining = parsed.data.boostsRemaining;
+    }
+    if (parsed.data.heartshotsRemaining !== undefined) {
+      result.heartshotsRemaining = parsed.data.heartshotsRemaining;
+    }
+    await result.save();
+  }
+
+  const actorId = req.user!._id.toString();
+  if (premiumAction === "grant" || premiumAction === "update_plan") {
+    await recordAdminAudit({
+      actorId,
+      action:
+        premiumAction === "grant" ? "user.premium_grant" : "user.premium_plan",
+      targetType: "user",
+      targetId: id,
+      meta: {
+        planId: result.premiumPlanId,
+        periodMonths: result.premiumPeriodMonths,
+      },
+    });
+  } else if (premiumAction === "revoke") {
+    await recordAdminAudit({
+      actorId,
+      action: "user.premium_revoke",
+      targetType: "user",
+      targetId: id,
+    });
+  }
+  if (parsed.data.role && parsed.data.role !== previousRole) {
+    await recordAdminAudit({
+      actorId,
+      action: "user.role_change",
+      targetType: "user",
+      targetId: id,
+      meta: { from: previousRole, to: parsed.data.role },
+    });
+  }
+  if (
+    parsed.data.boostsRemaining !== undefined ||
+    parsed.data.heartshotsRemaining !== undefined
+  ) {
+    await recordAdminAudit({
+      actorId,
+      action: "user.allowances",
+      targetType: "user",
+      targetId: id,
+      meta: {
+        boostsRemaining: result.boostsRemaining,
+        heartshotsRemaining: result.heartshotsRemaining,
+      },
+    });
+  }
+  if (
+    parsed.data.spyMode !== undefined ||
+    parsed.data.teleportMode !== undefined ||
+    parsed.data.discoverDisabled !== undefined ||
+    parsed.data.rogueMode !== undefined
+  ) {
+    await recordAdminAudit({
+      actorId,
+      action: "user.flags",
+      targetType: "user",
+      targetId: id,
+      meta: {
+        spyMode: result.spyMode,
+        teleportMode: result.teleportMode,
+        discoverDisabled: result.discoverDisabled,
+        rogueMode: result.rogueMode,
+      },
+    });
+  }
+
+  return res.json({ user: serializeUser(result) });
+});
+
+router.post("/users/:id/end-presence", async (req: AuthedRequest, res) => {
+  const id = paramId(req.params.id);
+  if (!isObjectId(id)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const parsed = z
+    .object({
+      venueId: z.string().trim().optional(),
+    })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Datos inválidos" });
+  }
+  if (parsed.data.venueId && !isObjectId(parsed.data.venueId)) {
+    return res.status(400).json({ error: "venueId inválido" });
+  }
+
+  const user = await User.findById(id);
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const ended = await endActivePresences(id, "revoked", {
+    venueId: parsed.data.venueId,
+  });
+  await recordAdminAudit({
+    actorId: req.user!._id.toString(),
+    action: "user.end_presence",
+    targetType: "user",
+    targetId: id,
+    meta: {
+      venueId: parsed.data.venueId ?? null,
+      ended: ended.length,
+    },
+  });
+
+  return res.json({
+    ok: true,
+    ended: ended.length,
+    user: serializeUser(user),
+  });
+});
+
+router.get("/audit", async (req: AuthedRequest, res) => {
+  const parsed = paginationSchema
+    .extend({
+      action: z.string().trim().max(80).optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Paginación inválida" });
+  }
+  const { page, limit, q, action } = parsed.data;
+  const filter: Record<string, unknown> = {};
+  if (action) filter.action = action;
+  if (q) {
+    const escaped = escapeRegex(q);
+    filter.$or = [
+      { action: { $regex: escaped, $options: "i" } },
+      { targetId: { $regex: escaped, $options: "i" } },
+      { targetType: { $regex: escaped, $options: "i" } },
+    ];
+  }
+  const [rows, total] = await Promise.all([
+    AdminAuditEvent.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    AdminAuditEvent.countDocuments(filter),
+  ]);
+  const actorIds = [...new Set(rows.map((row) => row.actorId.toString()))];
+  const actors = await User.find({ _id: { $in: actorIds } })
+    .select("email profile.name")
+    .lean();
+  const byId = new Map(actors.map((u) => [u._id.toString(), u]));
+
+  return res.json({
+    events: rows.map((row) => {
+      const actor = byId.get(row.actorId.toString());
+      return {
+        id: row._id.toString(),
+        action: row.action,
+        targetType: row.targetType,
+        targetId: row.targetId,
+        meta: (row.meta as Record<string, unknown>) ?? {},
+        createdAt: row.createdAt.toISOString(),
+        actor: {
+          id: row.actorId.toString(),
+          name: actor?.profile?.name ?? actor?.email ?? "Admin",
+          email: actor?.email ?? "Cuenta eliminada",
+        },
+      };
+    }),
+    pagination: paginationMeta(page, limit, total),
+  });
 });
 
 router.get("/venue-requests", async (req: AuthedRequest, res) => {
@@ -447,9 +773,26 @@ router.get("/venue-requests", async (req: AuthedRequest, res) => {
     return res.status(400).json({ error: "Consulta inválida" });
   }
 
+  const { page, limit, q, status } = parsed.data;
   const filter: Record<string, unknown> = {};
-  if (parsed.data.status) filter.status = parsed.data.status;
-  const { page, limit } = parsed.data;
+  if (status) filter.status = status;
+  if (q) {
+    const escaped = escapeRegex(q);
+    const requesters = await User.find({
+      $or: [
+        { email: { $regex: escaped, $options: "i" } },
+        { "profile.name": { $regex: escaped, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean();
+    filter.$or = [
+      { name: { $regex: escaped, $options: "i" } },
+      { city: { $regex: escaped, $options: "i" } },
+      { address: { $regex: escaped, $options: "i" } },
+      { requesterId: { $in: requesters.map((u) => u._id) } },
+    ];
+  }
 
   const [rows, total] = await Promise.all([
     VenueRequest.find(filter)
@@ -632,6 +975,12 @@ router.post(
         return res.status(400).json({
           error: "Datos inválidos",
           details: parsed.error.flatten(),
+        });
+      }
+      if (!(await isActiveAppCity(parsed.data.country, parsed.data.city))) {
+        cleanup();
+        return res.status(400).json({
+          error: "La ciudad no corresponde al país seleccionado",
         });
       }
 
@@ -822,8 +1171,26 @@ router.get("/reports", async (req: AuthedRequest, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Consulta inválida" });
   }
-  const { page, limit, status } = parsed.data;
-  const filter = status ? { status } : {};
+  const { page, limit, status, q } = parsed.data;
+  const filter: Record<string, unknown> = status ? { status } : {};
+  if (q) {
+    const escaped = escapeRegex(q);
+    const matchedUsers = await User.find({
+      $or: [
+        { email: { $regex: escaped, $options: "i" } },
+        { "profile.name": { $regex: escaped, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean();
+    const userIds = matchedUsers.map((u) => u._id);
+    filter.$or = [
+      { reason: { $regex: escaped, $options: "i" } },
+      { details: { $regex: escaped, $options: "i" } },
+      { reporterId: { $in: userIds } },
+      { reportedUserId: { $in: userIds } },
+    ];
+  }
   const [reports, total] = await Promise.all([
     Report.find(filter)
       .sort({ createdAt: -1, _id: -1 })
@@ -887,14 +1254,40 @@ router.get("/promo-purchases", async (req: AuthedRequest, res) => {
     return res.status(400).json({ error: "Paginación inválida" });
   }
 
-  const { page, limit } = parsed.data;
+  const { page, limit, q } = parsed.data;
+  const filter: Record<string, unknown> = {};
+  if (q) {
+    const escaped = escapeRegex(q);
+    const matchedUsers = await User.find({
+      $or: [
+        { email: { $regex: escaped, $options: "i" } },
+        { "profile.name": { $regex: escaped, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean();
+    const matchedVenues = await Venue.find({
+      name: { $regex: escaped, $options: "i" },
+    })
+      .select("_id")
+      .lean();
+    filter.$or = [
+      { title: { $regex: escaped, $options: "i" } },
+      { userId: { $in: matchedUsers.map((u) => u._id) } },
+      { venueId: { $in: matchedVenues.map((v) => v._id) } },
+    ];
+    if (isObjectId(q)) {
+      filter.$or.push({ _id: q });
+    }
+  }
+
   const [rows, total] = await Promise.all([
-    PromoPurchase.find()
+    PromoPurchase.find(filter)
       .sort({ purchasedAt: -1, _id: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
-    PromoPurchase.countDocuments(),
+    PromoPurchase.countDocuments(filter),
   ]);
 
   const userIds = [...new Set(rows.map((row) => row.userId.toString()))];
@@ -939,6 +1332,87 @@ router.get("/promo-purchases", async (req: AuthedRequest, res) => {
         promotion: {
           id: row.promotionId.toString(),
           title: promotion?.title ?? row.title,
+        },
+      };
+    }),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasMore: page < totalPages,
+    },
+  });
+});
+
+router.get("/premium-purchases", async (req: AuthedRequest, res) => {
+  const parsed = paginationSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Paginación inválida" });
+  }
+
+  const { page, limit, q } = parsed.data;
+  const filter: Record<string, unknown> = {};
+  if (q) {
+    const escaped = escapeRegex(q);
+    const matchedUsers = await User.find({
+      $or: [
+        { email: { $regex: escaped, $options: "i" } },
+        { "profile.name": { $regex: escaped, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean();
+    filter.$or = [
+      { planId: { $regex: escaped, $options: "i" } },
+      { mpPaymentId: { $regex: escaped, $options: "i" } },
+      { userId: { $in: matchedUsers.map((u) => u._id) } },
+    ];
+    if (isObjectId(q)) {
+      filter.$or.push({ _id: q });
+    }
+  }
+
+  const [rows, total] = await Promise.all([
+    PremiumPurchase.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    PremiumPurchase.countDocuments(filter),
+  ]);
+
+  const userIds = [...new Set(rows.map((row) => row.userId.toString()))];
+  const users = await User.find({ _id: { $in: userIds } })
+    .select("email profile.name")
+    .lean();
+  const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+  const totalPages = Math.ceil(total / limit);
+
+  return res.json({
+    purchases: rows.map((row) => {
+      const user = usersById.get(row.userId.toString());
+      const planId = row.planId as (typeof PREMIUM_PLAN_IDS)[number];
+      const periodMonths = row.periodMonths as
+        (typeof PREMIUM_PERIOD_MONTHS)[number];
+      const plan = getPremiumPlan(planId);
+      return {
+        id: row._id.toString(),
+        planId,
+        planName: plan?.name ?? planId,
+        periodMonths,
+        periodLabel: premiumPeriodLabel(periodMonths),
+        amount: row.amount,
+        currency: row.currency,
+        status: row.status,
+        kind: row.kind ?? "charge",
+        createdAt: row.createdAt.toISOString(),
+        startsAt: row.startsAt?.toISOString(),
+        endsAt: row.endsAt?.toISOString(),
+        user: {
+          id: row.userId.toString(),
+          name: user?.profile?.name ?? user?.email ?? "Usuario",
+          email: user?.email ?? "Cuenta eliminada",
         },
       };
     }),
@@ -1069,10 +1543,7 @@ router.post("/reports/:id/actions", async (req: AuthedRequest, res) => {
     try {
       await Promise.all([
         reported.save(),
-        Presence.updateMany(
-          { userId: reported._id, status: "active" },
-          { $set: { status: "revoked" } }
-        ),
+        endActivePresences(reported._id.toString(), "revoked"),
       ]);
     } catch (err) {
       await Report.updateOne(
@@ -1082,6 +1553,22 @@ router.post("/reports/:id/actions", async (req: AuthedRequest, res) => {
       throw err;
     }
   }
+
+  await recordAdminAudit({
+    actorId: req.user!._id.toString(),
+    action:
+      parsed.data.action === "suspend"
+        ? "report.suspend"
+        : "report.dismiss",
+    targetType: "report",
+    targetId: id,
+    meta: {
+      reportedUserId: reported._id.toString(),
+      reason: parsed.data.reason,
+      duration:
+        parsed.data.action === "suspend" ? parsed.data.duration : undefined,
+    },
+  });
 
   void createNotification({
     userId: report.reporterId.toString(),
@@ -1239,6 +1726,422 @@ router.delete("/news/:id", async (req: AuthedRequest, res) => {
   );
   if (!news) return res.status(404).json({ error: "Noticia no encontrada" });
   return res.json({ news: serializeVenueNews(news) });
+});
+
+const identityListSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(10).max(100).default(10),
+  q: z.string().trim().max(100).optional(),
+  status: z
+    .enum(["pending", "approved", "rejected", "all"])
+    .default("pending"),
+});
+
+function serializeAdminIdentityVerification(user: InstanceType<typeof User>) {
+  const verification = user.identityVerification as
+    | {
+        status?: string;
+        submittedAt?: Date | null;
+        reviewedAt?: Date | null;
+        rejectionReason?: string | null;
+        documentFrontPath?: string | null;
+        selfieWithDocumentPath?: string | null;
+      }
+    | undefined;
+  const status = verification?.status;
+  if (
+    status !== "pending" &&
+    status !== "approved" &&
+    status !== "rejected"
+  ) {
+    return null;
+  }
+  const photo = user.profile?.photos?.[0];
+  return {
+    userId: user._id.toString(),
+    email: user.email,
+    name: user.profile?.name ?? "Usuario",
+    photo: photo ? publicAssetUrl(photo) : undefined,
+    status,
+    submittedAt: verification?.submittedAt?.toISOString(),
+    reviewedAt: verification?.reviewedAt?.toISOString(),
+    rejectionReason: verification?.rejectionReason ?? undefined,
+    hasDocumentFront: Boolean(verification?.documentFrontPath),
+    hasSelfie: Boolean(verification?.selfieWithDocumentPath),
+  };
+}
+
+router.get("/identity-verifications", async (req: AuthedRequest, res) => {
+  const parsed = identityListSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Parámetros inválidos" });
+  }
+  const { page, limit, status, q } = parsed.data;
+  const filter: Record<string, unknown> =
+    status === "all"
+      ? {
+          "identityVerification.status": {
+            $in: ["pending", "approved", "rejected"],
+          },
+        }
+      : { "identityVerification.status": status };
+  if (q) {
+    const escaped = escapeRegex(q);
+    filter.$or = [
+      { email: { $regex: escaped, $options: "i" } },
+      { "profile.name": { $regex: escaped, $options: "i" } },
+    ];
+  }
+
+  const [users, total] = await Promise.all([
+    User.find(filter)
+      .sort({ "identityVerification.submittedAt": -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    User.countDocuments(filter),
+  ]);
+
+  return res.json({
+    verifications: users
+      .map((user) => serializeAdminIdentityVerification(user))
+      .filter(Boolean),
+    pagination: paginationMeta(page, limit, total),
+  });
+});
+
+router.get(
+  "/identity-verifications/:userId/files/:kind",
+  async (req: AuthedRequest, res) => {
+    const userId = paramId(req.params.userId);
+    const kind = req.params.kind;
+    if (!isObjectId(userId)) {
+      return res.status(400).json({ error: "Id inválido" });
+    }
+    if (kind !== "documentFront" && kind !== "selfie") {
+      return res.status(400).json({ error: "Archivo inválido" });
+    }
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    const verification = user.identityVerification as
+      | {
+          documentFrontPath?: string | null;
+          selfieWithDocumentPath?: string | null;
+        }
+      | undefined;
+    const filename =
+      kind === "documentFront"
+        ? verification?.documentFrontPath
+        : verification?.selfieWithDocumentPath;
+    if (!filename) {
+      return res.status(404).json({ error: "Archivo no encontrado" });
+    }
+    const path = safeIdentityVerificationPath(filename);
+    if (!path || !existsSync(path)) {
+      return res.status(404).json({ error: "Archivo no disponible" });
+    }
+    return res.sendFile(path);
+  }
+);
+
+router.post(
+  "/identity-verifications/:userId/approve",
+  async (req: AuthedRequest, res) => {
+    const userId = paramId(req.params.userId);
+    if (!isObjectId(userId)) {
+      return res.status(400).json({ error: "Id inválido" });
+    }
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    const verification = user.identityVerification as
+      | {
+          status?: string;
+          documentFrontPath?: string | null;
+          selfieWithDocumentPath?: string | null;
+          submittedAt?: Date | null;
+          rejectionReason?: string | null;
+        }
+      | undefined;
+    if (verification?.status !== "pending") {
+      return res.status(409).json({
+        error: "No hay una solicitud pendiente para este usuario",
+      });
+    }
+    if (
+      !verification.documentFrontPath ||
+      !verification.selfieWithDocumentPath
+    ) {
+      return res.status(409).json({
+        error: "Faltan documentos en la solicitud",
+      });
+    }
+
+    user.identityVerification = {
+      ...verification,
+      status: "approved",
+      reviewedAt: new Date(),
+      reviewedById: req.user!._id,
+      rejectionReason: undefined,
+    } as typeof user.identityVerification;
+    await user.save();
+
+    const name = user.profile?.name || undefined;
+    void createNotification({
+      userId: user._id.toString(),
+      type: "identity_verification_approved",
+      title: "Cuenta verificada",
+      body: "Tu verificación de identidad fue aprobada.",
+      href: "/profile",
+      dedupeKey: `identity_verification_approved:${user._id.toString()}`,
+    });
+    try {
+      await sendIdentityVerificationApprovedEmail({
+        to: user.email,
+        name,
+      });
+    } catch (err) {
+      console.error("[mail] identity approved failed", err);
+    }
+
+    return res.json({
+      verification: serializeAdminIdentityVerification(user),
+      user: serializeUser(user),
+    });
+  }
+);
+
+const rejectIdentitySchema = z.object({
+  reason: z.string().trim().min(5).max(1000),
+});
+
+router.post(
+  "/identity-verifications/:userId/reject",
+  async (req: AuthedRequest, res) => {
+    const userId = paramId(req.params.userId);
+    if (!isObjectId(userId)) {
+      return res.status(400).json({ error: "Id inválido" });
+    }
+    const parsed = rejectIdentitySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Indicá el motivo del rechazo (mínimo 5 caracteres)",
+      });
+    }
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    const verification = user.identityVerification as
+      | {
+          status?: string;
+          documentFrontPath?: string | null;
+          selfieWithDocumentPath?: string | null;
+          submittedAt?: Date | null;
+        }
+      | undefined;
+    if (verification?.status !== "pending") {
+      return res.status(409).json({
+        error: "No hay una solicitud pendiente para este usuario",
+      });
+    }
+
+    deleteIdentityVerificationFiles([
+      verification.documentFrontPath,
+      verification.selfieWithDocumentPath,
+    ]);
+
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          "identityVerification.status": "rejected",
+          "identityVerification.reviewedAt": new Date(),
+          "identityVerification.reviewedById": req.user!._id,
+          "identityVerification.rejectionReason": parsed.data.reason,
+        },
+        $unset: {
+          "identityVerification.documentFrontPath": 1,
+          "identityVerification.selfieWithDocumentPath": 1,
+        },
+      }
+    );
+    const refreshed = await User.findById(user._id);
+    if (!refreshed) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const name = refreshed.profile?.name || undefined;
+    void createNotification({
+      userId: refreshed._id.toString(),
+      type: "identity_verification_rejected",
+      title: "Verificación no aprobada",
+      body: parsed.data.reason,
+      href: "/profile",
+      data: { reason: parsed.data.reason },
+      dedupeKey: `identity_verification_rejected:${refreshed._id.toString()}:${Date.now()}`,
+    });
+    try {
+      await sendIdentityVerificationRejectedEmail({
+        to: refreshed.email,
+        name,
+        reason: parsed.data.reason,
+      });
+    } catch (err) {
+      console.error("[mail] identity rejected failed", err);
+    }
+
+    return res.json({
+      verification: serializeAdminIdentityVerification(refreshed),
+      user: serializeUser(refreshed),
+    });
+  }
+);
+
+const adminCitiesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(10).max(100).default(10),
+  country: z.string().trim().min(2).max(60).optional(),
+  active: z.enum(["true", "false", "all"]).optional().default("all"),
+  q: z.string().trim().max(100).optional(),
+});
+
+const adminCityBodySchema = z.object({
+  country: z.enum(enabledVenueCountries),
+  name: z.string().trim().min(2).max(80),
+  lat: z.number().finite().min(-90).max(90),
+  lng: z.number().finite().min(-180).max(180),
+  active: z.boolean().optional(),
+});
+
+const adminCityPatchSchema = z
+  .object({
+    country: z.enum(enabledVenueCountries).optional(),
+    name: z.string().trim().min(2).max(80).optional(),
+    lat: z.number().finite().min(-90).max(90).optional(),
+    lng: z.number().finite().min(-180).max(180).optional(),
+    active: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "No hay cambios");
+
+router.get("/cities", async (req: AuthedRequest, res) => {
+  const parsed = adminCitiesQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Parámetros inválidos" });
+  }
+  const { page, limit, country, active, q } = parsed.data;
+  if (country && !ENABLED_VENUE_COUNTRIES.includes(country as (typeof ENABLED_VENUE_COUNTRIES)[number])) {
+    return res.status(400).json({ error: "País no habilitado" });
+  }
+
+  const filter: Record<string, unknown> = {};
+  if (country) filter.country = country;
+  if (active === "true") filter.active = true;
+  else if (active === "false") filter.active = false;
+  if (q) {
+    filter.name = { $regex: escapeRegex(q), $options: "i" };
+  }
+
+  const [cities, total] = await Promise.all([
+    AppCity.find(filter)
+      .sort({ country: 1, name: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    AppCity.countDocuments(filter),
+  ]);
+
+  return res.json({
+    cities: cities.map((city) => serializeAppCity(city)),
+    pagination: paginationMeta(page, limit, total),
+  });
+});
+
+router.post("/cities", async (req: AuthedRequest, res) => {
+  const parsed = adminCityBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Datos inválidos" });
+  }
+
+  try {
+    const city = await AppCity.create({
+      country: parsed.data.country,
+      name: parsed.data.name,
+      lat: parsed.data.lat,
+      lng: parsed.data.lng,
+      active: parsed.data.active ?? true,
+    });
+    return res.status(201).json({ city: serializeAppCity(city) });
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: number }).code === 11000
+    ) {
+      return res.status(409).json({
+        error: "Ya existe una ciudad con ese nombre en el país",
+      });
+    }
+    throw err;
+  }
+});
+
+router.patch("/cities/:id", async (req: AuthedRequest, res) => {
+  const id = paramId(req.params.id);
+  if (!isObjectId(id)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const parsed = adminCityPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Datos inválidos" });
+  }
+
+  const city = await AppCity.findById(id);
+  if (!city) {
+    return res.status(404).json({ error: "Ciudad no encontrada" });
+  }
+
+  if (parsed.data.country !== undefined) {
+    city.country = parsed.data.country as (typeof ENABLED_VENUE_COUNTRIES)[number];
+  }
+  if (parsed.data.name !== undefined) city.name = parsed.data.name;
+  if (parsed.data.lat !== undefined) city.lat = parsed.data.lat;
+  if (parsed.data.lng !== undefined) city.lng = parsed.data.lng;
+  if (parsed.data.active !== undefined) city.active = parsed.data.active;
+
+  try {
+    await city.save();
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: number }).code === 11000
+    ) {
+      return res.status(409).json({
+        error: "Ya existe una ciudad con ese nombre en el país",
+      });
+    }
+    throw err;
+  }
+
+  return res.json({ city: serializeAppCity(city) });
+});
+
+router.post("/cities/:id/deactivate", async (req: AuthedRequest, res) => {
+  const id = paramId(req.params.id);
+  if (!isObjectId(id)) {
+    return res.status(400).json({ error: "Id inválido" });
+  }
+  const city = await AppCity.findById(id);
+  if (!city) {
+    return res.status(404).json({ error: "Ciudad no encontrada" });
+  }
+  city.active = false;
+  await city.save();
+  return res.json({ city: serializeAppCity(city) });
 });
 
 export default router;

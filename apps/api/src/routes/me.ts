@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { MY_REVIEWS_PAGE_SIZE } from "@nocta/shared";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import { resolveNearestAppCity } from "../utils/appCities.js";
 import { User } from "../models/User.js";
 import { Follow } from "../models/Follow.js";
 import { Venue } from "../models/Venue.js";
@@ -27,6 +28,16 @@ import { Block } from "../models/Block.js";
 import { Report } from "../models/Report.js";
 import { isObjectId, paramId } from "../utils/ids.js";
 import { deleteUserAccount } from "../utils/deleteUserAccount.js";
+import { isPremiumActive } from "../utils/premium.js";
+import { endActivePresences } from "../utils/presence.js";
+import {
+  collectIdentityVerificationFiles,
+  deleteIdentityVerificationFiles,
+  handleMulterError,
+  identityVerificationRequestFiles,
+  uploadIdentityVerificationFiles,
+} from "../uploads/index.js";
+import { sendIdentityVerificationSubmittedEmail } from "../mail/mailer.js";
 
 const router = Router();
 
@@ -38,11 +49,17 @@ const settingsSchema = z
   .object({
     autoAcceptFollowRequests: z.boolean().optional(),
     showActivityToFollowers: z.boolean().optional(),
+    rogueMode: z.boolean().optional(),
+    teleportMode: z.boolean().optional(),
+    discoverDisabled: z.boolean().optional(),
   })
   .refine(
     (body) =>
       body.autoAcceptFollowRequests !== undefined ||
-      body.showActivityToFollowers !== undefined,
+      body.showActivityToFollowers !== undefined ||
+      body.rogueMode !== undefined ||
+      body.teleportMode !== undefined ||
+      body.discoverDisabled !== undefined,
     { message: "Nada para actualizar" }
   );
 
@@ -52,15 +69,41 @@ router.patch("/settings", requireAuth, async (req: AuthedRequest, res) => {
     return res.status(400).json({ error: "Datos inválidos" });
   }
 
+  if (parsed.data.rogueMode !== undefined && !isPremiumActive(req.user!)) {
+    return res.status(403).json({
+      error: "El modo pícaro es exclusivo de Nocta Premium",
+      code: "PREMIUM_REQUIRED",
+    });
+  }
+
+  if (parsed.data.teleportMode !== undefined && !isPremiumActive(req.user!)) {
+    return res.status(403).json({
+      error: "El modo Teleport es exclusivo de Nocta Premium",
+      code: "PREMIUM_REQUIRED",
+    });
+  }
+
   const updates: {
     autoAcceptFollowRequests?: boolean;
     showActivityToFollowers?: boolean;
+    rogueMode?: boolean;
+    teleportMode?: boolean;
+    discoverDisabled?: boolean;
   } = {};
   if (parsed.data.autoAcceptFollowRequests !== undefined) {
     updates.autoAcceptFollowRequests = parsed.data.autoAcceptFollowRequests;
   }
   if (parsed.data.showActivityToFollowers !== undefined) {
     updates.showActivityToFollowers = parsed.data.showActivityToFollowers;
+  }
+  if (parsed.data.rogueMode !== undefined) {
+    updates.rogueMode = parsed.data.rogueMode;
+  }
+  if (parsed.data.teleportMode !== undefined) {
+    updates.teleportMode = parsed.data.teleportMode;
+  }
+  if (parsed.data.discoverDisabled !== undefined) {
+    updates.discoverDisabled = parsed.data.discoverDisabled;
   }
 
   const user = await User.findByIdAndUpdate(
@@ -76,6 +119,57 @@ router.patch("/settings", requireAuth, async (req: AuthedRequest, res) => {
   if (!user) {
     return res.status(404).json({ error: "Usuario no encontrado" });
   }
+
+  if (parsed.data.discoverDisabled === true) {
+    await endActivePresences(user._id.toString(), "revoked");
+  }
+
+  return res.json({ user: serializeUser(user) });
+});
+
+const teleportLocationSchema = z.object({
+  lat: z.number().finite().min(-90).max(90),
+  lng: z.number().finite().min(-180).max(180),
+});
+
+router.put("/teleport-location", requireAuth, async (req: AuthedRequest, res) => {
+  if (!isPremiumActive(req.user!)) {
+    return res.status(403).json({
+      error: "El modo Teleport es exclusivo de Nocta Premium",
+      code: "PREMIUM_REQUIRED",
+    });
+  }
+
+  const parsed = teleportLocationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Ubicación inválida" });
+  }
+
+  const user = await User.findById(req.user!._id);
+  if (!user) {
+    return res.status(404).json({ error: "Usuario no encontrado" });
+  }
+  if (!user.teleportMode) {
+    return res.status(409).json({
+      error: "Activá el modo Teleport antes de elegir una ubicación",
+      code: "TELEPORT_OFF",
+    });
+  }
+
+  const nearest = await resolveNearestAppCity(
+    parsed.data.lat,
+    parsed.data.lng
+  );
+  if (!nearest) {
+    return res.status(404).json({ error: "No hay ciudades activas" });
+  }
+  user.teleportCity = {
+    country: nearest.country,
+    city: nearest.city,
+    lat: parsed.data.lat,
+    lng: parsed.data.lng,
+  };
+  await user.save();
 
   return res.json({ user: serializeUser(user) });
 });
@@ -504,6 +598,97 @@ router.post(
       return res.status(result.status).json({ error: result.error });
     }
     return res.json({ ok: true });
+  }
+);
+
+router.post(
+  "/identity-verification",
+  requireAuth,
+  (req: AuthedRequest, res, next) => {
+    uploadIdentityVerificationFiles(req, res, (err) => {
+      if (err) {
+        deleteIdentityVerificationFiles(
+          Object.values(identityVerificationRequestFiles(req))
+            .filter(Boolean)
+            .map((file) => file!.filename)
+        );
+        return handleMulterError(err, req, res, next);
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    const collected = collectIdentityVerificationFiles(req);
+    const uploaded = identityVerificationRequestFiles(req);
+    const cleanupUploaded = () =>
+      deleteIdentityVerificationFiles([
+        uploaded.documentFront?.filename,
+        uploaded.selfieWithDocument?.filename,
+      ]);
+
+    if (!collected.ok) {
+      cleanupUploaded();
+      return res.status(400).json({ error: collected.error });
+    }
+
+    const user = await User.findById(req.user!._id);
+    if (!user) {
+      cleanupUploaded();
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const currentStatus =
+      (user.identityVerification as { status?: string } | undefined)?.status ??
+      "none";
+    if (currentStatus === "pending") {
+      cleanupUploaded();
+      return res.status(409).json({
+        error: "Ya tenés una solicitud en revisión",
+        code: "IDENTITY_VERIFICATION_PENDING",
+      });
+    }
+    if (currentStatus === "approved") {
+      cleanupUploaded();
+      return res.status(409).json({
+        error: "Tu cuenta ya está verificada",
+        code: "IDENTITY_VERIFICATION_APPROVED",
+      });
+    }
+
+    const previous = user.identityVerification as
+      | {
+          documentFrontPath?: string | null;
+          selfieWithDocumentPath?: string | null;
+        }
+      | undefined;
+
+    deleteIdentityVerificationFiles([
+      previous?.documentFrontPath,
+      previous?.selfieWithDocumentPath,
+    ]);
+
+    user.identityVerification = {
+      status: "pending",
+      documentFrontPath: collected.documentFront,
+      selfieWithDocumentPath: collected.selfieWithDocument,
+      submittedAt: new Date(),
+      reviewedAt: undefined,
+      reviewedById: undefined,
+      rejectionReason: undefined,
+    } as typeof user.identityVerification;
+    await user.save();
+
+    try {
+      await sendIdentityVerificationSubmittedEmail({
+        userId: user._id.toString(),
+        email: user.email,
+        name: user.profile?.name || undefined,
+      });
+    } catch (err) {
+      console.error("[mail] identity verification notify failed", err);
+    }
+
+    return res.json({ user: serializeUser(user) });
   }
 );
 

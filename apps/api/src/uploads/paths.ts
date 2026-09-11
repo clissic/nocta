@@ -12,6 +12,11 @@ export const CLAIM_EVIDENCE_DIR = resolve(
   "../../private/venue-claims"
 );
 
+export const IDENTITY_VERIFICATION_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../private/identity-verifications"
+);
+
 export function ensureUploadsDir() {
   if (!existsSync(UPLOADS_DIR)) {
     mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -24,6 +29,13 @@ export function ensureClaimEvidenceDir() {
     mkdirSync(CLAIM_EVIDENCE_DIR, { recursive: true });
   }
   return CLAIM_EVIDENCE_DIR;
+}
+
+export function ensureIdentityVerificationDir() {
+  if (!existsSync(IDENTITY_VERIFICATION_DIR)) {
+    mkdirSync(IDENTITY_VERIFICATION_DIR, { recursive: true });
+  }
+  return IDENTITY_VERIFICATION_DIR;
 }
 
 export function publicUploadUrl(filename: string): string {

@@ -15,6 +15,9 @@ import {
   venueRequestApprovedHtml,
   venueRequestNotificationHtml,
   venueRequestRejectedHtml,
+  identityVerificationSubmittedHtml,
+  identityVerificationApprovedHtml,
+  identityVerificationRejectedHtml,
 } from "./templates.js";
 
 let transporter: Transporter | null = null;
@@ -210,12 +213,17 @@ export async function sendPasswordResetEmail(opts: {
   to: string;
   name?: string;
   token: string;
+  ttlMinutes?: number;
 }) {
   const resetUrl = `${config.clientOrigin}/auth/reset-password?token=${encodeURIComponent(opts.token)}`;
   await sendMail({
     to: opts.to,
     subject: "Restablecer contraseña — Nocta",
-    html: passwordResetEmailHtml({ name: opts.name, resetUrl }),
+    html: passwordResetEmailHtml({
+      name: opts.name,
+      resetUrl,
+      ttlMinutes: opts.ttlMinutes,
+    }),
   });
   return resetUrl;
 }
@@ -386,6 +394,57 @@ export async function sendVenueRequestApprovedEmail(opts: {
       requesterName: opts.requesterName,
       adminNote: opts.adminNote,
       venueUrl,
+    }),
+  });
+}
+
+export async function sendIdentityVerificationSubmittedEmail(opts: {
+  userId: string;
+  email: string;
+  name?: string;
+}) {
+  const adminUrl = `${config.clientOrigin}/admin/verifications`;
+  await sendMail({
+    to: config.mail.notifyTo,
+    subject: `Nueva verificación de identidad: ${opts.name || opts.email}`,
+    html: identityVerificationSubmittedHtml({
+      userName: opts.name,
+      userEmail: opts.email,
+      userId: opts.userId,
+      adminUrl,
+    }),
+  });
+  return adminUrl;
+}
+
+export async function sendIdentityVerificationApprovedEmail(opts: {
+  to: string;
+  name?: string;
+}) {
+  const profileUrl = `${config.clientOrigin}/profile`;
+  await sendMail({
+    to: opts.to,
+    subject: "Tu cuenta fue verificada — Nocta",
+    html: identityVerificationApprovedHtml({
+      name: opts.name,
+      profileUrl,
+    }),
+  });
+}
+
+export async function sendIdentityVerificationRejectedEmail(opts: {
+  to: string;
+  name?: string;
+  reason: string;
+}) {
+  const profileUrl = `${config.clientOrigin}/profile`;
+  await sendMail({
+    to: opts.to,
+    subject: "Verificación no aprobada — Nocta",
+    html: identityVerificationRejectedHtml({
+      name: opts.name,
+      reason: opts.reason,
+      profileUrl,
     }),
   });
 }

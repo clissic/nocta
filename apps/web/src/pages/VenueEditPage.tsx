@@ -6,7 +6,6 @@ import {
   DISPLAY_ADDRESS_HINT,
   VENUE_TYPES,
   VENUE_TYPE_LABELS,
-  venueCitiesForCountry,
   type Venue,
   type VenueType,
 } from "@nocta/shared";
@@ -19,6 +18,7 @@ import {
 } from "../components/VenueFormFields";
 import { useToast } from "../components/ToastProvider";
 import { api, ApiError } from "../lib/api";
+import { useActiveAppCities } from "../lib/appCities";
 import { venueCoverSrc } from "../lib/venuePhoto";
 
 export function VenueEditPage() {
@@ -41,6 +41,7 @@ export function VenueEditPage() {
   const [description, setDescription] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const { cities: countryCities } = useActiveAppCities(country);
 
   useEffect(() => {
     let alive = true;
@@ -48,17 +49,11 @@ export function VenueEditPage() {
       .then(({ venue: loaded }) => {
         if (!alive) return;
         const nextCountry = loaded.country || DEFAULT_VENUE_COUNTRY;
-        const countryCities = venueCitiesForCountry(nextCountry);
-        const nextCity = countryCities.some(
-          (candidate) => candidate.label === loaded.city
-        )
-          ? loaded.city
-          : countryCities[0].label;
         setVenue(loaded);
         setName(loaded.name);
         setType(loaded.type);
         setCountry(nextCountry);
-        setCity(nextCity);
+        setCity(loaded.city || DEFAULT_URUGUAY_CITY.label);
         setLocation(loaded.location ?? null);
         setGeocodedAddress(loaded.address);
         setDisplayAddress(loaded.address);
@@ -91,13 +86,13 @@ export function VenueEditPage() {
   }, [photoPreview]);
 
   const cityCenter = useMemo(() => {
-    const found = venueCitiesForCountry(country).find(
-      (candidate) => candidate.label === city
+    const found = countryCities.find(
+      (candidate) => candidate.name.toLowerCase() === city.toLowerCase()
     );
     return found
       ? { lat: found.lat, lng: found.lng }
       : { lat: DEFAULT_URUGUAY_CITY.lat, lng: DEFAULT_URUGUAY_CITY.lng };
-  }, [city, country]);
+  }, [city, countryCities]);
 
   async function reverseFromPin(coords: MapCoords) {
     setLocation(coords);
@@ -123,7 +118,6 @@ export function VenueEditPage() {
 
   function changeCountry(nextCountry: string) {
     setCountry(nextCountry);
-    setCity(venueCitiesForCountry(nextCountry)[0].label);
     setLocation(null);
     setGeocodedAddress("");
   }
@@ -254,6 +248,7 @@ export function VenueEditPage() {
               city={city}
               onCountryChange={changeCountry}
               onCityChange={changeCity}
+              preserveCity={venue?.city}
             />
           </div>
         </section>

@@ -104,7 +104,7 @@ type MatchPeerProfile = {
   photos: string[];
 };
 
-type AsideMode = "actions" | "block" | "report";
+type AsideMode = "actions" | "unmatch" | "block" | "report";
 
 export function ChatPage() {
   const { id } = useParams();
@@ -223,6 +223,22 @@ export function ChatPage() {
     }
   }
 
+  async function removeMatch() {
+    if (!id) return;
+    setBusy(true);
+    try {
+      await api(`/api/matches/${id}`, { method: "DELETE" });
+      toast.success("Match eliminado");
+      navigate("/matches");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo eliminar el match"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function blockMatch() {
     if (!id) return;
     setBusy(true);
@@ -282,6 +298,15 @@ export function ChatPage() {
               <>
                 <button
                   type="button"
+                  className="btn btn-outline-light"
+                  disabled={busy || !matchMeta}
+                  onClick={() => setAsideMode("unmatch")}
+                >
+                  <i className="bi bi-trash me-2" aria-hidden="true" />
+                  Eliminar match
+                </button>
+                <button
+                  type="button"
                   className="btn btn-outline-secondary"
                   disabled={busy || !matchMeta}
                   onClick={() => setAsideMode("block")}
@@ -297,6 +322,30 @@ export function ChatPage() {
                 >
                   <i className="bi bi-flag me-2" aria-hidden="true" />
                   Denunciar
+                </button>
+              </>
+            )}
+
+            {asideMode === "unmatch" && (
+              <>
+                <p className="small text-secondary mb-0">
+                  ¿Eliminar el match con {displayName}? Dejarás de ver el chat.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline-light"
+                  disabled={busy}
+                  onClick={() => void removeMatch()}
+                >
+                  Confirmar eliminación
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-link link-secondary"
+                  disabled={busy}
+                  onClick={() => setAsideMode("actions")}
+                >
+                  Cancelar
                 </button>
               </>
             )}

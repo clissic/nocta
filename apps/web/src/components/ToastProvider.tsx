@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 export type ToastVariant = "success" | "danger" | "warning" | "info";
 
@@ -73,34 +74,42 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [push]
   );
 
+  const toastLayer =
+    typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="toast-container position-fixed top-0 end-0 p-3 nocta-toast-container"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {toasts.map((toast) => (
+              <div
+                key={toast.id}
+                className={`toast show align-items-center ${VARIANT_CLASS[toast.variant]} nocta-toast`}
+                role="alert"
+                aria-live="assertive"
+                aria-atomic="true"
+              >
+                <div className="d-flex">
+                  <div className="toast-body">{toast.message}</div>
+                  <button
+                    type="button"
+                    className="btn-close btn-close-white me-2 m-auto"
+                    aria-label="Cerrar"
+                    onClick={() => dismiss(toast.id)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div
-        className="toast-container position-fixed top-0 end-0 p-3 nocta-toast-container"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`toast show align-items-center ${VARIANT_CLASS[toast.variant]} nocta-toast`}
-            role="alert"
-            aria-live="assertive"
-            aria-atomic="true"
-          >
-            <div className="d-flex">
-              <div className="toast-body">{toast.message}</div>
-              <button
-                type="button"
-                className="btn-close btn-close-white me-2 m-auto"
-                aria-label="Cerrar"
-                onClick={() => dismiss(toast.id)}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+      {toastLayer}
     </ToastContext.Provider>
   );
 }

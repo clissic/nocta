@@ -7,12 +7,12 @@ import {
   VENUE_REQUEST_REJECT_REASONS,
   VENUE_TYPES,
   VENUE_TYPE_LABELS,
-  venueCitiesForCountry,
   type VenueRequest,
   type VenueRequestRejectReason,
   type VenueType,
 } from "@nocta/shared";
 import { api, ApiError, downloadApiFile } from "../../lib/api";
+import { useActiveAppCities } from "../../lib/appCities";
 import { OverflowFade } from "../OverflowFade";
 import { useToast } from "../ToastProvider";
 import {
@@ -69,15 +69,16 @@ export function AdminCreateVenueRequestModal({
 
   const forwardAbortRef = useRef<AbortController | null>(null);
   const automaticDisplayAddressRef = useRef("");
+  const { cities: countryCities } = useActiveAppCities(country);
 
   const cityCenter = useMemo(() => {
-    const found = venueCitiesForCountry(country).find(
-      (candidate) => candidate.label === city
+    const found = countryCities.find(
+      (candidate) => candidate.name.toLowerCase() === city.toLowerCase()
     );
     return found
       ? { lat: found.lat, lng: found.lng }
       : { lat: DEFAULT_URUGUAY_CITY.lat, lng: DEFAULT_URUGUAY_CITY.lng };
-  }, [city, country]);
+  }, [city, countryCities]);
 
   useEffect(() => {
     return () => {
@@ -421,8 +422,6 @@ export function AdminCreateVenueRequestModal({
                     city={city}
                     onCountryChange={(next) => {
                       setCountry(next);
-                      const cities = venueCitiesForCountry(next);
-                      setCity(cities[0]?.label ?? DEFAULT_URUGUAY_CITY.label);
                       setLocation(null);
                       setGeocodedAddress("");
                     }}

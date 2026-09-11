@@ -25,6 +25,10 @@ import userRoutes from "./routes/users.js";
 import meRoutes from "./routes/me.js";
 import muroRoutes from "./routes/muro.js";
 import notificationRoutes from "./routes/notifications.js";
+import premiumRoutes from "./routes/premium.js";
+import cityRoutes from "./routes/cities.js";
+import adsRoutes from "./routes/ads.js";
+import { ensureAppCitiesSeeded } from "./utils/appCities.js";
 
 const app = express();
 
@@ -56,6 +60,9 @@ app.use("/api/users", userRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/muro", muroRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/premium", premiumRoutes);
+app.use("/api/cities", cityRoutes);
+app.use("/api/ads", adsRoutes);
 
 app.use(
   (
@@ -104,6 +111,7 @@ async function start() {
   await Match.syncIndexes();
 
   await maybeSeed();
+  await ensureAppCitiesSeeded();
   await syncPilotVenues();
   await ensureDemoAccounts();
   await normalizeLookingForSingleChoice();

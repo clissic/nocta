@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   PRESENCE_PRESETS,
   VENUE_TYPE_LABELS,
+  maxActivePresencesForPlan,
+  planHasFeature,
   type Presence,
   type Promotion,
   type Venue,
@@ -16,15 +18,20 @@ import { useToast } from "../components/ToastProvider";
 import { VenueTrustBadge } from "../components/VenueTrustBadge";
 import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 import { NoctaLoading } from "../components/NoctaLoading";
+import { useAuth } from "../auth/AuthContext";
 
 export function VenueDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
+  const discoverDisabled = Boolean(user?.discoverDisabled);
   const [venue, setVenue] = useState<Venue | null>(null);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [news, setNews] = useState<VenueNews[]>([]);
   const [presence, setPresence] = useState<Presence | null>(null);
+  const [presences, setPresences] = useState<Presence[]>([]);
+  const [maxPresences, setMaxPresences] = useState(1);
   const [hours, setHours] = useState<number | null>(24);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,13 +48,28 @@ export function VenueDetailPage() {
             promotions: Promotion[];
             news: VenueNews[];
           }>(`/api/venues/${id}`),
-          api<{ presence: Presence | null }>("/api/presence/me"),
+          api<{
+            presence: Presence | null;
+            presences?: Presence[];
+            maxPresences?: number;
+          }>("/api/presence/me"),
         ]);
         if (!alive) return;
         setVenue(data.venue);
         setPromotions(data.promotions);
         setNews(data.news);
-        setPresence(presenceResponse.presence);
+        const list =
+          presenceResponse.presences ??
+          (presenceResponse.presence ? [presenceResponse.presence] : []);
+        setPresences(list);
+        setMaxPresences(
+          presenceResponse.maxPresences ??
+            maxActivePresencesForPlan(user?.premiumPlanId)
+        );
+        setPresence(
+          list.find((row) => row.venueId === id) ??
+            presenceResponse.presence
+        );
       } catch {
         if (alive) setError("Espacio no encontrado");
       } finally {
@@ -57,7 +79,7 @@ export function VenueDetailPage() {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, user?.premiumPlanId]);
 
   async function publish() {
     if (!venue) return;
@@ -68,7 +90,7 @@ export function VenueDetailPage() {
         method: "POST",
         body: JSON.stringify({ venueId: venue.id, hours }),
       });
-      navigate("/discover");
+      navigate(`/discover?venueId=${encodeURIComponent(venue.id)}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo publicar");
     } finally {
@@ -139,7 +161,18 @@ export function VenueDetailPage() {
     );
   }
 
-  const isPublishedHere = presence?.venueId === venue.id;
+  const isPublishedHere =
+    presence?.venueId === venue.id ||
+    presences.some((row) => row.venueId === venue.id);
+  const teleportPlus = planHasFeature(user?.premiumPlanId, "teleport_plus");
+  const activeCount = presences.length;
+  const nextSlot = activeCount + 1;
+  const atPresenceLimit =
+    teleportPlus && !isPublishedHere && activeCount >= maxPresences;
+  const publishLabel =
+    teleportPlus && !isPublishedHere
+      ? `Publicar perfil ${Math.min(nextSlot, maxPresences)}/${maxPresences}`
+      : "Publicar perfil";
   const hero = venueCoverSrc(venue);
   const following = Boolean(venue.isFollowing);
 
@@ -224,6 +257,15 @@ export function VenueDetailPage() {
                 <p className="venue-detail-followers mb-0">
                   {venue.followersCount}{" "}
                   {venue.followersCount === 1 ? "seguidor" : "seguidores"}
+                </p>
+              )}
+              {typeof venue.livePublishedCount === "number" && (
+                <p className="venue-detail-followers mb-0 text-primary">
+                  <i className="bi bi-eye me-1" aria-hidden="true" />
+                  {venue.livePublishedCount}{" "}
+                  {venue.livePublishedCount === 1
+                    ? "persona publicada"
+                    : "personas publicadas"}
                 </p>
               )}
               {(venue.ratingCount ?? 0) > 0 && venue.ratingAvg != null && (
@@ -326,10 +368,21 @@ export function VenueDetailPage() {
                   </div>
                 </div>
                 {error && <p className="text-danger small mb-2">{error}</p>}
-                <Link to="/discover" className="btn btn-primary w-100">
+                <Link
+                  to={`/discover?venueId=${encodeURIComponent(venue.id)}`}
+                  className="btn btn-primary w-100"
+                >
                   <i className="bi bi-fire me-1" aria-hidden="true" />
                   Ir al Discover
                 </Link>
+              </>
+            ) : discoverDisabled ? (
+              <>
+                <h2 className="venue-detail-label">Publicarme aquí</h2>
+                <p className="text-secondary small mb-0">
+                  Tenés Discover desactivado. Activalo en Configuración para
+                  publicarte en un Espacio.
+                </p>
               </>
             ) : (
               <>
@@ -359,12 +412,22 @@ export function VenueDetailPage() {
                 <button
                   className="btn btn-primary w-100"
                   type="button"
-                  disabled={busy}
+                  disabled={busy || atPresenceLimit}
                   onClick={() => void publish()}
                 >
                   <i className="bi bi-broadcast-pin me-1" aria-hidden="true" />
-                  {busy ? "Publicando…" : "Publicar perfil"}
+                  {busy
+                    ? "Publicando…"
+                    : atPresenceLimit
+                      ? `Límite ${maxPresences}/${maxPresences}`
+                      : publishLabel}
                 </button>
+                {atPresenceLimit && (
+                  <p className="text-secondary small mt-2 mb-0">
+                    Ya estás en {maxPresences} Espacios. Sacá uno desde Discover
+                    para publicar acá.
+                  </p>
+                )}
               </>
             )}
           </section>

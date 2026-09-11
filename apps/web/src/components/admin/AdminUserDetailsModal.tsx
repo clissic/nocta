@@ -141,6 +141,28 @@ export function AdminUserDetailsModal({ userId, onClose }: Props) {
                     <span>Premium</span>
                     <strong>{user.premium ? "Sí" : "No"}</strong>
                   </div>
+                  {user.premium && user.premiumPlanId && (
+                    <div className="admin-modal-field">
+                      <span>Plan</span>
+                      <strong>{user.premiumPlanId}</strong>
+                    </div>
+                  )}
+                  {user.premium && user.premiumExpiresAt && (
+                    <div className="admin-modal-field">
+                      <span>Vence</span>
+                      <strong>
+                        {new Date(user.premiumExpiresAt).toLocaleDateString(
+                          "es-UY"
+                        )}
+                      </strong>
+                    </div>
+                  )}
+                  {user.premium && !user.premiumExpiresAt && (
+                    <div className="admin-modal-field">
+                      <span>Vence</span>
+                      <strong>Sin vencimiento</strong>
+                    </div>
+                  )}
                   <div className="admin-modal-field">
                     <span>Perfil completo</span>
                     <strong>{user.profileComplete ? "Sí" : "No"}</strong>

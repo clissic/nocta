@@ -16,12 +16,19 @@ import { VenueRequest } from "../models/VenueRequest.js";
 import { VenueReview } from "../models/VenueReview.js";
 import {
   deleteClaimEvidence,
+  deleteIdentityVerificationFiles,
   deleteLocalUploads,
 } from "../uploads/index.js";
 import { recomputeVenueRatings } from "./venueRatings.js";
 
 export async function deleteUserAccount(user: UserDocument) {
   const userId = user._id;
+  const verification = user.identityVerification as
+    | {
+        documentFrontPath?: string | null;
+        selfieWithDocumentPath?: string | null;
+      }
+    | undefined;
   const [matches, follows, requests, reviews, posts] = await Promise.all([
     Match.find({ users: userId }).select("_id"),
     Follow.find({
@@ -57,6 +64,10 @@ export async function deleteUserAccount(user: UserDocument) {
   deleteClaimEvidence(
     requests.flatMap((request) => request.evidenceFiles ?? [])
   );
+  deleteIdentityVerificationFiles([
+    verification?.documentFrontPath,
+    verification?.selfieWithDocumentPath,
+  ]);
 
   await Promise.all([
     Message.deleteMany({ matchId: { $in: matchIds } }),

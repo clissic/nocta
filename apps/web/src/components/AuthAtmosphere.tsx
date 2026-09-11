@@ -1,5 +1,5 @@
 type AuthAtmosphereProps = {
-  variant: "login" | "register" | "verify";
+  variant: "login" | "register" | "verify" | "forgot" | "reset";
 };
 
 const CONTENT = {
@@ -26,6 +26,24 @@ const CONTENT = {
     title: "Confirmá que sos vos.",
     venue: "Código enviado",
     status: "Seguro · 15 minutos",
+    leftInitial: "N",
+    rightInitial: "✓",
+    link: "Cuenta protegida",
+  },
+  forgot: {
+    eyebrow: "Recuperá el acceso",
+    title: "Te mandamos un link seguro.",
+    venue: "Email de recuperación",
+    status: "Válido · 15 minutos",
+    leftInitial: "R",
+    rightInitial: "K",
+    link: "Solo vos",
+  },
+  reset: {
+    eyebrow: "Nueva clave",
+    title: "Elegí una contraseña fuerte.",
+    venue: "Restablecer acceso",
+    status: "Listo para entrar",
     leftInitial: "N",
     rightInitial: "✓",
     link: "Cuenta protegida",

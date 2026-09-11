@@ -6,26 +6,33 @@ import { ADMIN_NAV } from "./admin/AdminLayout";
 import { AppFooter } from "./AppFooter";
 import { NoctaWordmark } from "./NoctaWordmark";
 import { NotificationsBell } from "./NotificationsBell";
+import { BoostTopbarIndicator } from "./BoostTopbarIndicator";
 import { OverflowFade } from "./OverflowFade";
+import { UserAccountMenu } from "./UserAccountMenu";
 
 function linkClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : undefined;
 }
 
 function discoverClass({ isActive }: { isActive: boolean }) {
-  return ["nav-discover", isActive ? "active" : undefined].filter(Boolean).join(" ");
+  return ["nav-discover", isActive ? "active" : undefined]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, setUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin = user?.role === "admin";
+  const onAdminPanel = location.pathname.startsWith("/admin");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   useEffect(() => {
     setAdminMenuOpen(false);
+    setAccountMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -57,11 +64,16 @@ export function AppLayout() {
   }, [logoutOpen]);
 
   function isAdminItemActive(to: string, end?: boolean) {
-    if (to === "/admin/requests" && location.pathname.startsWith("/admin/venue-requests/")) {
+    if (
+      to === "/admin/requests" &&
+      location.pathname.startsWith("/admin/venue-requests/")
+    ) {
       return true;
     }
     if (end) return location.pathname === to;
-    return location.pathname === to || location.pathname.startsWith(`${to}/`);
+    return (
+      location.pathname === to || location.pathname.startsWith(`${to}/`)
+    );
   }
 
   function confirmLogout() {
@@ -116,127 +128,43 @@ export function AppLayout() {
         )
       : null;
 
-  const logoutBtn = (
+  const accountMenuBtn = (
     <button
-      className="btn btn-sm btn-link link-light text-decoration-none p-0 app-top-logout"
+      className="account-menu-toggle"
       type="button"
-      onClick={() => setLogoutOpen(true)}
-      aria-label="Salir"
+      aria-label="Abrir menú de cuenta"
+      aria-controls="account-drawer"
+      aria-expanded={accountMenuOpen}
+      onClick={() => {
+        setAdminMenuOpen(false);
+        setAccountMenuOpen(true);
+      }}
     >
-      <i className="bi bi-box-arrow-right fs-5" aria-hidden="true"></i>
+      <i className="bi bi-list" aria-hidden="true" />
     </button>
   );
 
-  if (isAdmin) {
-    return (
-      <div className="app-shell">
-        {logoutModal}
-        <div className="app-frame">
-          <header className="app-top">
-            <NavLink className="brand" to="/admin/overview">
-              <NoctaWordmark />
-            </NavLink>
-
-            <nav className="top-nav" aria-label="Navegación principal">
-              <NavLink className="nav-discover active" to="/admin/overview">
-                <i className="bi bi-shield-check" aria-hidden="true" />
-                Admin
-              </NavLink>
-            </nav>
-
-            <div className="app-top-actions">
-              <NotificationsBell />
-              {logoutBtn}
-              <button
-                className="admin-menu-toggle"
-                type="button"
-                aria-label="Abrir menú administrativo"
-                aria-controls="admin-drawer"
-                aria-expanded={adminMenuOpen}
-                onClick={() => setAdminMenuOpen(true)}
-              >
-                <i className="bi bi-list" aria-hidden="true" />
-              </button>
-            </div>
-          </header>
-          <button
-            className={`admin-drawer-backdrop${adminMenuOpen ? " is-open" : ""}`}
-            type="button"
-            aria-label="Cerrar menú administrativo"
-            tabIndex={adminMenuOpen ? 0 : -1}
-            onClick={() => setAdminMenuOpen(false)}
-          />
-          <aside
-            id="admin-drawer"
-            className={`admin-drawer${adminMenuOpen ? " is-open" : ""}`}
-            aria-label="Navegación administrativa"
-            aria-hidden={!adminMenuOpen}
-          >
-            <div className="admin-drawer-head">
-              <span>Panel admin</span>
-              <button
-                type="button"
-                aria-label="Cerrar menú administrativo"
-                onClick={() => setAdminMenuOpen(false)}
-              >
-                <i className="bi bi-x-lg" aria-hidden="true" />
-              </button>
-            </div>
-            <OverflowFade
-              className="admin-drawer-nav"
-              role="navigation"
-              aria-label="Navegación administrativa"
-            >
-              {ADMIN_NAV.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={"end" in item ? item.end : false}
-                  className={
-                    isAdminItemActive(item.to, "end" in item ? item.end : false)
-                      ? "is-active"
-                      : undefined
-                  }
-                  tabIndex={adminMenuOpen ? 0 : -1}
-                >
-                  <i className={`bi ${item.icon}`} aria-hidden="true" />
-                  <span>{item.label}</span>
-                  <i className="bi bi-chevron-right" aria-hidden="true" />
-                </NavLink>
-              ))}
-            </OverflowFade>
-            <button
-              className="admin-drawer-logout"
-              type="button"
-              tabIndex={adminMenuOpen ? 0 : -1}
-              onClick={() => {
-                setAdminMenuOpen(false);
-                setLogoutOpen(true);
-              }}
-            >
-              <i className="bi bi-box-arrow-right" aria-hidden="true" />
-              <span>Cerrar sesión</span>
-            </button>
-          </aside>
-          <main className="app-main">
-            <Outlet />
-            {location.pathname === "/profile" && <AppFooter />}
-          </main>
-        </div>
-      </div>
-    );
-  }
+  const accountMenu =
+    user != null ? (
+      <UserAccountMenu
+        user={user}
+        open={accountMenuOpen}
+        onClose={() => setAccountMenuOpen(false)}
+        onUserUpdated={setUser}
+        onRequestLogout={() => setLogoutOpen(true)}
+      />
+    ) : null;
 
   return (
     <div className="app-shell">
       {logoutModal}
+      {accountMenu}
       <div className="app-frame">
         <header className="app-top">
           <NavLink className="brand" to="/venues">
             <NoctaWordmark />
           </NavLink>
 
-          {/* Tablet + desktop */}
           <nav className="top-nav" aria-label="Navegación principal">
             <NavLink to="/venues" className={linkClass}>
               <i className="bi bi-geo-alt" aria-hidden="true" />
@@ -261,18 +189,92 @@ export function AppLayout() {
           </nav>
 
           <div className="app-top-actions">
+            <BoostTopbarIndicator />
             <NotificationsBell />
-            {logoutBtn}
+            {accountMenuBtn}
+            {isAdmin && onAdminPanel ? (
+              <button
+                className="admin-menu-toggle"
+                type="button"
+                aria-label="Abrir menú del Panel"
+                aria-controls="admin-drawer"
+                aria-expanded={adminMenuOpen}
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setAdminMenuOpen(true);
+                }}
+              >
+                <i className="bi bi-sliders" aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
         </header>
+
+        {isAdmin ? (
+          <>
+            <button
+              className={`admin-drawer-backdrop${adminMenuOpen ? " is-open" : ""}`}
+              type="button"
+              aria-label="Cerrar menú del Panel"
+              tabIndex={adminMenuOpen ? 0 : -1}
+              onClick={() => setAdminMenuOpen(false)}
+            />
+            <aside
+              id="admin-drawer"
+              className={`admin-drawer${adminMenuOpen ? " is-open" : ""}`}
+              aria-label="Navegación del Panel"
+              aria-hidden={!adminMenuOpen}
+            >
+              <div className="admin-drawer-head">
+                <span>Panel</span>
+                <button
+                  type="button"
+                  aria-label="Cerrar menú del Panel"
+                  onClick={() => setAdminMenuOpen(false)}
+                >
+                  <i className="bi bi-x-lg" aria-hidden="true" />
+                </button>
+              </div>
+              <OverflowFade
+                className="admin-drawer-nav"
+                role="navigation"
+                aria-label="Navegación del Panel"
+              >
+                {ADMIN_NAV.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={"end" in item ? item.end : false}
+                    className={
+                      isAdminItemActive(
+                        item.to,
+                        "end" in item ? item.end : false
+                      )
+                        ? "is-active"
+                        : undefined
+                    }
+                    tabIndex={adminMenuOpen ? 0 : -1}
+                  >
+                    <i className={`bi ${item.icon}`} aria-hidden="true" />
+                    <span>{item.label}</span>
+                    <i className="bi bi-chevron-right" aria-hidden="true" />
+                  </NavLink>
+                ))}
+              </OverflowFade>
+            </aside>
+          </>
+        ) : null}
 
         <main className="app-main">
           <Outlet />
           {location.pathname === "/profile" && <AppFooter />}
         </main>
 
-        {/* Solo mobile */}
-        <nav className="tab-bar" aria-label="Navegación móvil">
+        <nav
+          className={`tab-bar${onAdminPanel ? " d-none" : ""}`}
+          aria-label="Navegación móvil"
+          aria-hidden={onAdminPanel}
+        >
           <NavLink to="/venues" className={linkClass}>
             <i className="bi bi-geo-alt" aria-hidden="true" />
             Espacios

@@ -31,11 +31,7 @@ export function AuthCallbackPage() {
         clearSuspensionNotice();
         setUser(data.user);
         navigate(
-          data.user.role === "admin"
-            ? "/admin"
-            : data.user.profileComplete
-              ? "/"
-              : "/onboarding",
+          data.user.profileComplete ? "/" : "/onboarding",
           { replace: true }
         );
       } catch (err) {

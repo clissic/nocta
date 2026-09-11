@@ -204,7 +204,21 @@ export function ProfilePage() {
               )}
               <div className="profile-name-row">
                 <div className="min-w-0">
-                  <h1 className="app-title h3 mb-0 text-white">{profile.name}</h1>
+                  <h1 className="app-title h3 mb-0 text-white d-flex align-items-center gap-2 flex-wrap">
+                    <span>{profile.name}</span>
+                    {user.identityVerified && (
+                      <span
+                        className="profile-verified-badge"
+                        title="Cuenta verificada"
+                      >
+                        <i
+                          className="bi bi-patch-check-fill"
+                          aria-hidden="true"
+                        />
+                        <span className="visually-hidden">Verificado</span>
+                      </span>
+                    )}
+                  </h1>
                   {(age != null || profile.heightCm) && (
                     <p className="profile-meta mb-0 text-white-50">
                       {[age, profile.heightCm ? `${profile.heightCm} cm` : null]
@@ -304,7 +318,21 @@ export function ProfilePage() {
             )}
             <div className="profile-name-row d-none d-md-flex">
               <div className="min-w-0">
-                <h1 className="app-title h3 mb-0">{profile.name}</h1>
+                <h1 className="app-title h3 mb-0 d-flex align-items-center gap-2 flex-wrap">
+                  <span>{profile.name}</span>
+                  {user.identityVerified && (
+                    <span
+                      className="profile-verified-badge"
+                      title="Cuenta verificada"
+                    >
+                      <i
+                        className="bi bi-patch-check-fill"
+                        aria-hidden="true"
+                      />
+                      <span className="visually-hidden">Verificado</span>
+                    </span>
+                  )}
+                </h1>
                 {(age != null || profile.heightCm) && (
                   <p className="profile-meta mb-0 text-secondary">
                     {[age, profile.heightCm ? `${profile.heightCm} cm` : null]

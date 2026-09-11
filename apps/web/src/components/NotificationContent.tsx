@@ -15,10 +15,13 @@ const NOTIFICATION_ICONS: Record<NotificationType, string> = {
   venue_new_review: "bi-chat-square-heart-fill",
   presence_expired: "bi-clock-history",
   likes_recharged: "bi-lightning-charge-fill",
+  premium_activated: "bi-moon-stars-fill",
   venue_request_resolved: "bi-clipboard-check-fill",
   report_created: "bi-flag-fill",
   report_resolved: "bi-shield-check",
   followed_presence: "bi-geo-alt-fill",
+  identity_verification_approved: "bi-patch-check-fill",
+  identity_verification_rejected: "bi-person-x-fill",
 };
 
 function actorName(item: NotificationItem): string | null {

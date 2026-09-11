@@ -11,12 +11,14 @@ import type { ActivityEventDocument } from "../models/ActivityEvent.js";
 import {
   DAILY_LIKE_LIMIT,
   SOCIAL_NETWORKS,
+  planHasFeature,
   type ActivityType,
   type PromoPurchaseStatus,
 } from "@nocta/shared";
 import { refId } from "./ids.js";
 import { resolveShowActivityToFollowers } from "./activityVisibility.js";
 import { getActiveSuspension } from "./moderation.js";
+import { isPremiumActive } from "./premium.js";
 import { config } from "../config.js";
 
 export function publicAssetUrl(url?: string | null) {
@@ -111,19 +113,83 @@ export function serializeUser(user: UserDocument) {
       }
     : null;
 
+  const premiumActive = isPremiumActive(user);
+  const verification = user.identityVerification as
+    | {
+        status?: string;
+        rejectionReason?: string | null;
+        submittedAt?: Date | null;
+      }
+    | null
+    | undefined;
+  const verificationStatus =
+    verification?.status === "pending" ||
+    verification?.status === "approved" ||
+    verification?.status === "rejected"
+      ? verification.status
+      : "none";
+  const identityVerified = verificationStatus === "approved";
+
   return {
     id: user._id.toString(),
     email: user.email,
     role: user.role,
     profile,
     profileComplete: Boolean(user.profileComplete),
-    premium: Boolean(user.premium),
-    remainingLikes: user.premium
+    premium: premiumActive,
+    premiumPlanId: premiumActive
+      ? (user.premiumPlanId as string | undefined)
+      : undefined,
+    premiumExpiresAt:
+      premiumActive && user.premiumExpiresAt
+        ? user.premiumExpiresAt.toISOString()
+        : premiumActive
+          ? null
+          : undefined,
+    premiumPeriodMonths: premiumActive
+      ? (user.premiumPeriodMonths as number | undefined)
+      : undefined,
+    premiumSubscriptionStatus:
+      (user.premiumSubscriptionStatus as string | undefined) || "none",
+    premiumCancelAtPeriodEnd: Boolean(
+      premiumActive && user.premiumCancelAtPeriodEnd
+    ),
+    premiumNextPaymentAt:
+      premiumActive && user.premiumNextPaymentAt
+        ? user.premiumNextPaymentAt.toISOString()
+        : null,
+    rogueMode: Boolean(premiumActive && user.rogueMode),
+    teleportMode: Boolean(premiumActive && user.teleportMode),
+    spyMode: Boolean(
+      premiumActive && planHasFeature(String(user.premiumPlanId), "spy_mode")
+    ),
+    discoverDisabled: Boolean(user.discoverDisabled),
+    teleportCity:
+      premiumActive &&
+      user.teleportCity &&
+      typeof (user.teleportCity as { lat?: number }).lat === "number" &&
+      typeof (user.teleportCity as { lng?: number }).lng === "number"
+        ? {
+            country: String((user.teleportCity as { country: string }).country),
+            city: String((user.teleportCity as { city: string }).city),
+            lat: (user.teleportCity as { lat: number }).lat,
+            lng: (user.teleportCity as { lng: number }).lng,
+          }
+        : undefined,
+    remainingLikes: premiumActive
       ? null
       : (user.remainingLikes ?? DAILY_LIKE_LIMIT),
     likesRechargeAt:
-      !user.premium && user.likesRechargeAt
+      !premiumActive && user.likesRechargeAt
         ? user.likesRechargeAt.toISOString()
+        : null,
+    boostsRemaining: premiumActive ? user.boostsRemaining ?? 0 : 0,
+    heartshotsRemaining: premiumActive ? user.heartshotsRemaining ?? 0 : 0,
+    boostExpiresAt:
+      premiumActive &&
+      user.boostExpiresAt &&
+      user.boostExpiresAt.getTime() > Date.now()
+        ? user.boostExpiresAt.toISOString()
         : null,
     emailVerified: Boolean(user.emailVerified),
     followersCount: user.followersCount ?? 0,
@@ -131,6 +197,18 @@ export function serializeUser(user: UserDocument) {
     followingVenuesCount: user.followingVenuesCount ?? 0,
     autoAcceptFollowRequests: Boolean(user.autoAcceptFollowRequests),
     showActivityToFollowers: resolveShowActivityToFollowers(user),
+    marketingEmailsOptIn: Boolean(user.marketingEmailsOptIn),
+    identityVerified,
+    identityVerification: {
+      status: verificationStatus,
+      rejectionReason:
+        verificationStatus === "rejected" && verification?.rejectionReason
+          ? String(verification.rejectionReason)
+          : undefined,
+      submittedAt: verification?.submittedAt
+        ? verification.submittedAt.toISOString()
+        : undefined,
+    },
     moderationStatus: suspension ? "suspended" : "active",
     suspension: suspension
       ? {
@@ -185,6 +263,9 @@ export function serializePublicUser(
     isFollowing: opts?.isFollowing,
     isFollower: opts?.isFollower,
     isFollowRequested: opts?.isFollowRequested,
+    identityVerified:
+      (user.identityVerification as { status?: string } | null | undefined)
+        ?.status === "approved",
   };
 }
 
@@ -209,6 +290,7 @@ export function serializeVenue(
     isFollowing?: boolean;
     owner?: { id: string; name: string; photo?: string };
     myReview?: ReturnType<typeof serializeVenueReview>;
+    livePublishedCount?: number;
   }
 ) {
   const loc = venue.location;
@@ -244,6 +326,7 @@ export function serializeVenue(
     ratingAvg,
     ratingCount,
     myReview: opts?.myReview,
+    livePublishedCount: opts?.livePublishedCount,
     createdAt: venue.createdAt.toISOString(),
     updatedAt: venue.updatedAt.toISOString(),
   };

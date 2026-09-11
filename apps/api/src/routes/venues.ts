@@ -1,10 +1,9 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import {
   DEFAULT_VENUE_COUNTRY,
   DEFAULT_URUGUAY_CITY,
   ENABLED_VENUE_COUNTRIES,
-  isVenueCity,
   MAX_VENUE_CLAIM_FILE_BYTES,
   MAX_VENUE_CLAIM_FILES,
   MAX_REVIEW_BODY_LENGTH,
@@ -14,6 +13,7 @@ import {
   REVIEWS_PAGE_SIZE,
   VENUE_TYPES,
   VENUES_PAGE_SIZE,
+  planHasFeature,
 } from "@nocta/shared";
 import { Venue } from "../models/Venue.js";
 import { Promotion } from "../models/Promotion.js";
@@ -25,6 +25,7 @@ import {
 import { VenueReview } from "../models/VenueReview.js";
 import { Follow } from "../models/Follow.js";
 import { User } from "../models/User.js";
+import { Presence } from "../models/Presence.js";
 import {
   requireAuth,
   requireAdmin,
@@ -44,6 +45,8 @@ import {
   serializeVenueReview,
 } from "../utils/serialize.js";
 import { isObjectId, paramId } from "../utils/ids.js";
+import { isActiveAppCity } from "../utils/appCities.js";
+import { isPremiumActive } from "../utils/premium.js";
 import {
   geocodeAddress,
   resolveVenueLocation,
@@ -132,14 +135,6 @@ const venueRequestSchema = z.object({
   ),
   location: locationSchema,
   geocodedAddress: z.string().min(3).max(300),
-}).superRefine((data, ctx) => {
-  if (!isVenueCity(data.country, data.city)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["city"],
-      message: "La ciudad no corresponde al país seleccionado",
-    });
-  }
 });
 
 function parseRequestBody(raw: Record<string, unknown>) {
@@ -210,25 +205,15 @@ const venuePatchSchema = venueSchema.partial().extend({
   ownerId: z.string().min(1).optional().nullable(),
 });
 
-const venueManageSchema = z
-  .object({
-    name: z.string().trim().min(2).max(120),
-    type: z.enum(VENUE_TYPES),
-    address: z.string().trim().min(5).max(200),
-    country: z.enum(enabledVenueCountries),
-    city: z.string().trim().min(2),
-    description: z.string().trim().max(1000).optional(),
-    location: locationSchema,
-  })
-  .superRefine((data, ctx) => {
-    if (!isVenueCity(data.country, data.city)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["city"],
-        message: "La ciudad no corresponde al país seleccionado",
-      });
-    }
-  });
+const venueManageSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  type: z.enum(VENUE_TYPES),
+  address: z.string().trim().min(5).max(200),
+  country: z.enum(enabledVenueCountries),
+  city: z.string().trim().min(2),
+  description: z.string().trim().max(1000).optional(),
+  location: locationSchema,
+});
 
 function parseVenueCreateBody(raw: Record<string, unknown>) {
   let location: unknown = raw.location;
@@ -369,6 +354,8 @@ const listQuerySchema = z.object({
     .default(VENUES_PAGE_SIZE),
   type: z.enum(VENUE_TYPES).optional(),
   q: z.string().trim().max(120).optional(),
+  country: z.string().trim().min(2).max(60),
+  city: z.string().trim().min(2).max(80),
 });
 
 async function resolveOwnerId(ownerId: string) {
@@ -378,16 +365,23 @@ async function resolveOwnerId(ownerId: string) {
   return owner;
 }
 
-router.get("/", async (req, res) => {
+router.get("/", optionalAuth, async (req: AuthedRequest, res) => {
   const parsed = listQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: "Parámetros inválidos" });
   }
 
-  const { page, limit, type } = parsed.data;
+  const { page, limit, type, country, city } = parsed.data;
+  if (!(await isActiveAppCity(country, city))) {
+    return res.status(400).json({ error: "Ciudad no habilitada" });
+  }
   const q = parsed.data.q?.trim();
 
-  const filter: Record<string, unknown> = { active: true };
+  const filter: Record<string, unknown> = {
+    active: true,
+    country,
+    city,
+  };
   if (type) filter.type = type;
   if (q) {
     const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -408,8 +402,40 @@ router.get("/", async (req, res) => {
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
 
+  const viewer = req.user;
+  const showSpyCounts = Boolean(
+    viewer &&
+      isPremiumActive(viewer) &&
+      planHasFeature(String(viewer.premiumPlanId), "spy_mode")
+  );
+
+  let liveByVenue = new Map<string, number>();
+  if (showSpyCounts && venues.length) {
+    const counts = await Presence.aggregate<{
+      _id: unknown;
+      count: number;
+    }>([
+      {
+        $match: {
+          status: "active",
+          venueId: { $in: venues.map((v) => v._id) },
+        },
+      },
+      { $group: { _id: "$venueId", count: { $sum: 1 } } },
+    ]);
+    liveByVenue = new Map(
+      counts.map((row) => [String(row._id), row.count])
+    );
+  }
+
   return res.json({
-    venues: venues.map((v) => serializeVenue(v)),
+    venues: venues.map((v) =>
+      serializeVenue(v, {
+        livePublishedCount: showSpyCounts
+          ? liveByVenue.get(v._id.toString()) ?? 0
+          : undefined,
+      })
+    ),
     pagination: {
       page,
       limit,
@@ -747,6 +773,12 @@ router.post(
         details: parsed.error.flatten(),
       });
     }
+    if (!(await isActiveAppCity(parsed.data.country, parsed.data.city))) {
+      cleanup();
+      return res.status(400).json({
+        error: "La ciudad no corresponde al país seleccionado",
+      });
+    }
 
     const evidence = collectClaimEvidence(req);
     if (!evidence.ok) {
@@ -986,12 +1018,26 @@ router.get("/:id", optionalAuth, async (req: AuthedRequest, res) => {
       })
     : undefined;
 
+  const showSpyCounts = Boolean(
+    req.user &&
+      isPremiumActive(req.user) &&
+      planHasFeature(String(req.user.premiumPlanId), "spy_mode")
+  );
+  let livePublishedCount: number | undefined;
+  if (showSpyCounts) {
+    livePublishedCount = await Presence.countDocuments({
+      venueId: venue._id,
+      status: "active",
+    });
+  }
+
   return res.json({
     venue: serializeVenue(venue, {
       followersCount,
       isFollowing: following,
       owner: ownerSummary,
       myReview,
+      livePublishedCount,
     }),
     promotions: promotions.map((p) => serializePromotion(p)),
     news: news.map((n) => serializeVenueNews(n)),
@@ -1070,6 +1116,18 @@ router.patch(
         error: "Datos inválidos",
         details: parsed.error.flatten(),
       });
+    }
+
+    const cityChanged =
+      parsed.data.city !== venue.city ||
+      parsed.data.country !== (venue.country ?? DEFAULT_VENUE_COUNTRY);
+    if (cityChanged) {
+      if (!(await isActiveAppCity(parsed.data.country, parsed.data.city))) {
+        cleanupNewUpload();
+        return res.status(400).json({
+          error: "La ciudad no corresponde al país seleccionado",
+        });
+      }
     }
 
     const previousUploadedPhoto = venue.photos?.find((photo) =>
@@ -1651,7 +1709,7 @@ router.post(
         details: parsed.error.flatten(),
       });
     }
-    if (!isVenueCity(parsed.data.country, parsed.data.city)) {
+    if (!(await isActiveAppCity(parsed.data.country, parsed.data.city))) {
       cleanupNewUpload();
       return res.status(400).json({
         error: "La ciudad no corresponde al país seleccionado",
@@ -1718,7 +1776,10 @@ router.patch(
     const nextCity = parsed.data.city ?? existing.city;
     const nextCountry =
       parsed.data.country ?? existing.country ?? DEFAULT_VENUE_COUNTRY;
-    if (!isVenueCity(nextCountry, nextCity)) {
+    const cityChanged =
+      nextCity !== existing.city ||
+      nextCountry !== (existing.country ?? DEFAULT_VENUE_COUNTRY);
+    if (cityChanged && !(await isActiveAppCity(nextCountry, nextCity))) {
       return res.status(400).json({
         error: "La ciudad no corresponde al país seleccionado",
       });

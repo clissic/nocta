@@ -6,12 +6,13 @@ import {
   type ReportStatus,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
-import { OverflowFade } from "../../components/OverflowFade";
 import { NoctaLoading } from "../../components/NoctaLoading";
+import { ManualSearchInput } from "../../components/ManualSearchInput";
 import {
   ADMIN_PAGE_SIZE,
   AdminPagination,
 } from "../../components/admin/AdminPagination";
+import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
 import { AdminUserDetailsModal } from "../../components/admin/AdminUserDetailsModal";
 import { AdminReportActionsModal } from "../../components/admin/AdminReportActionsModal";
 
@@ -25,6 +26,8 @@ const FILTERS: { value: ReportStatus | "all"; label: string; icon: string }[] = 
 export function AdminReportsPage() {
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [filter, setFilter] = useState<ReportStatus | "all">("open");
+  const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [page, setPage] = useState(1);
   const [totalReports, setTotalReports] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -43,6 +46,7 @@ export function AdminReportsPage() {
       limit: String(ADMIN_PAGE_SIZE),
     });
     if (filter !== "all") params.set("status", filter);
+    if (submittedQuery) params.set("q", submittedQuery);
     void api<{
       reports: AdminReport[];
       pagination: { total: number };
@@ -55,7 +59,7 @@ export function AdminReportsPage() {
         setError(err instanceof ApiError ? err.message : "No se pudo cargar")
       )
       .finally(() => setLoading(false));
-  }, [filter, page]);
+  }, [filter, page, submittedQuery]);
 
   const visible = reports;
 
@@ -94,8 +98,7 @@ export function AdminReportsPage() {
         </p>
       </div>
 
-      <OverflowFade
-        axis="x"
+      <div
         className="admin-filter-row"
         role="tablist"
         aria-label="Filtro de denuncias"
@@ -116,7 +119,21 @@ export function AdminReportsPage() {
             <span>{f.label}</span>
           </button>
         ))}
-      </OverflowFade>
+      </div>
+
+      <AdminFiltersAccordion activeCount={submittedQuery ? 1 : 0}>
+        <ManualSearchInput
+          className="admin-toolbar"
+          placeholder="Buscar por motivo, detalle o persona…"
+          ariaLabel="Buscar denuncias"
+          value={query}
+          onValueChange={setQuery}
+          onSearch={(value) => {
+            setSubmittedQuery(value);
+            setPage(1);
+          }}
+        />
+      </AdminFiltersAccordion>
 
       {error && <p className="text-danger small">{error}</p>}
       {loading ? (
@@ -124,8 +141,7 @@ export function AdminReportsPage() {
       ) : visible.length === 0 ? (
         <p className="text-secondary small mb-0">No hay denuncias en este filtro.</p>
       ) : (
-        <>
-          <div className="admin-list">
+        <div className="admin-list">
           {visible.map((r) => (
             <div key={r.id} className="admin-list-row admin-list-row-stack">
               <div className="admin-list-body min-w-0">
@@ -188,15 +204,16 @@ export function AdminReportsPage() {
               </div>
             </div>
           ))}
-          </div>
-          <AdminPagination
-            page={page}
-            totalItems={totalReports}
-            onPageChange={setPage}
-            label="Páginas de denuncias"
-          />
-        </>
+        </div>
       )}
+
+      <AdminPagination
+        page={page}
+        totalItems={totalReports}
+        onPageChange={setPage}
+        label="Páginas de denuncias"
+      />
+
       {selectedUserId && (
         <AdminUserDetailsModal
           userId={selectedUserId}

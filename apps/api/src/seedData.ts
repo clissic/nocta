@@ -1,12 +1,21 @@
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import type { Types } from "mongoose";
-import type { Interest, LookingFor, WorkStatus } from "@nocta/shared";
+import type { Interest, LookingFor, PremiumPeriodMonths, PremiumPlanId, WorkStatus } from "@nocta/shared";
+import {
+  monthlyBoostAllowance,
+  monthlyHeartshotAllowance,
+  PREMIUM_ALLOWANCE_CYCLE_DAYS,
+  premiumPeriodPriceUsd,
+} from "@nocta/shared";
 import { config } from "./config.js";
+import type { UserDocument } from "./models/User.js";
 import { User } from "./models/User.js";
 import { Venue } from "./models/Venue.js";
 import { Promotion } from "./models/Promotion.js";
 import { PromoPurchase } from "./models/PromoPurchase.js";
+import { PremiumPurchase } from "./models/PremiumPurchase.js";
+import { Ad } from "./models/Ad.js";
 import { Presence } from "./models/Presence.js";
 import { VenueNews } from "./models/VenueNews.js";
 import { VenueReview } from "./models/VenueReview.js";
@@ -52,6 +61,119 @@ export function isDemoUserEmail(email?: string | null) {
   return (DEMO_USER_EMAILS as readonly string[]).includes(email.trim().toLowerCase());
 }
 
+/** Cobros demo de Sofía (hoy + historial) para `/premium` y paginación. */
+const SOFIA_DEMO_PREMIUM_CHARGES = 25;
+
+const DEMO_ADS = [
+  {
+    slugKey: "demo-ad-redbull-night",
+    title: "Red Bull Night Fuel",
+    subtitle: "Energía para la madrugada",
+    body: "Llegá con todo a la pista. Buscá el stand Red Bull en los Espacios partner de esta semana.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=900",
+    ctaLabel: "Ver campaña",
+    ctaUrl: "https://www.redbull.com",
+    sponsorName: "Red Bull",
+    weight: 2,
+  },
+  {
+    slugKey: "demo-ad-uber-night",
+    title: "Uber · Volvé seguro",
+    subtitle: "Tu vuelta después del after",
+    body: "Pedí tu viaje desde el Espacio y llegá a casa sin vueltas. Promo nocturna en ciudades seleccionadas.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?w=900",
+    ctaLabel: "Abrir Uber",
+    ctaUrl: "https://www.uber.com",
+    sponsorName: "Uber",
+    weight: 2,
+  },
+  {
+    slugKey: "demo-ad-spotify-playlist",
+    title: "Playlist Nocta Official",
+    subtitle: "Lo que suena esta noche",
+    body: "House, techno y reggaetón curados para tu salida. Escuchá la playlist oficial de Nocta.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=900",
+    ctaLabel: "Escuchar",
+    ctaUrl: "https://open.spotify.com",
+    sponsorName: "Spotify",
+    weight: 1,
+  },
+] as const;
+
+async function ensureDemoAds() {
+  for (const demo of DEMO_ADS) {
+    await Ad.findOneAndUpdate(
+      { ctaUrl: demo.ctaUrl, title: demo.title },
+      {
+        title: demo.title,
+        subtitle: demo.subtitle,
+        body: demo.body,
+        imageUrl: demo.imageUrl,
+        ctaLabel: demo.ctaLabel,
+        ctaUrl: demo.ctaUrl,
+        sponsorName: demo.sponsorName,
+        active: true,
+        weight: demo.weight,
+      },
+      { upsert: true, new: true }
+    );
+  }
+}
+
+async function ensureSofiaPremiumPurchases(sofia: UserDocument | null) {
+  if (!sofia) return;
+
+  const periodMonths = 1 as const;
+  const amount = premiumPeriodPriceUsd(periodMonths);
+  const currency = config.mercadoPago.currency;
+  const now = new Date();
+
+  for (let i = 0; i < SOFIA_DEMO_PREMIUM_CHARGES; i++) {
+    const startsAt = new Date(now);
+    startsAt.setMonth(startsAt.getMonth() - i);
+    if (i === 0) {
+      startsAt.setHours(12, 0, 0, 0);
+    }
+
+    const endsAt = new Date(startsAt);
+    endsAt.setMonth(endsAt.getMonth() + periodMonths);
+
+    const mpPaymentId = `demo-sofia-premium-${i}`;
+    await PremiumPurchase.findOneAndUpdate(
+      { mpPaymentId },
+      {
+        userId: sofia._id,
+        planId: "nocta_2am",
+        periodMonths,
+        amount,
+        currency,
+        status: "approved",
+        kind: "charge",
+        mpPaymentId,
+        startsAt,
+        endsAt,
+      },
+      { upsert: true, new: true }
+    );
+  }
+
+  const latestEndsAt = new Date(now);
+  latestEndsAt.setHours(12, 0, 0, 0);
+  latestEndsAt.setMonth(latestEndsAt.getMonth() + periodMonths);
+
+  sofia.premium = true;
+  sofia.premiumPlanId = "nocta_2am";
+  sofia.premiumPeriodMonths = periodMonths;
+  sofia.premiumSubscriptionStatus = "authorized";
+  sofia.premiumCancelAtPeriodEnd = false;
+  sofia.premiumExpiresAt = latestEndsAt;
+  sofia.premiumNextPaymentAt = latestEndsAt;
+  await sofia.save();
+}
+
 type DemoUser = {
   email: string;
   password: string;
@@ -69,6 +191,8 @@ type DemoUser = {
   heightCm: number;
   photoOffset: number;
   premium?: boolean;
+  premiumPlanId?: PremiumPlanId;
+  premiumPeriodMonths?: PremiumPeriodMonths;
   livesIn: { country: string; city: string };
   sexualOrientation: "heterosexual" | "bisexual" | "gay";
   languages: ("espanol" | "ingles" | "portugues")[];
@@ -98,6 +222,8 @@ const DEMO_USERS: DemoUser[] = [
     heightCm: 168,
     photoOffset: 1,
     premium: true,
+    premiumPlanId: "nocta_2am",
+    premiumPeriodMonths: 1 as const,
     livesIn: {
       country: "Argentina",
       city: "Buenos Aires",
@@ -127,6 +253,9 @@ const DEMO_USERS: DemoUser[] = [
     bio: "Diseñador. Busco buena conversación antes del after.",
     heightCm: 182,
     photoOffset: 0,
+    premium: true,
+    premiumPlanId: "nocta_4am",
+    premiumPeriodMonths: 1 as const,
     livesIn: {
       country: "Uruguay",
       city: "Montevideo",
@@ -156,6 +285,9 @@ const DEMO_USERS: DemoUser[] = [
     bio: "Si hay reggaetón, estoy.",
     heightCm: 165,
     photoOffset: 5,
+    premium: true,
+    premiumPlanId: "nocta_6am",
+    premiumPeriodMonths: 1 as const,
     livesIn: {
       country: "Uruguay",
       city: "Montevideo",
@@ -306,6 +438,33 @@ export async function seedDemoData() {
         profileComplete: true,
         emailVerified: true,
         premium: Boolean(demo.premium),
+        premiumPlanId: demo.premium ? demo.premiumPlanId : undefined,
+        premiumExpiresAt: demo.premium ? null : undefined,
+        premiumPeriodMonths: demo.premium ? demo.premiumPeriodMonths : undefined,
+        premiumSubscriptionStatus: demo.premium ? "authorized" : "none",
+        premiumCancelAtPeriodEnd: false,
+        boostsRemaining:
+          demo.premium && demo.premiumPlanId
+            ? monthlyBoostAllowance(demo.premiumPlanId)
+            : 0,
+        heartshotsRemaining:
+          demo.premium && demo.premiumPlanId
+            ? monthlyHeartshotAllowance(demo.premiumPlanId)
+            : 0,
+        premiumAllowanceCyclesLeft:
+          demo.premium && demo.premiumPeriodMonths
+            ? Math.max(0, demo.premiumPeriodMonths - 1)
+            : 0,
+        premiumAllowanceNextAt:
+          demo.premium &&
+          demo.premiumPeriodMonths &&
+          demo.premiumPeriodMonths > 1
+            ? new Date(
+                Date.now() + PREMIUM_ALLOWANCE_CYCLE_DAYS * 24 * 60 * 60 * 1000
+              )
+            : null,
+        spyMode: demo.premiumPlanId === "nocta_6am",
+        teleportMode: Boolean(demo.premium),
         profile: {
           name: demo.name,
           birthDate: new Date(demo.birthDate),
@@ -353,6 +512,7 @@ export async function seedDemoData() {
   const mateo = await User.findOne({ email: "mateo@nocta.app" });
   const sofia = await User.findOne({ email: "sofia@nocta.app" });
   const valentina = await User.findOne({ email: "valentina@nocta.app" });
+  await ensureSofiaPremiumPurchases(sofia);
   const malafama = venues.find((v) => v.name === "Malafama");
   const volveMiNegra = venues.find((v) => v.name === "Volvé Mi Negra");
 
@@ -559,8 +719,10 @@ export async function seedDemoData() {
     }
   }
 
+  await ensureDemoAds();
+
   console.log(
-    "Usuarios demo (password Demo1234!): sofia@nocta.app, mateo@nocta.app, valentina@nocta.app — publicados en Jackson Bar (follows, reseñas y noticias para Muro)"
+    "Usuarios demo (password Demo1234!): sofia@nocta.app (2 AM), mateo@nocta.app (4 AM), valentina@nocta.app (6 AM) — publicados en Jackson Bar"
   );
 }
 
@@ -570,6 +732,8 @@ export async function seedDemoData() {
  * y limpia swipes/matches que involucren demos para que vuelvan al Discover.
  */
 export async function ensureDemoAccounts() {
+  await ensureDemoAds();
+
   const targets = [
     {
       email: config.adminEmail.toLowerCase(),
@@ -580,6 +744,8 @@ export async function ensureDemoAccounts() {
       email: d.email.toLowerCase(),
       password: d.password,
       premium: Boolean(d.premium),
+      premiumPlanId: d.premium ? d.premiumPlanId : undefined,
+      premiumPeriodMonths: d.premium ? d.premiumPeriodMonths : undefined,
     })),
   ];
 
@@ -605,6 +771,44 @@ export async function ensureDemoAccounts() {
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
     user.premium = target.premium;
+    if (target.premium && "premiumPlanId" in target && target.premiumPlanId) {
+      user.premiumPlanId = target.premiumPlanId;
+      if (!user.premiumExpiresAt) user.premiumExpiresAt = null;
+      if (
+        "premiumPeriodMonths" in target &&
+        target.premiumPeriodMonths
+      ) {
+        user.premiumPeriodMonths = target.premiumPeriodMonths;
+      }
+      if (!user.premiumSubscriptionStatus || user.premiumSubscriptionStatus === "none") {
+        user.premiumSubscriptionStatus = "authorized";
+      }
+      const period = (user.premiumPeriodMonths ?? 1) as PremiumPeriodMonths;
+      user.boostsRemaining = monthlyBoostAllowance(target.premiumPlanId);
+      user.heartshotsRemaining = monthlyHeartshotAllowance(
+        target.premiumPlanId
+      );
+      user.premiumAllowanceCyclesLeft = Math.max(0, period - 1);
+      user.premiumAllowanceNextAt =
+        period > 1
+          ? new Date(
+              Date.now() + PREMIUM_ALLOWANCE_CYCLE_DAYS * 24 * 60 * 60 * 1000
+            )
+          : null;
+      user.spyMode = target.premiumPlanId === "nocta_6am";
+      user.teleportMode = true;
+    } else if (!target.premium) {
+      user.premiumPlanId = undefined;
+      user.premiumExpiresAt = null;
+      user.premiumPeriodMonths = undefined;
+      user.premiumSubscriptionStatus = "none";
+      user.premiumCancelAtPeriodEnd = false;
+      user.boostsRemaining = 0;
+      user.heartshotsRemaining = 0;
+      user.premiumAllowanceCyclesLeft = 0;
+      user.premiumAllowanceNextAt = null;
+      user.spyMode = false;
+    }
 
     if (user.isModified()) {
       await user.save();
@@ -614,6 +818,11 @@ export async function ensureDemoAccounts() {
 
   if (updated > 0) {
     console.log(`Cuentas demo/admin resincronizadas: ${updated}`);
+  }
+
+  const sofiaDemo = await User.findOne({ email: "sofia@nocta.app" });
+  if (sofiaDemo) {
+    await ensureSofiaPremiumPurchases(sofiaDemo);
   }
 
   if (demoIds.length === 0) return;

@@ -10,6 +10,9 @@ import {
   MAX_PHOTOS,
   OAUTH_PROVIDERS,
   PETS,
+  PREMIUM_PERIOD_MONTHS,
+  PREMIUM_PLAN_IDS,
+  PREMIUM_SUBSCRIPTION_STATUSES,
   SEXUAL_ORIENTATIONS,
   SUSPENSION_DURATIONS,
   WORK_STATUS,
@@ -109,8 +112,43 @@ const userSchema = new Schema(
     role: { type: String, enum: ["user", "admin"], default: "user" },
     profile: { type: profileSchema, default: null },
     profileComplete: { type: Boolean, default: false },
-    /** Suscripción premium (MVP: flag booleano; pagos diferidos). */
+    /** Suscripción premium (sincronizada con premiumExpiresAt vía isPremiumActive). */
     premium: { type: Boolean, default: false },
+    premiumPlanId: { type: String, enum: PREMIUM_PLAN_IDS },
+    premiumExpiresAt: { type: Date, default: null },
+    premiumPeriodMonths: {
+      type: Number,
+      enum: [...PREMIUM_PERIOD_MONTHS],
+    },
+    premiumSubscriptionStatus: {
+      type: String,
+      enum: PREMIUM_SUBSCRIPTION_STATUSES,
+      default: "none",
+    },
+    premiumCancelAtPeriodEnd: { type: Boolean, default: false },
+    premiumNextPaymentAt: { type: Date, default: null },
+    mpPreapprovalId: { type: String, index: true },
+    /** Solo visible en Discover para quienes te dieron like (requiere Premium). */
+    rogueMode: { type: Boolean, default: false },
+    /** Explorar Espacios de otra ciudad (requiere Premium). */
+    teleportMode: { type: Boolean, default: false },
+    /** Ver conteo de personas publicadas por Espacio (requiere 6 AM + toggle). */
+    spyMode: { type: Boolean, default: false },
+    /**
+     * Si true, no puede publicarse en Espacios ni aparecer en Discover.
+     */
+    discoverDisabled: { type: Boolean, default: false },
+    teleportCity: {
+      type: new Schema(
+        {
+          country: { type: String, trim: true, required: true },
+          city: { type: String, trim: true, required: true },
+          lat: { type: Number, required: true },
+          lng: { type: Number, required: true },
+        },
+        { _id: false }
+      ),
+    },
     /** Likes disponibles; el cooldown empieza al consumir el último. */
     remainingLikes: {
       type: Number,
@@ -119,6 +157,16 @@ const userSchema = new Schema(
       default: DAILY_LIKE_LIMIT,
     },
     likesRechargeAt: { type: Date, default: null },
+    /** Cupos Boost (4 AM+); se cargan cada 30 días según el plan. */
+    boostsRemaining: { type: Number, min: 0, default: 0 },
+    /** Cupos Heartshot (4 AM+). */
+    heartshotsRemaining: { type: Number, min: 0, default: 0 },
+    /** Próxima recarga de Boost/Heartshot (ciclo de 30 días). */
+    premiumAllowanceNextAt: { type: Date, default: null },
+    /** Recargas mensuales pendientes (después de la carga inicial al comprar). */
+    premiumAllowanceCyclesLeft: { type: Number, min: 0, default: 0 },
+    /** Fin del Boost activo en Discover. */
+    boostExpiresAt: { type: Date, default: null },
     emailVerified: { type: Boolean, default: false },
     emailVerificationToken: { type: String, index: true },
     emailVerificationExpires: { type: Date },
@@ -140,9 +188,11 @@ const userSchema = new Schema(
      * Si true, quienes me siguen ven mi actividad.
      * Legado: `hideActivityFromFollowers` se interpreta al serializar si falta este campo.
      */
-    showActivityToFollowers: { type: Boolean, default: true },
+    showActivityToFollowers: { type: Boolean, default: false },
     /** @deprecated Preferir showActivityToFollowers. */
     hideActivityFromFollowers: { type: Boolean },
+    /** Opt-in a comunicaciones promocionales por email. */
+    marketingEmailsOptIn: { type: Boolean, default: false },
     moderationStatus: {
       type: String,
       enum: ["active", "suspended"],
@@ -155,12 +205,32 @@ const userSchema = new Schema(
     suspendedBy: { type: Schema.Types.ObjectId, ref: "User" },
     suspensionReportId: { type: Schema.Types.ObjectId, ref: "Report" },
     suspensionReason: { type: String, trim: true, maxlength: 1000 },
+    identityVerification: {
+      type: new Schema(
+        {
+          status: {
+            type: String,
+            enum: ["none", "pending", "approved", "rejected"],
+            default: "none",
+          },
+          documentFrontPath: { type: String, trim: true },
+          selfieWithDocumentPath: { type: String, trim: true },
+          submittedAt: { type: Date },
+          reviewedAt: { type: Date },
+          reviewedById: { type: Schema.Types.ObjectId, ref: "User" },
+          rejectionReason: { type: String, trim: true, maxlength: 1000 },
+        },
+        { _id: false }
+      ),
+      default: () => ({ status: "none" }),
+    },
   },
   { timestamps: true }
 );
 
 userSchema.index({ "oauthAccounts.provider": 1, "oauthAccounts.providerUserId": 1 });
 userSchema.index({ moderationStatus: 1, suspendedUntil: 1 });
+userSchema.index({ "identityVerification.status": 1, "identityVerification.submittedAt": -1 });
 
 export type UserDocument = HydratedDocument<InferSchemaType<typeof userSchema>>;
 

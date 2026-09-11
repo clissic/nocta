@@ -18,8 +18,15 @@ import {
   WORK_STATUS_LABELS,
   ZODIAC_INSIGHTS,
   ZODIAC_LABELS,
+  VENUE_TYPE_LABELS,
+  planHasFeature,
+  AD_SWIPE_INTERVAL_MIN,
+  AD_SWIPE_INTERVAL_MAX,
+  isDiscoverAdCard,
   type Drinking,
+  type DiscoverAdCard,
   type DiscoverCard,
+  type DiscoverDeckItem,
   type DiscoverFeedResponse,
   type DiscoverRewindResponse,
   type DiscoverSwipeResponse,
@@ -40,10 +47,13 @@ import { OverflowFade } from "../components/OverflowFade";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "../components/ToastProvider";
 import { NoctaLoading } from "../components/NoctaLoading";
-import {
-  DiscoverSafetyModal,
+import { DiscoverSafetyModal,
   type DiscoverSafetyAction,
 } from "../components/DiscoverSafetyModal";
+import { PremiumPackagesModal } from "../components/PremiumPackagesModal";
+import { VenueTrustBadge } from "../components/VenueTrustBadge";
+import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
+import { useAuth } from "../auth/AuthContext";
 
 type MatchFlash = {
   matchId: string;
@@ -51,7 +61,17 @@ type MatchFlash = {
   photo?: string;
 };
 
+function nextAdThreshold() {
+  return (
+    AD_SWIPE_INTERVAL_MIN +
+    Math.floor(
+      Math.random() * (AD_SWIPE_INTERVAL_MAX - AD_SWIPE_INTERVAL_MIN + 1)
+    )
+  );
+}
+
 type SwipeDirection = "like" | "pass";
+type ExitDirection = SwipeDirection | "heartshot";
 
 type PhotoExtra = {
   icon: string;
@@ -226,10 +246,14 @@ const SWIPE_EXIT_MS = 240;
 export function DiscoverPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  const { user, setUser } = useAuth();
   const [searchParams] = useSearchParams();
   const focusedUserId = searchParams.get("userId");
-  const [cards, setCards] = useState<DiscoverCard[]>([]);
+  const focusedVenueId = searchParams.get("venueId");
+  const [cards, setCards] = useState<DiscoverDeckItem[]>([]);
   const [presence, setPresence] = useState<Presence | null>(null);
+  const [presences, setPresences] = useState<Presence[]>([]);
+  const [maxPresences, setMaxPresences] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [matchFlash, setMatchFlash] = useState<MatchFlash | null>(null);
@@ -237,13 +261,15 @@ export function DiscoverPage() {
     null
   );
   const [likeLimitOpen, setLikeLimitOpen] = useState(false);
+  const [premiumModalOpen, setPremiumModalOpen] = useState(false);
   const [countdownNow, setCountdownNow] = useState(Date.now());
   const [photoIdx, setPhotoIdx] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const [dragX, setDragX] = useState(0);
+  const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [settling, setSettling] = useState(false);
-  const [exitDirection, setExitDirection] = useState<SwipeDirection | null>(
+  const [exitDirection, setExitDirection] = useState<ExitDirection | null>(
     null
   );
   const [canRewind, setCanRewind] = useState(false);
@@ -258,6 +284,7 @@ export function DiscoverPage() {
     null
   );
   const [rewindBusy, setRewindBusy] = useState(false);
+  const [boostBusy, setBoostBusy] = useState(false);
   const [safetyBusy, setSafetyBusy] = useState(false);
   const [safetyDialog, setSafetyDialog] = useState<{
     action: DiscoverSafetyAction;
@@ -268,51 +295,98 @@ export function DiscoverPage() {
   const dragStartX = useRef(0);
   const dragStartY = useRef(0);
   const dragXRef = useRef(0);
+  const dragYRef = useRef(0);
+  const dragAxisRef = useRef<"x" | "y" | null>(null);
   const activePointerId = useRef<number | null>(null);
   const didDrag = useRef(false);
   const settleTimer = useRef<number | null>(null);
   const cardScrollRef = useRef<HTMLDivElement | null>(null);
+  const swipesUntilAdRef = useRef(nextAdThreshold());
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const presenceRes = await api<{ presence: Presence | null }>("/api/presence/me");
-      setPresence(presenceRes.presence);
-      if (!presenceRes.presence) {
-        setCards([]);
-        return;
+  const load = useCallback(
+    async (venueId?: string | null) => {
+      setLoading(true);
+      setError("");
+      try {
+        const presenceRes = await api<{
+          presence: Presence | null;
+          presences?: Presence[];
+          maxPresences?: number;
+        }>("/api/presence/me");
+        const list =
+          presenceRes.presences ??
+          (presenceRes.presence ? [presenceRes.presence] : []);
+        setPresences(list);
+        setMaxPresences(presenceRes.maxPresences ?? 1);
+
+        if (!list.length) {
+          setPresence(null);
+          setCards([]);
+          return;
+        }
+
+        const targetVenueId =
+          venueId ??
+          (focusedVenueId &&
+          list.some((row) => row.venueId === focusedVenueId)
+            ? focusedVenueId
+            : null) ??
+          (list.length === 1 ? list[0]!.venueId : null);
+
+        if (!targetVenueId) {
+          setPresence(null);
+          setCards([]);
+          return;
+        }
+
+        const chosen =
+          list.find((row) => row.venueId === targetVenueId) ?? null;
+        if (!chosen) {
+          setPresence(null);
+          setCards([]);
+          setError("No estás publicado en ese Espacio");
+          return;
+        }
+
+        setPresence(chosen);
+
+        const params = new URLSearchParams();
+        params.set("venueId", chosen.venueId);
+        if (focusedUserId) params.set("userId", focusedUserId);
+        const feed = await api<DiscoverFeedResponse>(
+          `/api/discover/feed?${params.toString()}`
+        );
+        setCards(feed.cards);
+        setLikeAllowance(feed.likeAllowance);
+        setFollowingIds(
+          new Set(
+            feed.cards.filter((c) => c.isFollowing).map((c) => c.userId)
+          )
+        );
+        setRequestedIds(
+          new Set(
+            feed.cards.filter((c) => c.isFollowRequested).map((c) => c.userId)
+          )
+        );
+        setPhotoIdx(0);
+        setDetailOpen(false);
+        setCanRewind(false);
+      } catch (err) {
+        if (err instanceof ApiError && err.code === "NO_PRESENCE") {
+          setPresence(null);
+          setCards([]);
+        } else if (err instanceof ApiError && err.code === "SELECT_VENUE") {
+          setPresence(null);
+          setCards([]);
+        } else {
+          setError(err instanceof ApiError ? err.message : "Error al cargar");
+        }
+      } finally {
+        setLoading(false);
       }
-      const feedUrl = focusedUserId
-        ? `/api/discover/feed?userId=${encodeURIComponent(focusedUserId)}`
-        : "/api/discover/feed";
-      const feed = await api<DiscoverFeedResponse>(feedUrl);
-      setCards(feed.cards);
-      setLikeAllowance(feed.likeAllowance);
-      setFollowingIds(
-        new Set(
-          feed.cards.filter((c) => c.isFollowing).map((c) => c.userId)
-        )
-      );
-      setRequestedIds(
-        new Set(
-          feed.cards.filter((c) => c.isFollowRequested).map((c) => c.userId)
-        )
-      );
-      setPhotoIdx(0);
-      setDetailOpen(false);
-      setCanRewind(false);
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "NO_PRESENCE") {
-        setPresence(null);
-        setCards([]);
-      } else {
-        setError(err instanceof ApiError ? err.message : "Error al cargar");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [focusedUserId]);
+    },
+    [focusedUserId, focusedVenueId]
+  );
 
   useEffect(() => {
     void load();
@@ -339,12 +413,27 @@ export function DiscoverPage() {
 
   const current = cards[0];
   const next = cards[1];
-  const photos = (current?.profile.photos ?? []).filter(Boolean);
-  const nextPhoto = (next?.profile.photos ?? []).find(Boolean);
-  const photoExtraInfo = current ? photoExtra(current, photoIdx) : null;
+  const currentAd = current && isDiscoverAdCard(current) ? current : null;
+  const currentProfile =
+    current && !isDiscoverAdCard(current) ? current : null;
+  const nextAd = next && isDiscoverAdCard(next) ? next : null;
+  const nextProfile = next && !isDiscoverAdCard(next) ? next : null;
+  const photos = currentAd
+    ? [currentAd.imageUrl].filter(Boolean)
+    : (currentProfile?.profile.photos ?? []).filter(Boolean);
+  const nextPhoto = nextAd
+    ? nextAd.imageUrl
+    : (nextProfile?.profile.photos ?? []).find(Boolean);
+  const photoExtraInfo =
+    currentProfile ? photoExtra(currentProfile, photoIdx) : null;
   const swipeProgress = exitDirection
     ? 1
-    : Math.min(1, Math.abs(dragX) / 110);
+    : Math.min(1, Math.max(Math.abs(dragX), Math.abs(dragY)) / 110);
+  const deckKey = currentAd
+    ? `ad:${currentAd.id}`
+    : currentProfile
+      ? `user:${currentProfile.userId}`
+      : "";
 
   useEffect(() => {
     setDetailOpen(false);
@@ -355,7 +444,7 @@ export function DiscoverPage() {
       settleTimer.current = null;
     }
     if (cardScrollRef.current) cardScrollRef.current.scrollTop = 0;
-  }, [current?.userId]);
+  }, [deckKey]);
 
   useEffect(() => {
     return () => {
@@ -364,8 +453,41 @@ export function DiscoverPage() {
     };
   }, []);
 
-  async function swipe(direction: SwipeDirection) {
+  async function maybeInsertAd() {
+    if (user?.premium && planHasFeature(user.premiumPlanId, "no_ads")) return;
+    swipesUntilAdRef.current -= 1;
+    if (swipesUntilAdRef.current > 0) return;
+    swipesUntilAdRef.current = nextAdThreshold();
+    try {
+      const res = await api<{ ad: DiscoverAdCard | null }>("/api/ads/next");
+      if (res.ad) {
+        setCards((prev) => {
+          if (prev.some((c) => isDiscoverAdCard(c) && c.id === res.ad!.id)) {
+            return prev;
+          }
+          return [res.ad!, ...prev];
+        });
+      }
+    } catch {
+      /* sin anuncio disponible */
+    }
+  }
+
+  async function swipe(direction: SwipeDirection, isHeartshot = false) {
     if (!current) return;
+
+    if (isDiscoverAdCard(current)) {
+      const ad = current;
+      setDetailOpen(false);
+      setCards((prev) => prev.slice(1));
+      setPhotoIdx(0);
+      setCanRewind(false);
+      if (direction === "like") {
+        navigate(ad.href || `/ads/${ad.id}`);
+      }
+      return;
+    }
+
     const swiped = current;
     setDetailOpen(false);
     setCards((prev) => prev.slice(1));
@@ -373,10 +495,21 @@ export function DiscoverPage() {
     try {
       const res = await api<DiscoverSwipeResponse>("/api/discover/swipe", {
         method: "POST",
-        body: JSON.stringify({ toUserId: swiped.userId, direction }),
+        body: JSON.stringify({
+          toUserId: swiped.userId,
+          direction,
+          ...(presence?.venueId ? { venueId: presence.venueId } : {}),
+          ...(isHeartshot ? { isHeartshot: true } : {}),
+        }),
       });
       setLikeAllowance(res.likeAllowance);
       setCanRewind(true);
+      if (isHeartshot && user) {
+        setUser({
+          ...user,
+          heartshotsRemaining: Math.max(0, (user.heartshotsRemaining ?? 0) - 1),
+        });
+      }
       if (res.match) {
         setMatchFlash({
           matchId: res.match.id,
@@ -384,6 +517,7 @@ export function DiscoverPage() {
           photo: swiped.profile.photos[0],
         });
       }
+      void maybeInsertAd();
     } catch (err) {
       if (err instanceof ApiError && err.code === "LIKES_EXHAUSTED") {
         const allowance = err.data.likeAllowance as LikeAllowance | undefined;
@@ -394,24 +528,95 @@ export function DiscoverPage() {
         setLikeLimitOpen(true);
         return;
       }
+      if (
+        err instanceof ApiError &&
+        (err.code === "NO_HEARTSHOTS" ||
+          err.code === "PLAN_REQUIRED" ||
+          err.code === "PREMIUM_REQUIRED")
+      ) {
+        setCards((prev) => [swiped, ...prev]);
+        setPhotoIdx(0);
+        if (err.code === "NO_HEARTSHOTS") {
+          toast.error(err.message);
+        } else {
+          setPremiumModalOpen(true);
+        }
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Error al swippear");
       void load();
     }
   }
 
+  async function activateBoost() {
+    if (boostBusy) return;
+    if (!planHasFeature(user?.premiumPlanId, "boost")) {
+      setPremiumModalOpen(true);
+      return;
+    }
+    if ((user?.boostsRemaining ?? 0) <= 0) {
+      toast.error("No te quedan Boosts este periodo");
+      return;
+    }
+    if (user?.boostExpiresAt && new Date(user.boostExpiresAt).getTime() > Date.now()) {
+      toast.info("Ya tenés un Boost activo");
+      return;
+    }
+    setBoostBusy(true);
+    try {
+      const res = await api<{
+        user: typeof user;
+        boostExpiresAt: string | null;
+        boostsRemaining: number;
+      }>("/api/premium/boost", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (res.user) setUser(res.user);
+      toast.success("Boost activado · prioridad 30 min");
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        (err.code === "PLAN_REQUIRED" || err.code === "PREMIUM_REQUIRED")
+      ) {
+        setPremiumModalOpen(true);
+      } else {
+        toast.error(
+          err instanceof ApiError ? err.message : "No se pudo activar el Boost"
+        );
+      }
+    } finally {
+      setBoostBusy(false);
+    }
+  }
+
   async function rewind() {
-    if (!canRewind || rewindBusy || exitDirection) return;
+    if (exitDirection || rewindBusy) return;
+    if (!user?.premium) {
+      setPremiumModalOpen(true);
+      return;
+    }
+    if (!canRewind) return;
     setRewindBusy(true);
     setMatchFlash(null);
     try {
       const res = await api<DiscoverRewindResponse>("/api/discover/rewind", {
         method: "POST",
+        body: JSON.stringify(
+          presence?.venueId ? { venueId: presence.venueId } : {}
+        ),
       });
       setLikeAllowance(res.likeAllowance);
       const restored = res.card;
       if (restored) {
         setCards((prev) => {
-          if (prev.some((c) => c.userId === restored.userId)) return prev;
+          if (
+            prev.some(
+              (c) => !isDiscoverAdCard(c) && c.userId === restored.userId
+            )
+          ) {
+            return prev;
+          }
           return [restored, ...prev];
         });
         setPhotoIdx(0);
@@ -419,6 +624,10 @@ export function DiscoverPage() {
       }
       setCanRewind(false);
     } catch (err) {
+      if (err instanceof ApiError && err.code === "PREMIUM_REQUIRED") {
+        setPremiumModalOpen(true);
+        return;
+      }
       toast.error(
         err instanceof ApiError ? err.message : "No se pudo volver atrás"
       );
@@ -428,8 +637,8 @@ export function DiscoverPage() {
   }
 
   async function toggleFollowCurrent() {
-    if (!current || followingBusy || exitDirection) return;
-    const userId = current.userId;
+    if (!currentProfile || followingBusy || exitDirection) return;
+    const userId = currentProfile.userId;
     const isFollowing = followingIds.has(userId);
     const isRequested = requestedIds.has(userId);
     const cancelling = isFollowing || isRequested;
@@ -507,11 +716,11 @@ export function DiscoverPage() {
   }
 
   function openSafetyAction(action: DiscoverSafetyAction) {
-    if (!current) return;
+    if (!currentProfile) return;
     setSafetyDialog({
       action,
-      userId: current.userId,
-      name: current.profile.name,
+      userId: currentProfile.userId,
+      name: currentProfile.profile.name,
     });
   }
 
@@ -521,10 +730,6 @@ export function DiscoverPage() {
 
   async function confirmSafetyAction() {
     if (!safetyDialog || safetyBusy) return;
-    if (safetyDialog.action === "share") {
-      setSafetyDialog(null);
-      return;
-    }
     if (safetyDialog.action === "report") {
       const userId = safetyDialog.userId;
       setSafetyDialog(null);
@@ -539,7 +744,9 @@ export function DiscoverPage() {
       });
       const blockedUserId = safetyDialog.userId;
       setCards((prev) =>
-        prev.filter((card) => card.userId !== blockedUserId)
+        prev.filter(
+          (card) => isDiscoverAdCard(card) || card.userId !== blockedUserId
+        )
       );
       setFollowingIds((prev) => {
         const next = new Set(prev);
@@ -565,16 +772,35 @@ export function DiscoverPage() {
     }
   }
 
-  function animateSwipe(direction: SwipeDirection) {
+  function animateSwipe(direction: SwipeDirection, isHeartshot = false) {
     if (!current || exitDirection) return;
     setIsDragging(false);
-    setExitDirection(direction);
+    setExitDirection(
+      isHeartshot ? "heartshot" : direction === "pass" ? "pass" : "like"
+    );
     window.setTimeout(() => {
       dragXRef.current = 0;
+      dragYRef.current = 0;
+      dragAxisRef.current = null;
       setDragX(0);
+      setDragY(0);
       setExitDirection(null);
-      void swipe(direction);
+      void swipe(direction, isHeartshot);
     }, SWIPE_EXIT_MS);
+  }
+
+  function tryHeartshot() {
+    if (!current || isDiscoverAdCard(current)) return false;
+    if (!planHasFeature(user?.premiumPlanId, "heartshot")) {
+      setPremiumModalOpen(true);
+      return false;
+    }
+    if ((user?.heartshotsRemaining ?? 0) <= 0) {
+      toast.error("No te quedan Heartshots este periodo");
+      return false;
+    }
+    animateSwipe("like", true);
+    return true;
   }
 
   function changePhotoFromTap(clientX: number, cardWidth: number) {
@@ -597,6 +823,8 @@ export function DiscoverPage() {
     dragStartX.current = e.clientX;
     dragStartY.current = e.clientY;
     dragXRef.current = 0;
+    dragYRef.current = 0;
+    dragAxisRef.current = null;
     didDrag.current = false;
   }
 
@@ -609,27 +837,47 @@ export function DiscoverPage() {
     if (!didDrag.current) {
       const verticalBias = detailOpen ? 6 : 8;
       const horizontalBias = detailOpen ? 14 : 10;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      // Swipe arriba → Heartshot (no en anuncios).
       if (
-        Math.abs(deltaY) > verticalBias &&
-        Math.abs(deltaY) >= Math.abs(deltaX)
+        deltaY < -verticalBias &&
+        absY >= absX &&
+        current &&
+        !isDiscoverAdCard(current)
       ) {
-        // Scroll vertical: soltamos el gesto para no pelear con el touch
+        didDrag.current = true;
+        dragAxisRef.current = "y";
+        setIsDragging(true);
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } else if (deltaY > verticalBias && absY >= absX) {
+        // Scroll / gesto hacia abajo: soltamos para no pelear con el touch.
         activePointerId.current = null;
         return;
-      }
-      if (
-        Math.abs(deltaX) <= horizontalBias ||
-        Math.abs(deltaX) <= Math.abs(deltaY)
-      ) {
+      } else if (absX > horizontalBias && absX > absY) {
+        didDrag.current = true;
+        dragAxisRef.current = "x";
+        setIsDragging(true);
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } else {
         return;
       }
-      didDrag.current = true;
-      setIsDragging(true);
-      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+
+    if (dragAxisRef.current === "y") {
+      const up = Math.min(0, deltaY);
+      dragXRef.current = 0;
+      dragYRef.current = up;
+      setDragX(0);
+      setDragY(up);
+      return;
     }
 
     dragXRef.current = deltaX;
+    dragYRef.current = 0;
     setDragX(deltaX);
+    setDragY(0);
   }
 
   function finishCardDrag(e: ReactPointerEvent<HTMLDivElement>) {
@@ -657,17 +905,45 @@ export function DiscoverPage() {
       return;
     }
 
+    const axis = dragAxisRef.current;
+    dragAxisRef.current = null;
+
     const threshold = Math.max(
       SWIPE_THRESHOLD,
       e.currentTarget.clientWidth * 0.22
     );
+    const upThreshold = Math.max(
+      SWIPE_THRESHOLD,
+      e.currentTarget.clientHeight * 0.18
+    );
+
+    if (axis === "y") {
+      const shouldSettle =
+        dragYRef.current > -upThreshold || !tryHeartshot();
+      if (shouldSettle) {
+        dragXRef.current = 0;
+        dragYRef.current = 0;
+        setDragX(0);
+        setDragY(0);
+        if (settleTimer.current) window.clearTimeout(settleTimer.current);
+        setSettling(true);
+        settleTimer.current = window.setTimeout(() => {
+          setSettling(false);
+          settleTimer.current = null;
+        }, 230);
+      }
+      return;
+    }
+
     if (dragXRef.current >= threshold) {
       animateSwipe("like");
     } else if (dragXRef.current <= -threshold) {
       animateSwipe("pass");
     } else {
       dragXRef.current = 0;
+      dragYRef.current = 0;
       setDragX(0);
+      setDragY(0);
       // Mantener transform un instante para animar el retorno (sobre todo en detalle).
       if (settleTimer.current) window.clearTimeout(settleTimer.current);
       setSettling(true);
@@ -685,18 +961,23 @@ export function DiscoverPage() {
     }
     activePointerId.current = null;
     dragXRef.current = 0;
+    dragYRef.current = 0;
+    dragAxisRef.current = null;
     didDrag.current = false;
     setIsDragging(false);
     setDragX(0);
+    setDragY(0);
     if (settleTimer.current) window.clearTimeout(settleTimer.current);
     setSettling(false);
   }
 
   const cardStyle = {
     "--swipe-x": `${dragX}px`,
+    "--swipe-y": `${dragY}px`,
     "--swipe-rotate": `${dragX / 24}deg`,
     "--swipe-like-opacity": Math.min(1, Math.max(0, dragX / 90)),
     "--swipe-pass-opacity": Math.min(1, Math.max(0, -dragX / 90)),
+    "--swipe-heartshot-opacity": Math.min(1, Math.max(0, -dragY / 90)),
   } as CSSProperties;
 
   const stackStyle = {
@@ -712,6 +993,84 @@ export function DiscoverPage() {
   }
 
   if (!presence) {
+    if (presences.length > 1) {
+      return (
+        <div className="app-screen discover-venue-picker fade-in">
+          <div className="discover-venue-picker-shell">
+            <div className="discover-venue-picker-copy">
+              <p className="discover-empty-eyebrow mb-1">
+                <i className="bi bi-people me-1" aria-hidden="true" />
+                Clone
+              </p>
+              <h1 className="app-title h3 mb-2">Elegí un Espacio</h1>
+              <p className="text-secondary mb-0">
+                Estás publicado en {presences.length} de {maxPresences}. Tocá
+                uno para entrar a su Discover.
+              </p>
+            </div>
+            <div className="discover-venue-picker-grid">
+              {presences.map((row) => {
+                const venue = row.venue;
+                const name = venue?.name ?? "Espacio";
+                const typeLabel = venue?.type
+                  ? VENUE_TYPE_LABELS[venue.type]
+                  : null;
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="venue-card discover-venue-picker-card"
+                    onClick={() => void load(row.venueId)}
+                    aria-label={`Abrir Discover en ${name}`}
+                  >
+                    <div className="venue-card-media discover-venue-picker-media">
+                      {venue ? (
+                        <img
+                          src={venueCoverSrc(venue)}
+                          alt=""
+                          aria-hidden="true"
+                          onError={onVenuePhotoError}
+                        />
+                      ) : (
+                        <span
+                          className="discover-venue-picker-fallback"
+                          aria-hidden="true"
+                        >
+                          <i className="bi bi-geo-alt" />
+                        </span>
+                      )}
+                      <div className="venue-card-fade" />
+                      <div className="venue-card-caption">
+                        {typeLabel ? (
+                          <div className="venue-card-type">{typeLabel}</div>
+                        ) : null}
+                        <div className="venue-card-name">
+                          <span className="venue-card-name-text text-truncate">
+                            {name}
+                          </span>
+                          {venue ? (
+                            <VenueTrustBadge
+                              ownerId={venue.ownerId}
+                              showUnclaimed={false}
+                            />
+                          ) : null}
+                        </div>
+                        {venue?.address ? (
+                          <div className="venue-card-address text-truncate">
+                            {venue.address}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="app-screen discover-empty-page fade-in">
         <div className="discover-empty-visual" aria-hidden="true">
@@ -765,23 +1124,79 @@ export function DiscoverPage() {
       className="app-screen flush d-flex flex-column flex-grow-1 fade-in"
       style={{ minHeight: 0 }}
     >
-      <div className="d-flex align-items-center justify-content-between px-3 px-md-0 py-2">
-        <div>
-          <div className="app-title h5 mb-0">Discover</div>
-          <div className="text-secondary small">{presence.venue?.name}</div>
+      <div className="d-flex align-items-center justify-content-between px-3 px-md-0 py-2 gap-2">
+        <div className="min-w-0 d-flex align-items-center gap-2">
+          {presences.length > 1 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-link link-secondary text-decoration-none px-1"
+              aria-label="Cambiar Espacio"
+              onClick={() => {
+                setPresence(null);
+                setCards([]);
+              }}
+            >
+              <i className="bi bi-arrow-left fs-5" aria-hidden="true" />
+            </button>
+          )}
+          <div className="min-w-0">
+            <div className="app-title h5 mb-0">Discover</div>
+            <div className="text-secondary small text-truncate">
+              {presence.venue?.name}
+            </div>
+          </div>
         </div>
-        <button
-          className="btn btn-sm btn-link link-secondary text-decoration-none"
-          type="button"
-          aria-label="Dejar de publicar"
-          onClick={async () => {
-            await api("/api/presence/me", { method: "DELETE" });
-            setPresence(null);
-            setCards([]);
-          }}
-        >
-          <i className="bi bi-eye-slash fs-5" aria-hidden="true" />
-        </button>
+        <div className="d-flex align-items-center gap-1 flex-shrink-0">
+          <button
+            className={[
+              "btn btn-sm discover-boost-btn",
+              user?.boostExpiresAt &&
+              new Date(user.boostExpiresAt).getTime() > Date.now()
+                ? "is-active"
+                : "",
+              !planHasFeature(user?.premiumPlanId, "boost")
+                ? "is-premium-hook"
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            type="button"
+            disabled={boostBusy}
+            aria-label={
+              planHasFeature(user?.premiumPlanId, "boost")
+                ? `Boost · ${user?.boostsRemaining ?? 0} restantes`
+                : "Boost con Premium 4 A.M."
+            }
+            onClick={() => void activateBoost()}
+          >
+            <i className="bi bi-rocket-takeoff" aria-hidden="true" />
+            <span className="discover-boost-count">
+              {planHasFeature(user?.premiumPlanId, "boost")
+                ? user?.boostExpiresAt &&
+                  new Date(user.boostExpiresAt).getTime() > Date.now()
+                  ? "ON"
+                  : String(user?.boostsRemaining ?? 0)
+                : "·"}
+            </span>
+          </button>
+          <button
+            className="btn btn-sm btn-link link-secondary text-decoration-none"
+            type="button"
+            aria-label="Dejar de publicar"
+            onClick={async () => {
+              const venueId = presence.venueId;
+              await api(
+                `/api/presence/me${
+                  venueId ? `?venueId=${encodeURIComponent(venueId)}` : ""
+                }`,
+                { method: "DELETE" }
+              );
+              await load(null);
+            }}
+          >
+            <i className="bi bi-eye-slash fs-5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-danger small px-3 mb-0">{error}</p>}
@@ -839,8 +1254,18 @@ export function DiscoverPage() {
           <div className="swipe-stack" style={stackStyle}>
             {next && (
               <div
-                key={`next-${next.userId}`}
-                className="swipe-card swipe-card-next"
+                key={
+                  nextAd
+                    ? `next-ad-${nextAd.id}`
+                    : `next-${nextProfile!.userId}`
+                }
+                className={[
+                  "swipe-card",
+                  "swipe-card-next",
+                  nextAd ? "swipe-card-ad" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 aria-hidden="true"
                 style={
                   nextPhoto
@@ -854,7 +1279,9 @@ export function DiscoverPage() {
                 <div className="swipe-gradient" />
                 <div className="swipe-meta">
                   <h2 className="h3 mb-0 text-white">
-                    {next.profile.name}, {next.age}
+                    {nextAd
+                      ? nextAd.title
+                      : `${nextProfile!.profile.name}, ${nextProfile!.age}`}
                   </h2>
                 </div>
               </div>
@@ -862,11 +1289,12 @@ export function DiscoverPage() {
 
             <div className="swipe-slot">
               <div
-                key={current.userId}
+                key={deckKey}
                 className={[
                   "swipe-card",
                   "swipe-card-top",
-                  detailOpen ? "is-detail-open" : "",
+                  currentAd ? "swipe-card-ad" : "",
+                  detailOpen && currentProfile ? "is-detail-open" : "",
                   isDragging || exitDirection || settling ? "is-motion" : "",
                   isDragging ? "is-dragging" : "",
                   exitDirection ? `is-exiting-${exitDirection}` : "",
@@ -885,9 +1313,19 @@ export function DiscoverPage() {
                 <div className="swipe-stamp swipe-stamp-like" aria-hidden="true">
                   <i
                     className={`bi ${
-                      likesExhausted ? "bi-clock-history" : "bi-heart-fill"
+                      currentAd
+                        ? "bi-box-arrow-up-right"
+                        : likesExhausted
+                          ? "bi-clock-history"
+                          : "bi-heart-fill"
                     }`}
                   />
+                </div>
+                <div
+                  className="swipe-stamp swipe-stamp-heartshot"
+                  aria-hidden="true"
+                >
+                  <i className="bi bi-arrow-through-heart" />
                 </div>
 
                 <OverflowFade
@@ -895,11 +1333,52 @@ export function DiscoverPage() {
                   fadeClassName="swipe-card-scroller-fade"
                   scrollRef={cardScrollRef}
                 >
-                  {detailOpen ? (
+                  {currentAd ? (
+                    <div className="swipe-card-compact">
+                      <div className="swipe-card-photo-hit">
+                        <img
+                          className="swipe-card-photo"
+                          src={currentAd.imageUrl}
+                          alt={currentAd.title}
+                          draggable={false}
+                        />
+                      </div>
+                      <div className="swipe-gradient" />
+                      <div className="swipe-meta">
+                        <p className="swipe-ad-eyebrow small mb-1 text-uppercase">
+                          Anuncio
+                          {currentAd.sponsorName
+                            ? ` · ${currentAd.sponsorName}`
+                            : ""}
+                        </p>
+                        <div className="swipe-meta-heading">
+                          <h2 className="h3 mb-0 text-white">
+                            {currentAd.title}
+                          </h2>
+                        </div>
+                        {(currentAd.subtitle || currentAd.body) && (
+                          <div className="swipe-meta-extra">
+                            {currentAd.subtitle && (
+                              <p className="small mb-1 opacity-90">
+                                {currentAd.subtitle}
+                              </p>
+                            )}
+                            {currentAd.body && (
+                              <p className="small mb-0 opacity-75">
+                                {currentAd.body}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <p className="swipe-ad-cta small mb-0 mt-2">
+                          {currentAd.ctaLabel || "Ver más"} · Like para abrir
+                        </p>
+                      </div>
+                    </div>
+                  ) : detailOpen && currentProfile ? (
                     <DiscoverProfileDetail
-                      card={current}
+                      card={currentProfile}
                       photoIndex={photoIdx}
-                      onShare={() => openSafetyAction("share")}
                       onBlock={() => openSafetyAction("block")}
                       onReport={() => openSafetyAction("report")}
                       onCollapse={() => {
@@ -909,7 +1388,7 @@ export function DiscoverPage() {
                         }
                       }}
                     />
-                  ) : (
+                  ) : currentProfile ? (
                     <div className="swipe-card-compact">
                       <div className="photo-segments">
                         {photos.map((_, i) => (
@@ -923,7 +1402,7 @@ export function DiscoverPage() {
                         <img
                           className="swipe-card-photo"
                           src={photos[photoIdx] ?? photos[0]}
-                          alt={current.profile.name}
+                          alt={currentProfile.profile.name}
                           draggable={false}
                         />
                       </div>
@@ -931,7 +1410,7 @@ export function DiscoverPage() {
                       <div className="swipe-meta">
                         <div className="swipe-meta-heading">
                           <h2 className="h3 mb-0 text-white">
-                            {current.profile.name}, {current.age}
+                            {currentProfile.profile.name}, {currentProfile.age}
                           </h2>
                           <button
                             type="button"
@@ -967,7 +1446,7 @@ export function DiscoverPage() {
                         )}
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </OverflowFade>
               </div>
 
@@ -980,15 +1459,31 @@ export function DiscoverPage() {
                   .join(" ")}
               >
                 <button
-                  className="btn btn-light swipe-action-secondary"
+                  className={[
+                    "btn btn-light swipe-action-secondary",
+                    !user?.premium ? "is-premium-hook" : "",
+                    currentAd ? "invisible" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   type="button"
-                  aria-label="Volver a la tarjeta anterior"
+                  aria-label={
+                    user?.premium
+                      ? "Volver a la tarjeta anterior"
+                      : "Rewind con Premium"
+                  }
                   disabled={
-                    Boolean(exitDirection) || !canRewind || rewindBusy
+                    Boolean(currentAd) ||
+                    Boolean(exitDirection) ||
+                    rewindBusy ||
+                    (Boolean(user?.premium) && !canRewind)
                   }
                   onClick={() => void rewind()}
                 >
-                  <i className="bi bi-arrow-counterclockwise" aria-hidden="true" />
+                  <i
+                    className="bi bi-arrow-counterclockwise"
+                    aria-hidden="true"
+                  />
                 </button>
                 <button
                   className="btn btn-light swipe-action-primary"
@@ -1000,15 +1495,42 @@ export function DiscoverPage() {
                   <i className="bi bi-x-lg" aria-hidden="true" />
                 </button>
                 <button
+                  className={[
+                    "btn btn-light swipe-action-heartshot",
+                    !planHasFeature(user?.premiumPlanId, "heartshot")
+                      ? "is-premium-hook"
+                      : "",
+                    currentAd ? "invisible" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  type="button"
+                  aria-label={
+                    planHasFeature(user?.premiumPlanId, "heartshot")
+                      ? `Heartshot · ${user?.heartshotsRemaining ?? 0} restantes`
+                      : "Heartshot con Premium 4 A.M."
+                  }
+                  disabled={Boolean(currentAd) || Boolean(exitDirection)}
+                  onClick={() => {
+                    void tryHeartshot();
+                  }}
+                >
+                  <i className="bi bi-arrow-through-heart" aria-hidden="true" />
+                </button>
+                <button
                   className="btn btn-primary swipe-action-primary"
                   type="button"
-                  aria-label="Like"
+                  aria-label={currentAd ? "Abrir anuncio" : "Like"}
                   disabled={Boolean(exitDirection)}
                   onClick={() => animateSwipe("like")}
                 >
                   <i
                     className={`bi ${
-                      likesExhausted ? "bi-clock-history" : "bi-heart-fill"
+                      currentAd
+                        ? "bi-box-arrow-up-right"
+                        : likesExhausted
+                          ? "bi-clock-history"
+                          : "bi-heart-fill"
                     }`}
                     aria-hidden="true"
                   />
@@ -1016,38 +1538,46 @@ export function DiscoverPage() {
                 <button
                   className={[
                     "btn btn-light swipe-action-secondary",
-                    current && followingIds.has(current.userId)
+                    currentProfile && followingIds.has(currentProfile.userId)
                       ? "is-following"
                       : "",
-                    current && requestedIds.has(current.userId)
+                    currentProfile && requestedIds.has(currentProfile.userId)
                       ? "is-requested"
                       : "",
                     followPulse === "follow" ? "is-pulse-follow" : "",
                     followPulse === "unfollow" ? "is-pulse-unfollow" : "",
+                    currentAd ? "invisible" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   type="button"
                   aria-label={
-                    current && followingIds.has(current.userId)
+                    currentProfile && followingIds.has(currentProfile.userId)
                       ? "Dejar de seguir"
-                      : current && requestedIds.has(current.userId)
+                      : currentProfile &&
+                          requestedIds.has(currentProfile.userId)
                         ? "Cancelar solicitud"
                         : "Enviar solicitud de seguimiento"
                   }
                   aria-pressed={Boolean(
-                    current &&
-                      (followingIds.has(current.userId) ||
-                        requestedIds.has(current.userId))
+                    currentProfile &&
+                      (followingIds.has(currentProfile.userId) ||
+                        requestedIds.has(currentProfile.userId))
                   )}
-                  disabled={Boolean(exitDirection) || followingBusy || !current}
+                  disabled={
+                    Boolean(currentAd) ||
+                    Boolean(exitDirection) ||
+                    followingBusy ||
+                    !currentProfile
+                  }
                   onClick={() => void toggleFollowCurrent()}
                 >
                   <i
                     className={`bi ${
-                      current && followingIds.has(current.userId)
+                      currentProfile && followingIds.has(currentProfile.userId)
                         ? "bi-person-check-fill"
-                        : current && requestedIds.has(current.userId)
+                        : currentProfile &&
+                            requestedIds.has(currentProfile.userId)
                           ? "bi-hourglass-split"
                           : "bi-person-plus"
                     }`}
@@ -1144,12 +1674,23 @@ export function DiscoverPage() {
             </h2>
             <p className="match-sub">
               Usaste tus {likeAllowance.limit ?? 50} likes. Cuando termine el
-              contador vas a recuperarlos todos.
+              contador vas a recuperarlos todos — o pasá a Nocta Premium para
+              likes ilimitados.
             </p>
             <div className="match-actions">
               <button
                 type="button"
                 className="btn btn-primary"
+                onClick={() => {
+                  setLikeLimitOpen(false);
+                  setPremiumModalOpen(true);
+                }}
+              >
+                Ver Premium
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-light"
                 onClick={() => setLikeLimitOpen(false)}
               >
                 Entendido
@@ -1157,6 +1698,12 @@ export function DiscoverPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {premiumModalOpen && (
+        <PremiumPackagesModal
+          onClose={() => setPremiumModalOpen(false)}
+        />
       )}
     </div>
   );

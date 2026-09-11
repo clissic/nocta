@@ -1,19 +1,21 @@
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   MAX_PHOTO_UPLOAD_BYTES,
   VENUE_COUNTRIES,
   VENUE_COVER_HEIGHT,
   VENUE_COVER_MIME,
   VENUE_COVER_WIDTH,
-  venueCitiesForCountry,
 } from "@nocta/shared";
 import { onVenuePhotoError } from "../lib/venuePhoto";
+import { useActiveAppCities } from "../lib/appCities";
 
 type CountryCityProps = {
   country: string;
   city: string;
   onCountryChange: (country: string) => void;
   onCityChange: (city: string) => void;
+  /** Ciudad actual del Espacio aunque esté inactiva (edición). */
+  preserveCity?: string;
 };
 
 export function VenueCountryCityFields({
@@ -21,8 +23,38 @@ export function VenueCountryCityFields({
   city,
   onCountryChange,
   onCityChange,
+  preserveCity,
 }: CountryCityProps) {
-  const cities = venueCitiesForCountry(country);
+  const { cities, loading } = useActiveAppCities(country);
+  const options = useMemo(() => {
+    if (
+      preserveCity &&
+      !cities.some(
+        (item) => item.name.toLowerCase() === preserveCity.toLowerCase()
+      )
+    ) {
+      return [
+        ...cities,
+        {
+          id: `preserved:${preserveCity}`,
+          country,
+          name: preserveCity,
+          lat: 0,
+          lng: 0,
+          active: false,
+        },
+      ];
+    }
+    return cities;
+  }, [cities, country, preserveCity]);
+
+  useEffect(() => {
+    if (loading || options.length === 0) return;
+    const match = options.some(
+      (item) => item.name.toLowerCase() === city.trim().toLowerCase()
+    );
+    if (!match) onCityChange(options[0].name);
+  }, [loading, options, city, onCityChange]);
 
   return (
     <div className="venue-request-country-city venue-request-field-wide">
@@ -54,10 +86,12 @@ export function VenueCountryCityFields({
           value={city}
           onChange={(event) => onCityChange(event.target.value)}
           required
+          disabled={loading || options.length === 0}
         >
-          {cities.map((item) => (
-            <option key={item.id} value={item.label}>
-              {item.label}
+          {options.map((item) => (
+            <option key={item.id} value={item.name}>
+              {item.name}
+              {item.active === false ? " (inactiva)" : ""}
             </option>
           ))}
         </select>

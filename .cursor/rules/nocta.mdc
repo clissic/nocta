@@ -56,7 +56,7 @@ La UI **debe** existir y verse bien en **mobile, tablet y desktop**. Mobile-firs
 ## Stack MVP
 
 - `apps/web`, `apps/api`, `packages/shared`
-- Una presencia activa; deck por `venueId`
+- Una presencia activa; con Clone (6 A.M.) hasta 3; deck por `venueId`
 
 ## Documentación
 

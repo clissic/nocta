@@ -13,6 +13,7 @@ import {
   ADMIN_PAGE_SIZE,
   AdminPagination,
 } from "../../components/admin/AdminPagination";
+import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
 
 export function AdminVenuesPage() {
   const toast = useToast();
@@ -104,25 +105,26 @@ export function AdminVenuesPage() {
         </div>
       </header>
 
-      <ManualSearchInput
-        className="admin-toolbar"
-        placeholder="Buscar por nombre, ciudad o tipo…"
-        ariaLabel="Buscar Espacios"
-        value={query}
-        onValueChange={setQuery}
-        onSearch={(value) => {
-          setSubmittedQuery(value);
-          setPage(1);
-        }}
-      />
+      <AdminFiltersAccordion activeCount={submittedQuery ? 1 : 0}>
+        <ManualSearchInput
+          className="admin-toolbar"
+          placeholder="Buscar por nombre, ciudad o tipo…"
+          ariaLabel="Buscar Espacios"
+          value={query}
+          onValueChange={setQuery}
+          onSearch={(value) => {
+            setSubmittedQuery(value);
+            setPage(1);
+          }}
+        />
+      </AdminFiltersAccordion>
 
       {loading ? (
         <NoctaLoading variant="block" />
       ) : venues.length === 0 ? (
         <p className="text-secondary small mb-0">Sin resultados.</p>
       ) : (
-        <>
-          <div className="admin-list">
+        <div className="admin-list">
           {venues.map((v) => {
             const name = organizerName(v);
             return (
@@ -192,15 +194,15 @@ export function AdminVenuesPage() {
               </div>
             );
           })}
-          </div>
-          <AdminPagination
-            page={page}
-            totalItems={totalVenues}
-            onPageChange={setPage}
-            label="Páginas de Espacios"
-          />
-        </>
+        </div>
       )}
+
+      <AdminPagination
+        page={page}
+        totalItems={totalVenues}
+        onPageChange={setPage}
+        label="Páginas de Espacios"
+      />
     </div>
   );
 }

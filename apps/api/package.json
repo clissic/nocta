@@ -17,6 +17,7 @@
     "express": "^4.21.2",
     "jose": "^6.2.8",
     "jsonwebtoken": "^9.0.2",
+    "mercadopago": "^3.6.1",
     "mongodb-memory-server": "^11.2.0",
     "mongoose": "^8.9.5",
     "morgan": "^1.10.0",

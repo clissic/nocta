@@ -9,6 +9,8 @@ type Props = {
   onOpenDeleteAccount: () => void;
 };
 
+const DESKTOP_MQ = "(min-width: 992px)";
+
 export function ProfileActionButtons({
   followRequestCount,
   onOpenSettings,
@@ -18,17 +20,34 @@ export function ProfileActionButtons({
   const groupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const elements =
-      groupRef.current?.querySelectorAll<HTMLElement>("[data-bs-toggle='popover']");
-    const popovers = [...(elements ?? [])].map(
-      (element) =>
-        new Popover(element, {
-          container: "body",
-          placement: "top",
-          trigger: "hover focus",
-        })
-    );
-    return () => popovers.forEach((popover) => popover.dispose());
+    const mq = window.matchMedia(DESKTOP_MQ);
+    let popovers: Popover[] = [];
+
+    function setup() {
+      popovers.forEach((popover) => popover.dispose());
+      popovers = [];
+      if (!mq.matches) return;
+
+      const elements =
+        groupRef.current?.querySelectorAll<HTMLElement>(
+          "[data-bs-toggle='popover']"
+        );
+      popovers = [...(elements ?? [])].map(
+        (element) =>
+          new Popover(element, {
+            container: "body",
+            placement: "top",
+            trigger: "hover focus",
+          })
+      );
+    }
+
+    setup();
+    mq.addEventListener("change", setup);
+    return () => {
+      mq.removeEventListener("change", setup);
+      popovers.forEach((popover) => popover.dispose());
+    };
   }, []);
 
   const popoverProps = (content: string) => ({

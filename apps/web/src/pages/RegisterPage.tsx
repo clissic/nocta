@@ -9,6 +9,7 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { AuthAtmosphere } from "../components/AuthAtmosphere";
 import { NoctaWordmark } from "../components/NoctaWordmark";
+import { PasswordInput } from "../components/PasswordInput";
 import { ApiError } from "../lib/api";
 
 export function RegisterPage() {
@@ -19,6 +20,7 @@ export function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptMarketingEmails, setAcceptMarketingEmails] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -63,7 +65,10 @@ export function RegisterPage() {
 
     setBusy(true);
     try {
-      await register(email.trim(), password, { name: name.trim() });
+      await register(email.trim(), password, {
+        name: name.trim(),
+        marketingEmailsOptIn: acceptMarketingEmails,
+      });
       navigate("/verify-email");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo registrar");
@@ -104,9 +109,7 @@ export function RegisterPage() {
             required
             autoComplete="email"
           />
-          <input
-            className="form-control form-control-lg bg-transparent border-secondary"
-            type="password"
+          <PasswordInput
             name="password"
             placeholder="Contraseña"
             value={password}
@@ -129,11 +132,10 @@ export function RegisterPage() {
               </li>
             ))}
           </ul>
-          <input
-            className={`form-control form-control-lg bg-transparent border-secondary${
+          <PasswordInput
+            inputClassName={`form-control form-control-lg bg-transparent border-secondary${
               confirmPassword && !passwordsMatch ? " is-invalid" : ""
             }${passwordsMatch ? " is-valid" : ""}`}
-            type="password"
             name="confirmPassword"
             placeholder="Confirmar contraseña"
             value={confirmPassword}
@@ -154,7 +156,22 @@ export function RegisterPage() {
               required
             />
             <span className="form-check-label small text-secondary">
-              Acepto los términos de uso y la política de privacidad de Nocta
+              Acepto los{" "}
+              <Link to="/terms" target="_blank" rel="noopener noreferrer">
+                Términos y Condiciones
+              </Link>{" "}
+              de Nocta
+            </span>
+          </label>
+          <label className="auth-terms form-check">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={acceptMarketingEmails}
+              onChange={(e) => setAcceptMarketingEmails(e.target.checked)}
+            />
+            <span className="form-check-label small text-secondary">
+              Quiero recibir promociones y novedades de Nocta por email
             </span>
           </label>
           {error && <p className="text-danger small mb-0">{error}</p>}

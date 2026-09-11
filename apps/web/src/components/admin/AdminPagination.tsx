@@ -14,7 +14,6 @@ export function AdminPagination({
   label,
 }: AdminPaginationProps) {
   const totalPages = Math.max(1, Math.ceil(totalItems / ADMIN_PAGE_SIZE));
-  if (totalPages <= 1) return null;
 
   return (
     <nav className="admin-pagination" aria-label={label}>
@@ -29,6 +28,9 @@ export function AdminPagination({
       </button>
       <span className="admin-pagination-status">
         Página {page} de {totalPages}
+        {totalItems > 0 ? (
+          <span className="admin-pagination-total"> · {totalItems}</span>
+        ) : null}
       </span>
       <button
         className="btn btn-sm btn-outline-secondary"

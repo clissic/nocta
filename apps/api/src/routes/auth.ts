@@ -6,6 +6,7 @@ import {
   EMAIL_VERIFICATION_TTL_MINUTES,
   isStrongPassword,
   PASSWORD_HINT,
+  PASSWORD_RESET_TTL_MINUTES,
 } from "@nocta/shared";
 import { User } from "../models/User.js";
 import { requireAuth, signToken, type AuthedRequest } from "../middleware/auth.js";
@@ -29,6 +30,7 @@ import {
 const router = Router();
 
 const CODE_TTL_MS = EMAIL_VERIFICATION_TTL_MINUTES * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 
 const strongPassword = z
   .string()
@@ -38,6 +40,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: strongPassword,
   name: z.string().trim().min(2).max(60).optional(),
+  marketingEmailsOptIn: z.boolean().optional(),
 });
 
 const loginSchema = z.object({
@@ -94,6 +97,7 @@ router.post("/register", async (req, res) => {
     passwordHash,
     role: "user",
     emailVerified: false,
+    marketingEmailsOptIn: Boolean(parsed.data.marketingEmailsOptIn),
     ...(pendingName
       ? {
           profile: {
@@ -302,13 +306,14 @@ router.post("/forgot-password", async (req, res) => {
   if (user?.passwordHash) {
     const rawToken = generateToken();
     user.passwordResetToken = hashToken(rawToken);
-    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
+    user.passwordResetExpires = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
     await user.save();
     try {
       await sendPasswordResetEmail({
         to: email,
         name: user.profile?.name || undefined,
         token: rawToken,
+        ttlMinutes: PASSWORD_RESET_TTL_MINUTES,
       });
     } catch (err) {
       console.error("[mail] reset send failed", err);

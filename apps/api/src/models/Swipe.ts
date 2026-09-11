@@ -20,6 +20,8 @@ const swipeSchema = new Schema(
       index: true,
     },
     direction: { type: String, enum: ["like", "pass"], required: true },
+    /** Like especial 4 AM: revela identidad al destinatario. */
+    isHeartshot: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

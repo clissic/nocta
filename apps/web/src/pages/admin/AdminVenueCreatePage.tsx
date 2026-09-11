@@ -6,11 +6,11 @@ import {
   DISPLAY_ADDRESS_HINT,
   VENUE_TYPES,
   VENUE_TYPE_LABELS,
-  venueCitiesForCountry,
   type AuthUser,
   type VenueType,
 } from "@nocta/shared";
 import { api, ApiError } from "../../lib/api";
+import { useActiveAppCities } from "../../lib/appCities";
 import { useToast } from "../../components/ToastProvider";
 import { NoctaLoading } from "../../components/NoctaLoading";
 import { ADMIN_PAGE_SIZE } from "../../components/admin/AdminPagination";
@@ -50,15 +50,16 @@ export function AdminVenueCreatePage() {
   const [error, setError] = useState("");
   const forwardAbortRef = useRef<AbortController | null>(null);
   const automaticDisplayAddressRef = useRef("");
+  const { cities: countryCities } = useActiveAppCities(country);
 
   const cityCenter = useMemo(() => {
-    const found = venueCitiesForCountry(country).find(
-      (candidate) => candidate.label === city
+    const found = countryCities.find(
+      (candidate) => candidate.name.toLowerCase() === city.toLowerCase()
     );
     return found
       ? { lat: found.lat, lng: found.lng }
       : { lat: DEFAULT_URUGUAY_CITY.lat, lng: DEFAULT_URUGUAY_CITY.lng };
-  }, [city, country]);
+  }, [city, countryCities]);
 
   useEffect(() => {
     setLoading(true);
@@ -295,7 +296,6 @@ export function AdminVenueCreatePage() {
                   city={city}
                   onCountryChange={(nextCountry) => {
                     setCountry(nextCountry);
-                    setCity(venueCitiesForCountry(nextCountry)[0].label);
                   }}
                   onCityChange={setCity}
                 />

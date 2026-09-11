@@ -23,7 +23,7 @@ interface AuthState {
   register: (
     email: string,
     password: string,
-    extra?: { name?: string }
+    extra?: { name?: string; marketingEmailsOptIn?: boolean }
   ) => Promise<AuthUser>;
   verifyEmail: (code: string, email?: string) => Promise<AuthUser>;
   resendVerification: (email: string) => Promise<{ expiresInMinutes?: number }>;
@@ -82,13 +82,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (email: string, password: string, extra?: { name?: string }) => {
+    async (
+      email: string,
+      password: string,
+      extra?: { name?: string; marketingEmailsOptIn?: boolean }
+    ) => {
       const data = await api<{ token: string; user: AuthUser }>("/api/auth/register", {
         method: "POST",
         body: JSON.stringify({
           email,
           password,
           ...(extra?.name ? { name: extra.name.trim() } : {}),
+          marketingEmailsOptIn: Boolean(extra?.marketingEmailsOptIn),
         }),
       });
       clearSuspensionNotice();

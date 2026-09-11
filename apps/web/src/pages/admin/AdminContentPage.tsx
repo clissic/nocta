@@ -14,6 +14,7 @@ import {
   ADMIN_PAGE_SIZE,
   AdminPagination,
 } from "../../components/admin/AdminPagination";
+import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
 import { AdminSearchSelect } from "../../components/admin/AdminSearchSelect";
 
 export function AdminContentPage() {
@@ -293,23 +294,25 @@ export function AdminContentPage() {
         <p className="text-secondary small mb-0">Todavía no hay espacios.</p>
       ) : (
         <>
-          <AdminSearchSelect
-            label="Espacio"
-            value={venueId}
-            options={venues.map((venue) => ({
-              value: venue.id,
-              label: venue.name,
-              meta: venue.active ? "Activo" : "Inactivo",
-            }))}
-            query={venueQuery}
-            placeholder="Seleccionar Espacio"
-            searchPlaceholder="Buscar Espacio…"
-            emptyMessage="No hay Espacios para esta búsqueda."
-            loading={loadingVenues}
-            onChange={selectVenue}
-            onQueryChange={setVenueQuery}
-            onSearch={setSubmittedVenueQuery}
-          />
+          <AdminFiltersAccordion activeCount={venueId || submittedVenueQuery ? 1 : 0}>
+            <AdminSearchSelect
+              label="Espacio"
+              value={venueId}
+              options={venues.map((venue) => ({
+                value: venue.id,
+                label: venue.name,
+                meta: venue.active ? "Activo" : "Inactivo",
+              }))}
+              query={venueQuery}
+              placeholder="Seleccionar Espacio"
+              searchPlaceholder="Buscar Espacio…"
+              emptyMessage="No hay Espacios para esta búsqueda."
+              loading={loadingVenues}
+              onChange={selectVenue}
+              onQueryChange={setVenueQuery}
+              onSearch={setSubmittedVenueQuery}
+            />
+          </AdminFiltersAccordion>
 
           {selectedVenue && (
             <p className="text-secondary small">

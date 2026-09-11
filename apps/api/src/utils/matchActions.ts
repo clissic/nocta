@@ -1,11 +1,10 @@
 import mongoose from "mongoose";
 import { Match } from "../models/Match.js";
-import { Message } from "../models/Message.js";
 import { Swipe } from "../models/Swipe.js";
 
 /**
- * Borra match + mensajes y deja swipes en `pass` en ese venue
- * para que no vuelvan a matchear vía repair / likes mutuos.
+ * Disuelve el match: neutraliza swipes en ese venue y borra el documento Match.
+ * Los mensajes del chat se conservan (auditoría / denuncias).
  */
 export async function dissolveMatch(
   matchId: mongoose.Types.ObjectId | string,
@@ -32,11 +31,10 @@ export async function dissolveMatch(
     ]);
   }
 
-  await Message.deleteMany({ matchId: match._id });
   await Match.deleteOne({ _id: match._id });
 }
 
-/** Elimina todos los matches (y chats) entre dos usuarios. */
+/** Elimina todos los matches entre dos usuarios (conserva mensajes). */
 export async function dissolveAllMatchesBetween(
   userA: mongoose.Types.ObjectId | string,
   userB: mongoose.Types.ObjectId | string

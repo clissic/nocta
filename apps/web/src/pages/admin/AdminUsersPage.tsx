@@ -8,6 +8,9 @@ import {
   LANGUAGE_LABELS,
   LOOKING_FOR_LABELS,
   PETS_LABELS,
+  PREMIUM_PERIOD_LABELS,
+  PREMIUM_PERIOD_MONTHS,
+  PREMIUM_PLANS,
   SEXUAL_ORIENTATION_LABELS,
   SOCIAL_NETWORKS,
   SOCIAL_NETWORK_LABELS,
@@ -23,6 +26,8 @@ import {
   type Language,
   type LookingFor,
   type Pets,
+  type PremiumPeriodMonths,
+  type PremiumPlanId,
   type SexualOrientation,
   type SocialNetwork,
   type WorkStatus,
@@ -38,6 +43,7 @@ import {
   ADMIN_PAGE_SIZE,
   AdminPagination,
 } from "../../components/admin/AdminPagination";
+import { AdminFiltersAccordion } from "../../components/admin/AdminFiltersAccordion";
 
 function UserAvatar({
   name,
@@ -169,8 +175,15 @@ function activeSocials(profile: NonNullable<AuthUser["profile"]>) {
 type UserEditState = {
   email: string;
   isAdmin: boolean;
-  premium: boolean;
+  /** `free` = sin Premium; si no, plan activo. */
+  planChoice: "free" | PremiumPlanId;
+  premiumPeriodMonths: PremiumPeriodMonths;
   emailVerified: boolean;
+  boostsRemaining: string;
+  heartshotsRemaining: string;
+  teleportMode: boolean;
+  discoverDisabled: boolean;
+  rogueMode: boolean;
   name: string;
   birthDate: string;
   heightCm: string;
@@ -184,11 +197,30 @@ type UserEditState = {
 
 function editStateFromUser(user: AuthUser): UserEditState {
   const profile = user.profile;
+  const planChoice: UserEditState["planChoice"] =
+    user.premium &&
+    user.premiumPlanId &&
+    PREMIUM_PLANS.some((plan) => plan.id === user.premiumPlanId)
+      ? user.premiumPlanId
+      : "free";
+  const period =
+    user.premiumPeriodMonths &&
+    (PREMIUM_PERIOD_MONTHS as readonly number[]).includes(
+      user.premiumPeriodMonths
+    )
+      ? (user.premiumPeriodMonths as PremiumPeriodMonths)
+      : 1;
   return {
     email: user.email,
     isAdmin: user.role === "admin",
-    premium: user.premium,
+    planChoice,
+    premiumPeriodMonths: period,
     emailVerified: user.emailVerified,
+    boostsRemaining: String(user.boostsRemaining ?? 0),
+    heartshotsRemaining: String(user.heartshotsRemaining ?? 0),
+    teleportMode: Boolean(user.teleportMode),
+    discoverDisabled: Boolean(user.discoverDisabled),
+    rogueMode: Boolean(user.rogueMode),
     name: profile?.name ?? "",
     birthDate: profile?.birthDate?.slice(0, 10) ?? "",
     heightCm: profile?.heightCm ? String(profile.heightCm) : "",
@@ -286,6 +318,7 @@ export function AdminUsersPage() {
     setSaving(true);
     try {
       const hasLocation = Boolean(edit.country.trim() && edit.city.trim());
+      const isPremium = edit.planChoice !== "free";
       const response = await api<{ user: AuthUser }>(
         `/api/admin/users/${selected.id}`,
         {
@@ -293,8 +326,19 @@ export function AdminUsersPage() {
           body: JSON.stringify({
             email: edit.email.trim(),
             role: edit.isAdmin ? "admin" : "user",
-            premium: edit.premium,
+            premium: isPremium,
+            ...(isPremium
+              ? {
+                  premiumPlanId: edit.planChoice,
+                  premiumPeriodMonths: edit.premiumPeriodMonths,
+                }
+              : {}),
             emailVerified: edit.emailVerified,
+            boostsRemaining: Number(edit.boostsRemaining) || 0,
+            heartshotsRemaining: Number(edit.heartshotsRemaining) || 0,
+            teleportMode: edit.teleportMode,
+            discoverDisabled: edit.discoverDisabled,
+            rogueMode: edit.rogueMode,
             profile: {
               ...(edit.name.trim() ? { name: edit.name.trim() } : {}),
               birthDate: edit.birthDate || null,
@@ -363,25 +407,26 @@ export function AdminUsersPage() {
         </div>
       </header>
 
-      <ManualSearchInput
-        className="admin-toolbar"
-        placeholder="Buscar por email o nombre…"
-        ariaLabel="Buscar usuarios"
-        value={query}
-        onValueChange={setQuery}
-        onSearch={(value) => {
-          setSubmittedQuery(value);
-          setPage(1);
-        }}
-      />
+      <AdminFiltersAccordion activeCount={submittedQuery ? 1 : 0}>
+        <ManualSearchInput
+          className="admin-toolbar"
+          placeholder="Buscar por email o nombre…"
+          ariaLabel="Buscar usuarios"
+          value={query}
+          onValueChange={setQuery}
+          onSearch={(value) => {
+            setSubmittedQuery(value);
+            setPage(1);
+          }}
+        />
+      </AdminFiltersAccordion>
 
       {loading ? (
         <NoctaLoading variant="block" />
       ) : users.length === 0 ? (
         <p className="text-secondary small mb-0">Sin resultados.</p>
       ) : (
-        <>
-          <div className="admin-list">
+        <div className="admin-list">
           {users.map((u) => (
             <button
               key={u.id}
@@ -433,15 +478,15 @@ export function AdminUsersPage() {
               <i className="bi bi-chevron-right admin-list-chevron" aria-hidden="true" />
             </button>
           ))}
-          </div>
-          <AdminPagination
-            page={page}
-            totalItems={totalUsers}
-            onPageChange={setPage}
-            label="Páginas de usuarios"
-          />
-        </>
+        </div>
       )}
+
+      <AdminPagination
+        page={page}
+        totalItems={totalUsers}
+        onPageChange={setPage}
+        label="Páginas de usuarios"
+      />
 
       {selected && (
         <div className="admin-modal" role="presentation">
@@ -623,40 +668,155 @@ export function AdminUsersPage() {
                       />
                     </label>
 
-                    <div className="admin-user-switches admin-user-edit-wide">
-                      <label className="form-check form-switch">
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          checked={edit.isAdmin}
-                          onChange={(event) =>
-                            updateEdit("isAdmin", event.target.checked)
-                          }
-                        />
-                        <span className="form-check-label">Administrador</span>
-                      </label>
-                      <label className="form-check form-switch">
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          checked={edit.premium}
-                          onChange={(event) =>
-                            updateEdit("premium", event.target.checked)
-                          }
-                        />
-                        <span className="form-check-label">Premium</span>
-                      </label>
-                      <label className="form-check form-switch">
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          checked={edit.emailVerified}
-                          onChange={(event) =>
-                            updateEdit("emailVerified", event.target.checked)
-                          }
-                        />
-                        <span className="form-check-label">Email verificado</span>
-                      </label>
+                    <div className="admin-user-controls admin-user-edit-wide">
+                      <div className="admin-user-switch-grid">
+                        <label className="form-check form-switch admin-user-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={edit.isAdmin}
+                            onChange={(event) =>
+                              updateEdit("isAdmin", event.target.checked)
+                            }
+                          />
+                          <span className="form-check-label">Administrador</span>
+                        </label>
+                        <label className="form-check form-switch admin-user-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={edit.emailVerified}
+                            onChange={(event) =>
+                              updateEdit("emailVerified", event.target.checked)
+                            }
+                          />
+                          <span className="form-check-label">
+                            Email verificado
+                          </span>
+                        </label>
+                        <label className="form-check form-switch admin-user-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={edit.rogueMode}
+                            onChange={(event) =>
+                              updateEdit("rogueMode", event.target.checked)
+                            }
+                          />
+                          <span className="form-check-label">Modo pícaro</span>
+                        </label>
+                        <label className="form-check form-switch admin-user-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={edit.teleportMode}
+                            onChange={(event) =>
+                              updateEdit("teleportMode", event.target.checked)
+                            }
+                          />
+                          <span className="form-check-label">Teleport</span>
+                        </label>
+                        <label className="form-check form-switch admin-user-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={edit.discoverDisabled}
+                            onChange={(event) =>
+                              updateEdit(
+                                "discoverDisabled",
+                                event.target.checked
+                              )
+                            }
+                          />
+                          <span className="form-check-label">
+                            Discover desactivado
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="admin-user-pair-grid">
+                        <label className="admin-field">
+                          <span>Plan</span>
+                          <select
+                            className="form-select"
+                            value={edit.planChoice}
+                            aria-label="Plan"
+                            onChange={(event) =>
+                              updateEdit(
+                                "planChoice",
+                                event.target
+                                  .value as UserEditState["planChoice"]
+                              )
+                            }
+                          >
+                            <option value="free">Gratis</option>
+                            {PREMIUM_PLANS.filter((p) => !p.comingSoon).map(
+                              (plan) => (
+                                <option key={plan.id} value={plan.id}>
+                                  {plan.name
+                                    .replace("Nocta ", "")
+                                    .replace("A.M.", "AM")}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+                        <label className="admin-field">
+                          <span>Periodo</span>
+                          <select
+                            className="form-select"
+                            value={edit.premiumPeriodMonths}
+                            disabled={edit.planChoice === "free"}
+                            aria-label="Periodo"
+                            onChange={(event) =>
+                              updateEdit(
+                                "premiumPeriodMonths",
+                                Number(
+                                  event.target.value
+                                ) as PremiumPeriodMonths
+                              )
+                            }
+                          >
+                            {PREMIUM_PERIOD_MONTHS.map((months) => (
+                              <option key={months} value={months}>
+                                {PREMIUM_PERIOD_LABELS[months]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="admin-user-pair-grid">
+                        <label className="admin-field">
+                          <span>Boosts restantes</span>
+                          <input
+                            className="form-control"
+                            type="number"
+                            min={0}
+                            max={999}
+                            value={edit.boostsRemaining}
+                            onChange={(event) =>
+                              updateEdit("boostsRemaining", event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="admin-field">
+                          <span>Heartshots restantes</span>
+                          <input
+                            className="form-control"
+                            type="number"
+                            min={0}
+                            max={999}
+                            value={edit.heartshotsRemaining}
+                            onChange={(event) =>
+                              updateEdit(
+                                "heartshotsRemaining",
+                                event.target.value
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
                     </div>
 
                     <div className="admin-user-edit-actions admin-user-edit-wide">
@@ -714,6 +874,24 @@ export function AdminUsersPage() {
                       {selected.premium ? "Premium" : "Sin premium"}
                     </strong>
                   </div>
+                  {selected.premium && selected.premiumPlanId && (
+                    <div className="admin-modal-field">
+                      <span>Plan</span>
+                      <strong>{selected.premiumPlanId}</strong>
+                    </div>
+                  )}
+                  {selected.premium && (
+                    <div className="admin-modal-field">
+                      <span>Vence</span>
+                      <strong>
+                        {selected.premiumExpiresAt
+                          ? new Date(
+                              selected.premiumExpiresAt
+                            ).toLocaleDateString("es-UY")
+                          : "Sin vencimiento"}
+                      </strong>
+                    </div>
+                  )}
                   <div className="admin-modal-field">
                     <span>Likes disponibles</span>
                     <strong>

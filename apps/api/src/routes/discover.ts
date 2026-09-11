@@ -1,6 +1,7 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import type { DiscoverCard } from "@nocta/shared";
+import { planHasFeature } from "@nocta/shared";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { requireVerified } from "../middleware/gates.js";
 import { Presence } from "../models/Presence.js";
@@ -20,10 +21,10 @@ import {
   getLikeAllowance,
   refundLike,
 } from "../utils/likeAllowance.js";
-import { isDemoUserEmail } from "../seedData.js";
 import { createNotification } from "../utils/notify.js";
 import { areBlocked } from "../utils/follows.js";
 import { moderationVisibleUserFilter } from "../utils/moderation.js";
+import { isPremiumActive, isBoostActive, consumeHeartshot, refundHeartshot } from "../utils/premium.js";
 
 const router = Router();
 
@@ -32,7 +33,27 @@ router.use(requireAuth, requireVerified);
 const swipeSchema = z.object({
   toUserId: z.string().min(1),
   direction: z.enum(["like", "pass"]),
+  isHeartshot: z.boolean().optional(),
+  venueId: z.string().min(1).optional(),
 });
+
+const rewindSchema = z.object({
+  venueId: z.string().min(1).optional(),
+});
+
+async function resolveMyActivePresence(
+  userId: string,
+  venueId?: string | null
+) {
+  const filter: Record<string, unknown> = {
+    userId,
+    status: "active",
+  };
+  if (venueId && isObjectId(venueId)) {
+    filter.venueId = venueId;
+  }
+  return Presence.findOne(filter).sort({ startsAt: -1, _id: -1 });
+}
 
 function serializeCard(
   u: InstanceType<typeof User>,
@@ -77,6 +98,9 @@ function serializeCard(
     },
     presenceId,
     age: calcAge(birthDate),
+    identityVerified:
+      (u.identityVerification as { status?: string } | null | undefined)
+        ?.status === "approved",
   };
 }
 
@@ -91,7 +115,7 @@ function shuffleInPlace<T>(items: T[]) {
 router.get("/feed", async (req: AuthedRequest, res) => {
   const user = req.user!;
   const focusedUserId =
-    user.premium &&
+    isPremiumActive(user) &&
     typeof req.query.userId === "string" &&
     isObjectId(req.query.userId)
       ? req.query.userId
@@ -102,13 +126,39 @@ router.get("/feed", async (req: AuthedRequest, res) => {
 
   await expireStalePresences({ userId: user._id.toString() });
 
-  const myPresence = await Presence.findOne({
+  const myPresences = await Presence.find({
     userId: user._id,
     status: "active",
-  });
-  if (!myPresence) {
+  }).sort({ startsAt: -1, _id: -1 });
+  if (!myPresences.length) {
     return res.status(400).json({
       error: "Publicá tu presencia en un espacio para ver el deck",
+      code: "NO_PRESENCE",
+    });
+  }
+
+  const requestedVenueId =
+    typeof req.query.venueId === "string" && isObjectId(req.query.venueId)
+      ? req.query.venueId
+      : null;
+
+  let myPresence = requestedVenueId
+    ? myPresences.find((p) => p.venueId.toString() === requestedVenueId)
+    : myPresences.length === 1
+      ? myPresences[0]
+      : null;
+
+  if (!myPresence && myPresences.length > 1 && !requestedVenueId) {
+    return res.status(400).json({
+      error: "Elegí un Espacio para ver su Discover",
+      code: "SELECT_VENUE",
+      venueIds: myPresences.map((p) => p.venueId.toString()),
+    });
+  }
+
+  if (!myPresence) {
+    return res.status(400).json({
+      error: "No estás publicado en ese Espacio",
       code: "NO_PRESENCE",
     });
   }
@@ -143,22 +193,39 @@ router.get("/feed", async (req: AuthedRequest, res) => {
     ...moderationVisibleUserFilter(),
   });
 
+  const rogueCandidates = users.filter(
+    (u) => Boolean(u.rogueMode) && isPremiumActive(u)
+  );
+  let visibleDespiteRogue = new Set<string>();
+  if (rogueCandidates.length > 0) {
+    const likesTowardMe = await Swipe.find({
+      fromUserId: { $in: rogueCandidates.map((u) => u._id) },
+      toUserId: user._id,
+      venueId: myPresence.venueId,
+      direction: "like",
+    }).select("fromUserId");
+    visibleDespiteRogue = new Set(
+      likesTowardMe.map((s) => s.fromUserId.toString())
+    );
+  }
+
   const myInterestedIn = (user.profile.interestedIn ?? [])
     .map((g) => g.toLowerCase())
     .filter(Boolean);
   const myGender = user.profile.gender?.toLowerCase();
 
-  const viewerIsDemo = isDemoUserEmail(user.email);
-
   const cards = users
     .filter((u) => u.profile)
     .filter((u) => {
       if (focusedUserId === u._id.toString()) return true;
-      // Cuentas demo saltan el filtro mutuo para poder probar Discover
-      if (viewerIsDemo || isDemoUserEmail(u.email)) {
-        return true;
+      if (Boolean(u.rogueMode) && isPremiumActive(u)) {
+        return visibleDespiteRogue.has(u._id.toString());
       }
-      // Filtro blando: si ambos definieron preferencias de género, respetarlas
+      return true;
+    })
+    .filter((u) => {
+      if (focusedUserId === u._id.toString()) return true;
+      // Preferencias de género: respetar interestedIn del viewer y del candidato
       if (myInterestedIn.length > 0) {
         const theirGender = u.profile!.gender?.toLowerCase();
         if (theirGender && !myInterestedIn.includes(theirGender)) {
@@ -182,19 +249,26 @@ router.get("/feed", async (req: AuthedRequest, res) => {
       const presence = candidates.find(
         (c) => c.userId.toString() === u._id.toString()
       )!;
-      return serializeCard(u, presence._id.toString());
+      return {
+        card: serializeCard(u, presence._id.toString()),
+        boosted: isBoostActive(u),
+      };
     });
 
-  shuffleInPlace(cards);
+  const boosted = cards.filter((c) => c.boosted).map((c) => c.card);
+  const regular = cards.filter((c) => !c.boosted).map((c) => c.card);
+  shuffleInPlace(boosted);
+  shuffleInPlace(regular);
+  const ordered = [...boosted, ...regular];
   if (focusedUserId) {
-    cards.sort((a, b) => {
+    ordered.sort((a, b) => {
       if (a.userId === focusedUserId) return -1;
       if (b.userId === focusedUserId) return 1;
       return 0;
     });
   }
 
-  const cardUserIds = cards.map((c) => c.userId);
+  const cardUserIds = ordered.map((c) => c.userId);
   const [followingRows, pendingRows] = await Promise.all([
     Follow.find({
       followerId: user._id,
@@ -209,7 +283,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   ]);
   const followingSet = new Set(followingRows.map((r) => r.targetId.toString()));
   const pendingSet = new Set(pendingRows.map((r) => r.toUserId.toString()));
-  for (const card of cards) {
+  for (const card of ordered) {
     card.isFollowing = followingSet.has(card.userId);
     card.isFollowRequested =
       !card.isFollowing && pendingSet.has(card.userId);
@@ -218,7 +292,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   const likeAllowance = await getLikeAllowance(user._id.toString());
   return res.json({
     venueId: myPresence.venueId.toString(),
-    cards,
+    cards: ordered,
     likeAllowance,
   });
 });
@@ -235,10 +309,10 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
   }
 
   await expireStalePresences({ userId: user._id.toString() });
-  const myPresence = await Presence.findOne({
-    userId: user._id,
-    status: "active",
-  });
+  const myPresence = await resolveMyActivePresence(
+    user._id.toString(),
+    parsed.data.venueId
+  );
   if (!myPresence) {
     return res
       .status(400)
@@ -265,8 +339,23 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
       .json({ error: "Esa persona ya no está publicada en este espacio" });
   }
 
+  const wantHeartshot =
+    parsed.data.direction === "like" && Boolean(parsed.data.isHeartshot);
+
+  let heartshotConsumed = false;
+  if (wantHeartshot) {
+    const hs = await consumeHeartshot(user._id.toString());
+    if (!hs.ok) {
+      return res.status(hs.status).json({
+        error: hs.error,
+        code: hs.code,
+      });
+    }
+    heartshotConsumed = true;
+  }
+
   const likeResult =
-    parsed.data.direction === "like"
+    parsed.data.direction === "like" && !wantHeartshot
       ? await consumeLike(user._id.toString())
       : null;
   if (likeResult && !likeResult.allowed) {
@@ -283,10 +372,14 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
       toUserId: parsed.data.toUserId,
       venueId: myPresence.venueId,
       direction: parsed.data.direction,
+      isHeartshot: wantHeartshot,
     });
   } catch {
     if (likeResult?.consumed) {
       await refundLike(user._id.toString());
+    }
+    if (heartshotConsumed) {
+      await refundHeartshot(user._id.toString());
     }
     return res.status(409).json({ error: "Ya swipaste a esta persona aquí" });
   }
@@ -297,11 +390,14 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
     void createNotification({
       userId: parsed.data.toUserId,
       type: "like_received",
-      title: "Tenés un like nuevo",
-      body: "Alguien te dio like. Abrí Likes para ver más.",
+      title: wantHeartshot ? "¡Heartshot!" : "Tenés un like nuevo",
+      body: wantHeartshot
+        ? `${actorName} te mandó un Heartshot. Abrí Likes para responder.`
+        : "Alguien te dio like. Abrí Likes para ver más.",
       href: "/likes",
       data: {
         venueId: myPresence.venueId.toString(),
+        isHeartshot: wantHeartshot,
       },
     });
 
@@ -371,12 +467,23 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
 /** Deshace el último swipe del usuario en el espacio con presencia activa. */
 router.post("/rewind", async (req: AuthedRequest, res) => {
   const user = req.user!;
+  if (!isPremiumActive(user)) {
+    return res.status(403).json({
+      error: "El retroceso es exclusivo de Nocta Premium",
+      code: "PREMIUM_REQUIRED",
+    });
+  }
+
+  const parsed = rewindSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Datos inválidos" });
+  }
 
   await expireStalePresences({ userId: user._id.toString() });
-  const myPresence = await Presence.findOne({
-    userId: user._id,
-    status: "active",
-  });
+  const myPresence = await resolveMyActivePresence(
+    user._id.toString(),
+    parsed.data.venueId
+  );
   if (!myPresence) {
     return res
       .status(400)
@@ -394,6 +501,7 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
 
   const toUserId = lastSwipe.toUserId.toString();
   const wasLike = lastSwipe.direction === "like";
+  const wasHeartshot = Boolean(lastSwipe.isHeartshot);
   const blocked = await areBlocked(user._id.toString(), toUserId);
 
   await Swipe.deleteOne({ _id: lastSwipe._id });
@@ -408,7 +516,11 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
       await Message.deleteMany({ matchId: match._id });
       await Match.deleteOne({ _id: match._id });
     }
-    await refundLike(user._id.toString());
+    if (wasHeartshot) {
+      await refundHeartshot(user._id.toString());
+    } else {
+      await refundLike(user._id.toString());
+    }
   }
 
   const targetUser = await User.findById(toUserId);
@@ -441,7 +553,7 @@ router.get("/likes", async (req: AuthedRequest, res) => {
   const me = req.user!._id;
   await expireStalePresences({ userId: me.toString() });
 
-  const [incoming, mySwipes, blocked, myPresence] = await Promise.all([
+  const [incoming, mySwipes, blocked, myPresences] = await Promise.all([
     Swipe.find({
       toUserId: me,
       direction: "like",
@@ -450,12 +562,15 @@ router.get("/likes", async (req: AuthedRequest, res) => {
       .limit(80),
     Swipe.find({ fromUserId: me }).select("toUserId venueId"),
     blockedPeerIds(me),
-    Presence.findOne({ userId: me, status: "active" }),
+    Presence.find({ userId: me, status: "active" }).select("venueId"),
   ]);
 
   const blockedSet = new Set(blocked.map(String));
   const respondedKeys = new Set(
     mySwipes.map((s) => `${s.toUserId.toString()}:${s.venueId.toString()}`)
+  );
+  const myVenueIds = new Set(
+    myPresences.map((p) => p.venueId.toString())
   );
 
   const pending = incoming.filter((s) => {
@@ -485,8 +600,10 @@ router.get("/likes", async (req: AuthedRequest, res) => {
   const venueMap = new Map(
     venues.map((v) => [v._id.toString(), v.name as string])
   );
-  const myVenueId = myPresence?.venueId.toString() ?? null;
-  const viewerPremium = Boolean(req.user!.premium);
+  const viewerPremium = isPremiumActive(req.user!);
+  const canSeeLikes =
+    viewerPremium &&
+    planHasFeature(String(req.user!.premiumPlanId), "see_likes");
 
   const likes = pending
     .map((s) => {
@@ -497,15 +614,17 @@ router.get("/likes", async (req: AuthedRequest, res) => {
       if (!u?.profile || !birthDate) return null;
       const venueName = venueMap.get(venueId);
       if (!venueName) return null;
+      const isHeartshot = Boolean(s.isHeartshot);
+      const reveal = canSeeLikes || isHeartshot;
 
       return {
         id: s._id.toString(),
         createdAt: s.createdAt.toISOString(),
         venueId,
         venueName,
+        isHeartshot,
         user: {
-          // Sin Premium no enviamos id, nombre ni foto (el UI solo no alcanza).
-          ...(viewerPremium
+          ...(reveal
             ? {
                 id: fromId,
                 name: u.profile.name ?? "Usuario",
@@ -514,12 +633,12 @@ router.get("/likes", async (req: AuthedRequest, res) => {
             : {}),
           age: calcAge(birthDate),
         },
-        canRespond: Boolean(myVenueId && myVenueId === venueId),
+        canRespond: myVenueIds.has(venueId),
       };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-  return res.json({ likes, viewerPremium });
+  return res.json({ likes, viewerPremium, canSeeLikes });
 });
 
 export default router;

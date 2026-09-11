@@ -14,6 +14,7 @@ import { VenueTrustBadge } from "../components/VenueTrustBadge";
 import { onVenuePhotoError, venueCoverSrc } from "../lib/venuePhoto";
 import { NoctaLoading } from "../components/NoctaLoading";
 import { ManualSearchInput } from "../components/ManualSearchInput";
+import { useVenueCity } from "../components/RequireVenueLocation";
 
 type TypeFilter = "all" | VenueType;
 
@@ -25,10 +26,18 @@ const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
   })),
 ];
 
-function buildVenuesUrl(page: number, typeFilter: TypeFilter, query: string) {
+function buildVenuesUrl(
+  page: number,
+  typeFilter: TypeFilter,
+  query: string,
+  country: string,
+  city: string
+) {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(VENUES_PAGE_SIZE),
+    country,
+    city,
   });
   if (typeFilter !== "all") params.set("type", typeFilter);
   const q = query.trim();
@@ -37,8 +46,10 @@ function buildVenuesUrl(page: number, typeFilter: TypeFilter, query: string) {
 }
 
 export function VenuesPage() {
+  const venueCity = useVenueCity();
   const [venues, setVenues] = useState<Venue[]>([]);
   const [presence, setPresence] = useState<Presence | null>(null);
+  const [presences, setPresences] = useState<Presence[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
@@ -66,9 +77,16 @@ export function VenuesPage() {
 
   useEffect(() => {
     let alive = true;
-    api<{ presence: Presence | null }>("/api/presence/me")
+    api<{
+      presence: Presence | null;
+      presences?: Presence[];
+    }>("/api/presence/me")
       .then((res) => {
-        if (alive) setPresence(res.presence);
+        if (!alive) return;
+        const list =
+          res.presences ?? (res.presence ? [res.presence] : []);
+        setPresences(list);
+        setPresence(list[0] ?? null);
       })
       .catch(() => undefined);
     return () => {
@@ -87,7 +105,13 @@ export function VenuesPage() {
       }
       try {
         const res = await api<PaginatedVenuesResponse>(
-          buildVenuesUrl(nextPage, typeFilter, submittedQuery)
+          buildVenuesUrl(
+            nextPage,
+            typeFilter,
+            submittedQuery,
+            venueCity.country,
+            venueCity.city
+          )
         );
         setVenues((prev) => (replace ? res.venues : [...prev, ...res.venues]));
         setPage(res.pagination.page);
@@ -100,7 +124,7 @@ export function VenuesPage() {
         setLoadingMore(false);
       }
     },
-    [typeFilter, submittedQuery]
+    [typeFilter, submittedQuery, venueCity.country, venueCity.city]
   );
 
   useEffect(() => {
@@ -123,7 +147,11 @@ export function VenuesPage() {
     return () => observer.disconnect();
   }, [loadPage, loading, venues.length]);
 
-  const liveVenueId = presence?.venueId ?? presence?.venue?.id;
+  const liveVenueIds = new Set(
+    (presences.length ? presences : presence ? [presence] : []).map(
+      (row) => row.venueId ?? row.venue?.id
+    )
+  );
 
   if (loading) {
     return (
@@ -137,7 +165,9 @@ export function VenuesPage() {
         <div>
           <h1 className="app-title h3 mb-1">¿A dónde vas?</h1>
           <p className="text-secondary small mb-0">
-            Publicate en un espacio y descubrí quién más va.
+            Explorando {venueCity.city}, {venueCity.country}
+            {venueCity.source === "teleport" ? " · Teleport" : ""}. Publicate
+            en un espacio y descubrí quién más va.
           </p>
         </div>
         {total > 0 && (
@@ -192,30 +222,43 @@ export function VenuesPage() {
         <Link to="/profile/venue-request">Solicitalo aquí</Link>
       </p>
 
-      {presence?.venue && (
-        <div className="status-strip fade-in">
-          <span className="live-dot" aria-hidden="true" />
-          <span className="text-primary small fw-semibold">Publicado</span>
-          <span className="status-strip-copy small">
-            {presence.venue.name}
-            {presence.endsAt
-              ? ` · hasta ${new Date(presence.endsAt).toLocaleString("es-AR", {
+      {presences.length > 0 && (
+        <div className="status-strip status-strip-multi fade-in">
+          {presences.map((row) => {
+            const name = row.venue?.name ?? "Espacio";
+            const until = row.endsAt
+              ? `hasta ${new Date(row.endsAt).toLocaleString("es-AR", {
                   day: "2-digit",
                   month: "short",
                   hour: "2-digit",
                   minute: "2-digit",
                   hour12: false,
                 })}`
-              : " · permanente"}
-          </span>
-          <Link
-            to="/discover"
-            className="btn btn-sm btn-primary status-strip-discover"
-            aria-label="Discover"
-          >
-            <i className="bi bi-fire d-md-none" aria-hidden="true" />
-            <span className="d-none d-md-inline">Discover</span>
-          </Link>
+              : "permanente";
+            return (
+              <div key={row.id} className="status-strip-slot">
+                <div className="status-strip-slot-left min-w-0">
+                  <span className="live-dot" aria-hidden="true" />
+                  <span className="text-primary small fw-semibold status-strip-label">
+                    Publicado
+                  </span>
+                  <span className="status-strip-slot-name text-truncate">
+                    {name}
+                  </span>
+                  <span className="status-strip-slot-until small text-secondary text-truncate">
+                    {until}
+                  </span>
+                </div>
+                <Link
+                  to={`/discover?venueId=${encodeURIComponent(row.venueId)}`}
+                  className="btn btn-sm btn-primary status-strip-discover"
+                  aria-label={`Discover en ${name}`}
+                >
+                  <i className="bi bi-fire" aria-hidden="true" />
+                </Link>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -223,7 +266,8 @@ export function VenuesPage() {
 
       <div className="venues-grid">
         {venues.map((venue, index) => {
-          const isLive = liveVenueId === venue.id;
+          const isLive = liveVenueIds.has(venue.id);
+          const spyCount = venue.livePublishedCount;
           return (
             <Link
               key={venue.id}
@@ -244,6 +288,15 @@ export function VenuesPage() {
                   <span className="venue-card-live">
                     <span className="live-dot" aria-hidden="true" />
                     Ahora
+                  </span>
+                )}
+                {typeof spyCount === "number" && (
+                  <span
+                    className="venue-card-spy"
+                    title={`${spyCount} publicadas`}
+                  >
+                    <i className="bi bi-binoculars" aria-hidden="true" />
+                    {spyCount}
                   </span>
                 )}
                 <div className="venue-card-caption">

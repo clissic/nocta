@@ -9,5 +9,5 @@ export function resolveShowActivityToFollowers(user: {
   if (typeof user.hideActivityFromFollowers === "boolean") {
     return !user.hideActivityFromFollowers;
   }
-  return true;
+  return false;
 }
