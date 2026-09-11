@@ -1271,14 +1271,15 @@ router.get("/promo-purchases", async (req: AuthedRequest, res) => {
     })
       .select("_id")
       .lean();
-    filter.$or = [
+    const or: Record<string, unknown>[] = [
       { title: { $regex: escaped, $options: "i" } },
       { userId: { $in: matchedUsers.map((u) => u._id) } },
       { venueId: { $in: matchedVenues.map((v) => v._id) } },
     ];
     if (isObjectId(q)) {
-      filter.$or.push({ _id: q });
+      or.push({ _id: q });
     }
+    filter.$or = or;
   }
 
   const [rows, total] = await Promise.all([
@@ -1363,14 +1364,15 @@ router.get("/premium-purchases", async (req: AuthedRequest, res) => {
     })
       .select("_id")
       .lean();
-    filter.$or = [
+    const or: Record<string, unknown>[] = [
       { planId: { $regex: escaped, $options: "i" } },
       { mpPaymentId: { $regex: escaped, $options: "i" } },
       { userId: { $in: matchedUsers.map((u) => u._id) } },
     ];
     if (isObjectId(q)) {
-      filter.$or.push({ _id: q });
+      or.push({ _id: q });
     }
+    filter.$or = or;
   }
 
   const [rows, total] = await Promise.all([
