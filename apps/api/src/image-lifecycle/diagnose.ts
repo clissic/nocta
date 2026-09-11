@@ -73,9 +73,9 @@ function collectAssetKeys(doc: {
   keys?: string[] | null;
   storageKey?: string | null;
   variants?: {
-    thumb?: { webp?: { key?: string }; avif?: { key?: string } };
-    medium?: { webp?: { key?: string }; avif?: { key?: string } };
-    large?: { webp?: { key?: string }; avif?: { key?: string } };
+    thumb?: { webp?: { key?: string }; avif?: { key?: string } } | null;
+    medium?: { webp?: { key?: string }; avif?: { key?: string } } | null;
+    large?: { webp?: { key?: string }; avif?: { key?: string } } | null;
   } | null;
 }): string[] {
   return [
@@ -112,9 +112,9 @@ async function listAllKeys(
 function incompleteVariantIssues(doc: {
   visibility?: string;
   variants?: {
-    thumb?: { webp?: { key?: string }; avif?: { key?: string } };
-    medium?: { webp?: { key?: string }; avif?: { key?: string } };
-    large?: { webp?: { key?: string }; avif?: { key?: string } };
+    thumb?: { webp?: { key?: string }; avif?: { key?: string } } | null;
+    medium?: { webp?: { key?: string }; avif?: { key?: string } } | null;
+    large?: { webp?: { key?: string }; avif?: { key?: string } } | null;
   } | null;
 }): string[] {
   if (doc.visibility !== "public") return [];

@@ -8,7 +8,7 @@ import {
   runAllImageLifecycleJobs,
   runNamedImageLifecycleJob,
 } from "./jobs/index.js";
-import { IMAGE_LIFECYCLE_JOB_NAMES } from "../../models/ImageLifecycleJobRun.js";
+import { IMAGE_LIFECYCLE_JOB_NAMES } from "../models/ImageLifecycleJobRun.js";
 
 function parseArgs(argv: string[]) {
   const dryRun =
