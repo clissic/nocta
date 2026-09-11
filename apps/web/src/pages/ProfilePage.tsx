@@ -562,6 +562,7 @@ export function ProfilePage() {
       </div>
       {connectionsMode && (
         <ProfileConnectionsModal
+          key={connectionsMode}
           mode={connectionsMode}
           onClose={closeConnections}
           onRemoved={handleConnectionRemoved}

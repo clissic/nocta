@@ -38,13 +38,18 @@ export function createApp() {
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
-  if (process.env.NOCTA_E2E !== "1") {
-    app.use(morgan("dev"));
+  if (process.env.NOCTA_E2E !== "1" && process.env.MORGAN !== "0") {
+    const format =
+      process.env.MORGAN?.trim() ||
+      (process.env.NODE_ENV === "production" ? "tiny" : "dev");
+    app.use(morgan(format));
   }
 
   /**
    * Fase 11: `/uploads` solo lectura residual (corpus legacy).
    * Nuevos bytes → TEMP + Image Service; no writes vía esta ruta.
+   * Retirar `express.static` + proxy Vite cuando prod tenga 0 hits
+   * `[legacy-uploads]` (inventario migrado + cleanup confirmado).
    */
   app.use("/uploads", (req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") {

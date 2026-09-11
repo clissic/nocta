@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type {
   FollowListUser,
@@ -16,6 +16,8 @@ import { ManualSearchInput } from "./ManualSearchInput";
 
 export type ProfileConnectionsMode = "followers" | "following" | "venues";
 
+const CONNECTIONS_PAGE_SIZE = 10;
+
 type Props = {
   mode: ProfileConnectionsMode;
   onClose: () => void;
@@ -31,6 +33,23 @@ type PublicUserResponse = {
   livesIn?: FollowRequestProfile["livesIn"];
   socials?: FollowRequestProfile["socials"];
 };
+
+function connectionsPath(
+  mode: ProfileConnectionsMode,
+  search: string
+): string {
+  const params = new URLSearchParams({
+    limit: String(CONNECTIONS_PAGE_SIZE),
+  });
+  const q = search.trim();
+  if (q) params.set("q", q);
+
+  if (mode === "followers") {
+    return `/api/me/followers?${params}`;
+  }
+  params.set("type", mode === "venues" ? "venue" : "user");
+  return `/api/me/following?${params}`;
+}
 
 export function ProfileConnectionsModal({
   mode,
@@ -54,25 +73,24 @@ export function ProfileConnectionsModal({
     setLoading(true);
     setUsers([]);
     setVenues([]);
-    setQuery("");
-    setSubmittedQuery("");
     setSelectedUserId(null);
     setReducedProfile(null);
 
+    const path = connectionsPath(mode, submittedQuery);
     const load =
       mode === "followers"
-        ? api<{ users: FollowListUser[] }>("/api/me/followers").then(
-            (response) => setUsers(response.users ?? [])
+        ? api<{ users: FollowListUser[] }>(path).then((response) =>
+            setUsers(response.users ?? [])
           )
-        : api<{ users: FollowListUser[]; venues: Venue[] }>(
-            "/api/me/following"
-          ).then((response) => {
-            if (mode === "venues") {
-              setVenues(response.venues ?? []);
-            } else {
-              setUsers(response.users ?? []);
+        : api<{ users: FollowListUser[]; venues: Venue[] }>(path).then(
+            (response) => {
+              if (mode === "venues") {
+                setVenues(response.venues ?? []);
+              } else {
+                setUsers(response.users ?? []);
+              }
             }
-          });
+          );
 
     void load
       .catch(() => toast.error("No se pudo cargar la lista"))
@@ -81,7 +99,7 @@ export function ProfileConnectionsModal({
     return () => {
       document.body.style.overflow = "";
     };
-  }, [mode, toast]);
+  }, [mode, submittedQuery, toast]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -96,26 +114,6 @@ export function ProfileConnectionsModal({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose, selectedUserId]);
-
-  const visibleUsers = useMemo(() => {
-    const normalized = submittedQuery.toLocaleLowerCase("es");
-    const filtered = normalized
-      ? users.filter((user) =>
-          user.name.toLocaleLowerCase("es").includes(normalized)
-        )
-      : users;
-    return filtered.slice(0, 10);
-  }, [submittedQuery, users]);
-
-  const visibleVenues = useMemo(() => {
-    const normalized = submittedQuery.toLocaleLowerCase("es");
-    const filtered = normalized
-      ? venues.filter((venue) =>
-          venue.name.toLocaleLowerCase("es").includes(normalized)
-        )
-      : venues;
-    return filtered.slice(0, 10);
-  }, [submittedQuery, venues]);
 
   async function openReducedProfile(user: FollowListUser) {
     setSelectedUserId(user.id);
@@ -201,9 +199,7 @@ export function ProfileConnectionsModal({
         : "Todavía no seguís espacios.";
 
   const isVenues = mode === "venues";
-  const listEmpty = isVenues
-    ? visibleVenues.length === 0
-    : visibleUsers.length === 0;
+  const listEmpty = isVenues ? venues.length === 0 : users.length === 0;
 
   return (
     <div
@@ -248,7 +244,7 @@ export function ProfileConnectionsModal({
             <p className="text-secondary small mb-0">{emptyCopy}</p>
           ) : isVenues ? (
             <ul className="profile-connections-list">
-              {visibleVenues.map((venue) => (
+              {venues.map((venue) => (
                 <li key={venue.id} className="profile-connections-item">
                   <div className="profile-connections-user">
                     <OptimizedImage
@@ -288,7 +284,7 @@ export function ProfileConnectionsModal({
             </ul>
           ) : (
             <ul className="profile-connections-list">
-              {visibleUsers.map((user) => (
+              {users.map((user) => (
                 <li key={user.id} className="profile-connections-item">
                   <div className="profile-connections-user">
                     {user.photo ? (

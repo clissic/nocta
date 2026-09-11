@@ -14,7 +14,7 @@ import { isObjectId, paramId } from "../utils/ids.js";
 import { createNotification, notifyMany } from "../utils/notify.js";
 import { dissolveMatch } from "../utils/matchActions.js";
 import { blockUser } from "../utils/userSafety.js";
-import { resolvePublicAssetUrl } from "../utils/serialize.js";
+import { resolvePublicAssetUrls } from "../utils/serialize.js";
 
 const router = Router();
 
@@ -38,38 +38,96 @@ function otherUserId(
 router.get("/", async (req: AuthedRequest, res) => {
   const userId = req.user!._id;
   const blocked = new Set(await blockedPeerIds(userId));
-  const matches = await Match.find({ users: userId }).sort({ updatedAt: -1 });
+  const matches = await Match.find({ users: userId })
+    .sort({ updatedAt: -1 })
+    .lean();
 
-  const summaries = await Promise.all(
-    matches.map(async (m) => {
-      const otherId = otherUserId(m, userId.toString());
-      if (blocked.has(otherId)) return null;
-      const other = await User.findById(otherId);
-      const venue = await Venue.findById(m.venueId);
-      const last = await Message.findOne({ matchId: m._id }).sort({
-        createdAt: -1,
-      });
+  const otherIds = matches
+    .map((m) => otherUserId(m, userId.toString()))
+    .filter((id) => !blocked.has(id));
+  const venueIds = [
+    ...new Set(matches.map((m) => m.venueId.toString())),
+  ];
+  const matchIds = matches.map((m) => m._id);
 
-      return {
-        id: m._id.toString(),
-        venueId: m.venueId.toString(),
-        venueName: venue?.name,
-        otherUser: {
-          id: otherId,
-          name: other?.profile?.name ?? "Usuario",
-          photo: await resolvePublicAssetUrl(other?.profile?.photos?.[0]),
-        },
-        createdAt: m.createdAt.toISOString(),
-        lastMessage: last
-          ? {
-              body: last.body,
-              createdAt: last.createdAt.toISOString(),
-              fromUserId: last.senderId.toString(),
-            }
-          : undefined,
-      };
-    })
+  const [others, venues, lastMessages] = await Promise.all([
+    otherIds.length
+      ? User.find({ _id: { $in: otherIds } })
+          .select("profile.name profile.photos")
+          .lean()
+      : Promise.resolve([]),
+    venueIds.length
+      ? Venue.find({ _id: { $in: venueIds } }).select("name").lean()
+      : Promise.resolve([]),
+    matchIds.length
+      ? Message.aggregate<{
+          _id: mongoose.Types.ObjectId;
+          body: string;
+          createdAt: Date;
+          senderId: mongoose.Types.ObjectId;
+        }>([
+          { $match: { matchId: { $in: matchIds } } },
+          { $sort: { createdAt: -1 } },
+          {
+            $group: {
+              _id: "$matchId",
+              body: { $first: "$body" },
+              createdAt: { $first: "$createdAt" },
+              senderId: { $first: "$senderId" },
+            },
+          },
+        ])
+      : Promise.resolve([]),
+  ]);
+
+  const otherMap = new Map(others.map((u) => [u._id.toString(), u]));
+  const venueMap = new Map(venues.map((v) => [v._id.toString(), v.name]));
+  const lastByMatch = new Map(
+    lastMessages.map((m) => [m._id.toString(), m])
   );
+
+  const photoRefs = otherIds.map(
+    (id) => otherMap.get(id)?.profile?.photos?.[0] ?? null
+  );
+  const resolvedPhotos = await resolvePublicAssetUrls(
+    photoRefs.filter((p): p is string => Boolean(p))
+  );
+  let photoIdx = 0;
+  const photoByUser = new Map<string, string | undefined>();
+  for (const id of otherIds) {
+    const ref = otherMap.get(id)?.profile?.photos?.[0];
+    if (!ref) {
+      photoByUser.set(id, undefined);
+      continue;
+    }
+    photoByUser.set(id, resolvedPhotos[photoIdx++] || ref);
+  }
+
+  const summaries = matches.map((m) => {
+    const otherId = otherUserId(m, userId.toString());
+    if (blocked.has(otherId)) return null;
+    const other = otherMap.get(otherId);
+    const last = lastByMatch.get(m._id.toString());
+
+    return {
+      id: m._id.toString(),
+      venueId: m.venueId.toString(),
+      venueName: venueMap.get(m.venueId.toString()),
+      otherUser: {
+        id: otherId,
+        name: other?.profile?.name ?? "Usuario",
+        photo: photoByUser.get(otherId),
+      },
+      createdAt: m.createdAt.toISOString(),
+      lastMessage: last
+        ? {
+            body: last.body,
+            createdAt: last.createdAt.toISOString(),
+            fromUserId: last.senderId.toString(),
+          }
+        : undefined,
+    };
+  });
 
   return res.json({ matches: summaries.filter(Boolean) });
 });

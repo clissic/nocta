@@ -46,13 +46,28 @@ async function start() {
   } catch {
     /* no existía */
   }
-  await Match.syncIndexes();
+
+  if (config.boot.syncIndexes) {
+    await Match.syncIndexes();
+  } else {
+    console.log(
+      "[boot] Match.syncIndexes omitido (SYNC_INDEXES≠1 en prod). One-shot: SYNC_INDEXES=1"
+    );
+  }
 
   await maybeSeed();
   await ensureAppCitiesSeeded();
-  await syncPilotVenues();
-  await ensureDemoAccounts();
-  await normalizeLookingForSingleChoice();
+
+  if (config.boot.syncData) {
+    await syncPilotVenues();
+    await ensureDemoAccounts();
+    await normalizeLookingForSingleChoice();
+  } else {
+    console.log(
+      "[boot] sync demos/pilotos omitido (prod). Emergencia: BOOT_SYNC=1 o npm run seed"
+    );
+  }
+
   await verifyMailTransport();
 
   const { startImageLifecycleScheduler } = await import(

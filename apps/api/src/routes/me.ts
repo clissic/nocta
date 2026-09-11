@@ -21,7 +21,6 @@ import {
   acceptFollowRequest,
   rejectFollowRequest,
   unfollowTarget,
-  venueFollowersCount,
 } from "../utils/follows.js";
 import { FollowRequest } from "../models/FollowRequest.js";
 import { Block } from "../models/Block.js";
@@ -416,78 +415,214 @@ router.get(
   }
 );
 
+const CONNECTIONS_LIST_LIMIT = 10;
+
 router.get("/following", requireAuth, async (req: AuthedRequest, res) => {
   const me = req.user!._id;
-  const rows = await Follow.find({ followerId: me }).sort({ createdAt: -1 });
-
-  const userIds = rows
-    .filter((r) => r.targetType === "user")
-    .map((r) => r.targetId);
-  const venueIds = rows
-    .filter((r) => r.targetType === "venue")
-    .map((r) => r.targetId);
-
-  const [users, venues] = await Promise.all([
-    User.find({ _id: { $in: userIds }, profileComplete: true }),
-    Venue.find({ _id: { $in: venueIds }, active: true }),
-  ]);
-
-  const userMap = new Map(users.map((u) => [u._id.toString(), u]));
-  const venueMap = new Map(venues.map((v) => [v._id.toString(), v]));
-
-  const publicUsers = await Promise.all(
-    userIds
-      .map((id) => userMap.get(id.toString()))
-      .filter(Boolean)
-      .map((u) => serializePublicUser(u!, { isFollowing: true }))
+  const limit = Math.min(
+    CONNECTIONS_LIST_LIMIT,
+    Math.max(1, Number(req.query.limit) || CONNECTIONS_LIST_LIMIT)
   );
+  const q =
+    typeof req.query.q === "string" ? req.query.q.trim().slice(0, 80) : "";
+  const typeRaw =
+    typeof req.query.type === "string" ? req.query.type.trim() : "all";
+  const wantUsers = typeRaw === "all" || typeRaw === "user";
+  const wantVenues = typeRaw === "all" || typeRaw === "venue";
 
-  const publicVenues = await Promise.all(
-    venueIds
-      .map((id) => venueMap.get(id.toString()))
-      .filter(Boolean)
-      .map(async (v) =>
-        serializeVenue(v!, {
-          followersCount: await venueFollowersCount(v!._id),
-          isFollowing: true,
-        })
-      )
-  );
+  let publicUsers: Awaited<ReturnType<typeof serializePublicUser>>[] = [];
+  let publicVenues: Awaited<ReturnType<typeof serializeVenue>>[] = [];
+
+  if (wantUsers) {
+    if (q) {
+      const allIds = (
+        await Follow.find({ followerId: me, targetType: "user" })
+          .select("targetId")
+          .lean()
+      ).map((r) => r.targetId);
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const users = allIds.length
+        ? await User.find({
+            _id: { $in: allIds },
+            profileComplete: true,
+            "profile.name": { $regex: escaped, $options: "i" },
+          })
+            .select("profile")
+            .limit(limit)
+            .lean()
+        : [];
+      publicUsers = await Promise.all(
+        users.map((u) =>
+          serializePublicUser(u as never, { isFollowing: true })
+        )
+      );
+    } else {
+      // Oversample por si algún perfil está incompleto.
+      const userRows = await Follow.find({
+        followerId: me,
+        targetType: "user",
+      })
+        .sort({ createdAt: -1 })
+        .select("targetId")
+        .limit(limit * 5)
+        .lean();
+      const userIds = userRows.map((r) => r.targetId);
+      const users = userIds.length
+        ? await User.find({
+            _id: { $in: userIds },
+            profileComplete: true,
+          })
+            .select("profile")
+            .lean()
+        : [];
+      const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+      const ordered = userIds
+        .map((id) => userMap.get(id.toString()))
+        .filter(Boolean)
+        .slice(0, limit);
+      publicUsers = await Promise.all(
+        ordered.map((u) =>
+          serializePublicUser(u as never, { isFollowing: true })
+        )
+      );
+    }
+  }
+
+  if (wantVenues) {
+    if (q) {
+      const allIds = (
+        await Follow.find({ followerId: me, targetType: "venue" })
+          .select("targetId")
+          .lean()
+      ).map((r) => r.targetId);
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const venues = allIds.length
+        ? await Venue.find({
+            _id: { $in: allIds },
+            active: true,
+            name: { $regex: escaped, $options: "i" },
+          })
+            .limit(limit)
+            .lean()
+        : [];
+      publicVenues = await Promise.all(
+        venues.map((v) =>
+          serializeVenue(v as never, {
+            followersCount:
+              typeof v.followersCount === "number" ? v.followersCount : 0,
+            isFollowing: true,
+          })
+        )
+      );
+    } else {
+      const venueRows = await Follow.find({
+        followerId: me,
+        targetType: "venue",
+      })
+        .sort({ createdAt: -1 })
+        .select("targetId")
+        .limit(limit * 5)
+        .lean();
+      const venueIds = venueRows.map((r) => r.targetId);
+      const venues = venueIds.length
+        ? await Venue.find({ _id: { $in: venueIds }, active: true }).lean()
+        : [];
+      const venueMap = new Map(venues.map((v) => [v._id.toString(), v]));
+      const ordered = venueIds
+        .map((id) => venueMap.get(id.toString()))
+        .filter(Boolean)
+        .slice(0, limit);
+      publicVenues = await Promise.all(
+        ordered.map((v) =>
+          serializeVenue(v as never, {
+            followersCount:
+              typeof v!.followersCount === "number" ? v!.followersCount : 0,
+            isFollowing: true,
+          })
+        )
+      );
+    }
+  }
 
   return res.json({ users: publicUsers, venues: publicVenues });
 });
 
 router.get("/followers", requireAuth, async (req: AuthedRequest, res) => {
   const me = req.user!._id.toString();
-  const rows = await Follow.find({
-    targetType: "user",
-    targetId: me,
-  }).sort({ createdAt: -1 });
+  const limit = Math.min(
+    CONNECTIONS_LIST_LIMIT,
+    Math.max(1, Number(req.query.limit) || CONNECTIONS_LIST_LIMIT)
+  );
+  const q =
+    typeof req.query.q === "string" ? req.query.q.trim().slice(0, 80) : "";
 
-  const followerIds = rows.map((r) => r.followerId);
-  const users = await User.find({
-    _id: { $in: followerIds },
-    profileComplete: true,
-  });
-  const map = new Map(users.map((u) => [u._id.toString(), u]));
+  let ordered: Array<{ _id: { toString(): string } } & Record<string, unknown>> =
+    [];
 
-  const followingBack = await Follow.find({
-    followerId: me,
-    targetType: "user",
-    targetId: { $in: followerIds },
-  });
+  if (q) {
+    const allIds = (
+      await Follow.find({
+        targetType: "user",
+        targetId: me,
+      })
+        .select("followerId")
+        .lean()
+    ).map((r) => r.followerId);
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    ordered = allIds.length
+      ? ((await User.find({
+          _id: { $in: allIds },
+          profileComplete: true,
+          "profile.name": { $regex: escaped, $options: "i" },
+        })
+          .select("profile")
+          .limit(limit)
+          .lean()) as typeof ordered)
+      : [];
+  } else {
+    const rows = await Follow.find({
+      targetType: "user",
+      targetId: me,
+    })
+      .sort({ createdAt: -1 })
+      .select("followerId")
+      .limit(limit * 5)
+      .lean();
+    const followerIds = rows.map((r) => r.followerId);
+    const users = followerIds.length
+      ? await User.find({
+          _id: { $in: followerIds },
+          profileComplete: true,
+        })
+          .select("profile")
+          .lean()
+      : [];
+    const map = new Map(users.map((u) => [u._id.toString(), u]));
+    ordered = followerIds
+      .map((id) => map.get(id.toString()))
+      .filter(Boolean)
+      .slice(0, limit) as typeof ordered;
+  }
+
+  const orderedIds = ordered.map((u) => u._id);
+  const followingBack = orderedIds.length
+    ? await Follow.find({
+        followerId: me,
+        targetType: "user",
+        targetId: { $in: orderedIds },
+      })
+        .select("targetId")
+        .lean()
+    : [];
   const backSet = new Set(followingBack.map((f) => f.targetId.toString()));
 
   const list = await Promise.all(
-    followerIds
-      .map((id) => map.get(id.toString()))
-      .filter(Boolean)
-      .map((u) =>
-        serializePublicUser(u!, {
-          isFollower: true,
-          isFollowing: backSet.has(u!._id.toString()),
-        })
-      )
+    ordered.map((u) =>
+      serializePublicUser(u as never, {
+        isFollower: true,
+        isFollowing: backSet.has(u._id.toString()),
+      })
+    )
   );
 
   return res.json({ users: list });

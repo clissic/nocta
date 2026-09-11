@@ -11,7 +11,12 @@ import { Message } from "../models/Message.js";
 import { User } from "../models/User.js";
 import { Venue } from "../models/Venue.js";
 import { expireStalePresences } from "../utils/presence.js";
-import { calcAge, serializeSocials, resolvePublicAssetUrl } from "../utils/serialize.js";
+import {
+  calcAge,
+  serializeSocials,
+  resolvePublicAssetUrl,
+  resolvePublicAssetUrls,
+} from "../utils/serialize.js";
 import { canonicalizePhotoRef } from "../image-service/uploadBridge.js";
 import { isObjectId, sortedUserPair } from "../utils/ids.js";
 import { blockedPeerIds } from "../models/Block.js";
@@ -60,21 +65,36 @@ async function resolveMyActivePresence(
  * Discover: firma/CDN solo la 1.ª foto (carga inmediata).
  * El resto quedan como refs estables `/api/media/{id}` o `/uploads/...`
  * (sin firmar las 10 en el feed → menos JSON y menos trabajo en API).
+ * Usá `preResolvedPrimary` cuando el feed ya resolvió en batch.
  */
 async function resolveDiscoverCardPhotos(
-  photos: string[] | undefined | null
+  photos: string[] | undefined | null,
+  preResolvedPrimary?: string | null
 ): Promise<string[]> {
   const list = (photos ?? []).filter((p): p is string => Boolean(p?.trim()));
   if (!list.length) return [];
   const primary =
-    (await resolvePublicAssetUrl(list[0])) ?? canonicalizePhotoRef(list[0]!);
+    preResolvedPrimary ??
+    (await resolvePublicAssetUrl(list[0])) ??
+    canonicalizePhotoRef(list[0]!);
   const rest = list.slice(1).map((p) => canonicalizePhotoRef(p));
   return [primary, ...rest];
 }
 
+/** Campos mínimos para armar la card (lean OK). */
+type DiscoverCardUser = {
+  _id: { toString(): string };
+  profile?: InstanceType<typeof User>["profile"];
+  identityVerification?: { status?: string } | null;
+};
+
+const DISCOVER_USER_SELECT =
+  "profile identityVerification boostExpiresAt premium premiumExpiresAt profileComplete rogueMode";
+
 async function serializeCard(
-  u: InstanceType<typeof User>,
-  presenceId: string
+  u: DiscoverCardUser,
+  presenceId: string,
+  preResolvedPrimaryPhoto?: string | null
 ): Promise<DiscoverCard> {
   const profile = u.profile!;
   const birthDate = profile.birthDate;
@@ -88,7 +108,10 @@ async function serializeCard(
       birthDate: birthDate.toISOString(),
       heightCm: profile.heightCm ?? undefined,
       lookingFor: (profile.lookingFor ?? []).slice(0, 1),
-      photos: await resolveDiscoverCardPhotos(profile.photos),
+      photos: await resolveDiscoverCardPhotos(
+        profile.photos,
+        preResolvedPrimaryPhoto
+      ),
       bio: profile.bio ?? undefined,
       interests: profile.interests ?? [],
       workStatus: profile.workStatus ?? undefined,
@@ -146,7 +169,10 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   const myPresences = await Presence.find({
     userId: user._id,
     status: "active",
-  }).sort({ startsAt: -1, _id: -1 });
+  })
+    .select("venueId startsAt")
+    .sort({ startsAt: -1, _id: -1 })
+    .lean();
   if (!myPresences.length) {
     return res.status(400).json({
       error: "Publicá tu presencia en un espacio para ver el deck",
@@ -186,7 +212,9 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   const alreadySwiped = await Swipe.find({
     fromUserId: user._id,
     venueId: myPresence.venueId,
-  }).select("toUserId");
+  })
+    .select("toUserId")
+    .lean();
 
   const blocked = await blockedPeerIds(user._id);
   const excludedIds = [
@@ -200,6 +228,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
     status: "active",
     userId: { $nin: excludedIds },
   })
+    .select("userId")
     .limit(40)
     .lean();
 
@@ -208,7 +237,9 @@ router.get("/feed", async (req: AuthedRequest, res) => {
     _id: { $in: userIds },
     profileComplete: true,
     ...moderationVisibleUserFilter(),
-  });
+  })
+    .select(DISCOVER_USER_SELECT)
+    .lean();
 
   const rogueCandidates = users.filter(
     (u) => Boolean(u.rogueMode) && isPremiumActive(u)
@@ -220,7 +251,9 @@ router.get("/feed", async (req: AuthedRequest, res) => {
       toUserId: user._id,
       venueId: myPresence.venueId,
       direction: "like",
-    }).select("fromUserId");
+    })
+      .select("fromUserId")
+      .lean();
     visibleDespiteRogue = new Set(
       likesTowardMe.map((s) => s.fromUserId.toString())
     );
@@ -262,13 +295,39 @@ router.get("/feed", async (req: AuthedRequest, res) => {
       }
       return true;
     });
+
+  const primaryPhotoRefs = filteredUsers.map(
+    (u) => u.profile?.photos?.find((p) => Boolean(p?.trim())) ?? null
+  );
+  const resolvedPrimaries = await resolvePublicAssetUrls(
+    primaryPhotoRefs.filter((p): p is string => Boolean(p))
+  );
+  let primaryResolveIdx = 0;
+  const primaryByUserId = new Map<string, string | null>();
+  for (let i = 0; i < filteredUsers.length; i += 1) {
+    const ref = primaryPhotoRefs[i];
+    const uid = filteredUsers[i]!._id.toString();
+    if (!ref) {
+      primaryByUserId.set(uid, null);
+      continue;
+    }
+    primaryByUserId.set(
+      uid,
+      resolvedPrimaries[primaryResolveIdx++] || canonicalizePhotoRef(ref)
+    );
+  }
+
   const cardRows = await Promise.all(
     filteredUsers.map(async (u) => {
       const presence = candidates.find(
         (c) => c.userId.toString() === u._id.toString()
       )!;
       return {
-        card: await serializeCard(u, presence._id.toString()),
+        card: await serializeCard(
+          u,
+          presence._id.toString(),
+          primaryByUserId.get(u._id.toString())
+        ),
         boosted: isBoostActive(u),
       };
     })
@@ -293,12 +352,16 @@ router.get("/feed", async (req: AuthedRequest, res) => {
       followerId: user._id,
       targetType: "user",
       targetId: { $in: cardUserIds },
-    }).select("targetId"),
+    })
+      .select("targetId")
+      .lean(),
     FollowRequest.find({
       fromUserId: user._id,
       toUserId: { $in: cardUserIds },
       status: "pending",
-    }).select("toUserId"),
+    })
+      .select("toUserId")
+      .lean(),
   ]);
   const followingSet = new Set(followingRows.map((r) => r.targetId.toString()));
   const pendingSet = new Set(pendingRows.map((r) => r.toUserId.toString()));
@@ -351,7 +414,9 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
     userId: parsed.data.toUserId,
     venueId: myPresence.venueId,
     status: "active",
-  });
+  })
+    .select("_id")
+    .lean();
   if (!theirPresence) {
     return res
       .status(400)
@@ -512,7 +577,9 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
   const lastSwipe = await Swipe.findOne({
     fromUserId: user._id,
     venueId: myPresence.venueId,
-  }).sort({ createdAt: -1 });
+  })
+    .sort({ createdAt: -1 })
+    .lean();
 
   if (!lastSwipe) {
     return res.status(404).json({ error: "No hay tarjeta para deshacer" });
@@ -542,12 +609,16 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
     }
   }
 
-  const targetUser = await User.findById(toUserId);
+  const targetUser = await User.findById(toUserId)
+    .select(DISCOVER_USER_SELECT)
+    .lean();
   const theirPresence = await Presence.findOne({
     userId: toUserId,
     venueId: myPresence.venueId,
     status: "active",
-  });
+  })
+    .select("_id")
+    .lean();
 
   let card = null;
   if (
@@ -577,11 +648,13 @@ router.get("/likes", async (req: AuthedRequest, res) => {
       toUserId: me,
       direction: "like",
     })
+      .select("fromUserId venueId isHeartshot createdAt")
       .sort({ createdAt: -1 })
-      .limit(80),
-    Swipe.find({ fromUserId: me }).select("toUserId venueId"),
+      .limit(80)
+      .lean(),
+    Swipe.find({ fromUserId: me }).select("toUserId venueId").lean(),
     blockedPeerIds(me),
-    Presence.find({ userId: me, status: "active" }).select("venueId"),
+    Presence.find({ userId: me, status: "active" }).select("venueId").lean(),
   ]);
 
   const blockedSet = new Set(blocked.map(String));
@@ -608,10 +681,14 @@ router.get("/likes", async (req: AuthedRequest, res) => {
           _id: { $in: userIds },
           profileComplete: true,
           ...moderationVisibleUserFilter(),
-        }).select("profile")
+        })
+          .select("profile")
+          .lean()
       : Promise.resolve([]),
     venueIds.length
-      ? Venue.find({ _id: { $in: venueIds }, active: true }).select("name")
+      ? Venue.find({ _id: { $in: venueIds }, active: true })
+          .select("name")
+          .lean()
       : Promise.resolve([]),
   ]);
 
@@ -624,40 +701,66 @@ router.get("/likes", async (req: AuthedRequest, res) => {
     viewerPremium &&
     planHasFeature(String(req.user!.premiumPlanId), "see_likes");
 
-  const likes = (
-    await Promise.all(
-      pending.map(async (s) => {
-        const fromId = s.fromUserId.toString();
-        const venueId = s.venueId.toString();
-        const u = userMap.get(fromId);
-        const birthDate = u?.profile?.birthDate;
-        if (!u?.profile || !birthDate) return null;
-        const venueName = venueMap.get(venueId);
-        if (!venueName) return null;
-        const isHeartshot = Boolean(s.isHeartshot);
-        const reveal = canSeeLikes || isHeartshot;
+  const photoRefsForReveal: string[] = [];
+  const pendingMeta = pending.map((s) => {
+    const fromId = s.fromUserId.toString();
+    const venueId = s.venueId.toString();
+    const u = userMap.get(fromId);
+    const birthDate = u?.profile?.birthDate;
+    const venueName = venueMap.get(venueId);
+    const isHeartshot = Boolean(s.isHeartshot);
+    const reveal = canSeeLikes || isHeartshot;
+    const photoRef =
+      reveal && u?.profile?.photos?.[0]
+        ? u.profile.photos[0]
+        : null;
+    if (photoRef) photoRefsForReveal.push(photoRef);
+    return {
+      s,
+      fromId,
+      venueId,
+      u,
+      birthDate,
+      venueName,
+      isHeartshot,
+      reveal,
+      photoRef,
+    };
+  });
 
-        return {
-          id: s._id.toString(),
-          createdAt: s.createdAt.toISOString(),
-          venueId,
-          venueName,
-          isHeartshot,
-          user: {
-            ...(reveal
-              ? {
-                  id: fromId,
-                  name: u.profile.name ?? "Usuario",
-                  photo: await resolvePublicAssetUrl(u.profile.photos?.[0]),
-                }
-              : {}),
-            age: calcAge(birthDate),
-          },
-          canRespond: myVenueIds.has(venueId),
-        };
-      })
-    )
-  ).filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const resolvedPhotos = await resolvePublicAssetUrls(photoRefsForReveal);
+  let photoIdx = 0;
+
+  const likes = pendingMeta
+    .map((row) => {
+      if (!row.u?.profile || !row.birthDate || !row.venueName) return null;
+      let photo: string | undefined;
+      if (row.photoRef) {
+        photo =
+          resolvedPhotos[photoIdx++] ||
+          canonicalizePhotoRef(row.photoRef) ||
+          undefined;
+      }
+      return {
+        id: row.s._id.toString(),
+        createdAt: row.s.createdAt.toISOString(),
+        venueId: row.venueId,
+        venueName: row.venueName,
+        isHeartshot: row.isHeartshot,
+        user: {
+          ...(row.reveal
+            ? {
+                id: row.fromId,
+                name: row.u.profile.name ?? "Usuario",
+                photo,
+              }
+            : {}),
+          age: calcAge(row.birthDate),
+        },
+        canRespond: myVenueIds.has(row.venueId),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   return res.json({ likes, viewerPremium, canSeeLikes });
 });

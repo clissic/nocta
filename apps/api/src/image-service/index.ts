@@ -84,3 +84,8 @@ export {
   type ImageMetricEvent,
   type ImageMetricFields,
 } from "./observability.js";
+export {
+  createSignedUrlCache,
+  getSignedUrlCache,
+  resetSignedUrlCacheForTests,
+} from "./signedUrlCache.js";

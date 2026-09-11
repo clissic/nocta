@@ -89,7 +89,17 @@ MONGODB_URI=mongodb+srv://USER:PASS@cluster.../nocta
 
 Luego: `npm run seed`.
 
-Al boot (además del seed en memory / `SEED_ON_EMPTY`): `syncPilotVenues()`, `ensureDemoAccounts()` y `normalizeLookingForSingleChoice()`.
+Al boot en **dev / memory** (además del seed en memory / `SEED_ON_EMPTY`): `syncPilotVenues()`, `ensureDemoAccounts()` y `normalizeLookingForSingleChoice()`.
+
+En **producción** el boot es liviano por defecto: no corre demos/pilotos/normalize ni `Match.syncIndexes()`. Overrides:
+
+| Variable | Efecto |
+|----------|--------|
+| `BOOT_SYNC=1` | Fuerza sync de demos/pilotos/normalize también en prod |
+| `SKIP_BOOT_SYNC=1` | Omite sync de datos aunque no sea prod |
+| `SYNC_INDEXES=1` | One-shot `Match.syncIndexes()` al boot (post-deploy) |
+| `SEED_ON_EMPTY` | En Railway API: **`false`** (no seed automático en Atlas) |
+| `MORGAN` | Prod usa `tiny`; `0` apaga; otro valor override (p. ej. `combined`) |
 
 ---
 
@@ -276,11 +286,15 @@ npm run jobs:images -w @nocta/api -- --force
 
 Alias legacy: `npm run purge:deleted-accounts` ahora delega al bundle de jobs.
 
-**Automático en producción (sin Redis):**
+**Automático en producción (recomendado: Cron Railway, no in-process):**
 
-1. En Railway: `IMAGE_LIFECYCLE_JOBS=1` y opcional `IMAGE_LIFECYCLE_INTERVAL_MS=3600000` (default 1h).
-2. El API arranca un scheduler in-process (`startImageLifecycleScheduler`) que corre los 3 jobs con backoff por ítem y ledger Mongo.
-3. Alternativa: Cron de Railway / GitHub Action → `npm run jobs:images -w @nocta/api -- --force` (mismo código).
+1. En el servicio **API web**: dejar `IMAGE_LIFECYCLE_JOBS` **off** (no setear o `=0`) para no cargar CPU/RAM del request path con scheduler.
+2. Crear un **Cron Job** en Railway (diario o cada 6h) con el mismo root del monorepo:
+   ```bash
+   npm run jobs:images -w @nocta/api -- --force
+   ```
+   (build previo: `npm run build -w @nocta/shared && npm run build -w @nocta/api` si el cron no reusa artefactos del deploy).
+3. Solo si no hay Cron: `IMAGE_LIFECYCLE_JOBS=1` + opcional `IMAGE_LIFECYCLE_INTERVAL_MS=3600000` arranca `startImageLifecycleScheduler` in-process (mismo código; más costo en el dyno web).
 
 Ledger: colección `ImageLifecycleJobRun` (processed / deleted / errors / pending / durationMs / summary).
 
@@ -332,10 +346,17 @@ Antes de producción:
 
 1. Railway Object Storage con credenciales (`STORAGE_DRIVER=auto|railway`); **memory bloqueado en `NODE_ENV=production`** salvo `STORAGE_ALLOW_MEMORY=1`.
 2. `STORAGE_PUBLIC_BASE_URL` apuntando a CDN/custom domain (sin slash final).
-3. `IMAGE_LIFECYCLE_JOBS=1` **o** cron externo → `npm run jobs:images -w @nocta/api -- --force`.
+3. Preferí **Cron Railway** → `npm run jobs:images -w @nocta/api -- --force`. Evitá `IMAGE_LIFECYCLE_JOBS=1` en el servicio API web (solo fallback).
 4. `npm run diagnose:images -w @nocta/api` en staging → revisar findings; sin deletes auto.
-5. Migración legacy completa o plan explícito; `/uploads` sigue read-only residual.
+5. Migración legacy completa o plan explícito; `/uploads` sigue read-only residual. **Retirar** `express.static /uploads` + proxy Vite solo tras **0 hits** `[legacy-uploads]` en prod (PR aparte).
 6. Suite: `npm run test:all -w @nocta/api` + `npm run test -w @nocta/web`.
+
+#### Rendimiento API (Railway)
+
+- **Sin sleep** del servicio API (cold start malo para dating).
+- Cache in-process de URLs firmadas (`signedUrlCache`; TTL ~80% de `STORAGE_SIGNED_URL_TTL_SECONDS`). Con CDN (`STORAGE_PUBLIC_BASE_URL`) las públicas no firman.
+- Discover/matches usan proyecciones `.select()` / `.lean()` y resolución de fotos en batch.
+- Build por servicio: API → `npm install && npm run build -w @nocta/shared && npm run build -w @nocta/api` (el web no debe construir la API).
 
 Veredicto de auditoría en canvas / informe Fase 15.
 
@@ -462,7 +483,7 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 | `GET` | `/api/me/follow-requests` | Solicitudes entrantes pendientes |
 | `GET` | `/api/me/follow-requests/:id/profile` | Vista mínima del solicitante |
 | `POST` | `/api/me/follow-requests/:id/accept` · `.../reject` | Aceptar / rechazar |
-| `GET` | `/api/me/following` · `/api/me/followers` | Follows aceptados |
+| `GET` | `/api/me/following` · `/api/me/followers` | Follows aceptados (máx. 10; `?limit=` · `?q=` · following `?type=user\|venue`) |
 | `DELETE` | `/api/me/followers/:id` | Elimina a una persona de mis seguidores |
 | `GET` | `/api/me/venues/owned` | Espacios donde soy `ownerId` |
 | `GET` | `/api/me/promo-purchases` · `/api/me/promo-purchases/:id` | Promos compradas (QR). **No hay** endpoint de compra/canje en el MVP; las compras demo se crean en seed |

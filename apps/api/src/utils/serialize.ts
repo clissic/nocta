@@ -51,11 +51,16 @@ export async function resolvePublicAssetUrl(url?: string | null) {
   return resolveDeliveryUrl(url);
 }
 
+/**
+ * Batch 1:1 con `urls` vía `resolveDeliveryUrls` (cache de firmas compartido).
+ * Preferí esto en listas/hot paths; evitá N× `resolvePublicAssetUrl`.
+ */
 export async function resolvePublicAssetUrls(urls?: string[] | null) {
   const list = urls ?? [];
   if (!list.length) return [];
   const resolved = await resolveDeliveryUrls(list);
-  return resolved.filter(Boolean);
+  // Mantener longitud: huecos vacíos → ref original (o "") para no desalinear índices.
+  return resolved.map((u, i) => u || list[i] || "");
 }
 
 function calcAge(birthDate: Date): number {

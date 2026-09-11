@@ -14,6 +14,7 @@ import {
   redactStorageKey,
   withTiming,
 } from "./observability.js";
+import { getSignedUrlCache } from "./signedUrlCache.js";
 import { getImageTypeConfig } from "./registry.js";
 import {
   buildImagePrefix,
@@ -230,6 +231,10 @@ export function createImageService(storage: ObjectStorage) {
       key.startsWith("private/") || key.includes("/private/");
 
     if (config.visibility === "private" || looksPrivateKey) {
+      const cache = getSignedUrlCache();
+      const cacheKey = `priv:${key}:${opts.expiresInSeconds ?? config.signedUrlTtlSeconds}`;
+      const hit = cache.get(cacheKey);
+      if (hit) return { url: hit, mode: "signed" as const };
       try {
         const { result: url, ms } = await withTiming(() =>
           storage.getSignedReadUrl(key, {
@@ -237,6 +242,7 @@ export function createImageService(storage: ObjectStorage) {
               opts.expiresInSeconds ?? config.signedUrlTtlSeconds,
           })
         );
+        cache.set(cacheKey, url);
         imageMetric("signing", {
           imageType: type,
           visibility: "private",
@@ -261,6 +267,11 @@ export function createImageService(storage: ObjectStorage) {
       if (publicUrl) return { url: publicUrl, mode: "public" };
     }
 
+    const cache = getSignedUrlCache();
+    const cacheKey = `pub:${key}:${opts.expiresInSeconds ?? config.signedUrlTtlSeconds}`;
+    const hit = cache.get(cacheKey);
+    if (hit) return { url: hit, mode: "signed" as const };
+
     try {
       const { result: url, ms } = await withTiming(() =>
         storage.getSignedReadUrl(key, {
@@ -268,6 +279,7 @@ export function createImageService(storage: ObjectStorage) {
             opts.expiresInSeconds ?? config.signedUrlTtlSeconds,
         })
       );
+      cache.set(cacheKey, url);
       imageMetric("signing", {
         imageType: type,
         visibility: "public",

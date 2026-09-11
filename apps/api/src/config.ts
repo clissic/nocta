@@ -144,7 +144,7 @@ export const config = {
   },
   /**
    * Fase 12: jobs de lifecycle in-process (sin Redis).
-   * Producción: IMAGE_LIFECYCLE_JOBS=1 (o cron externo → npm run jobs:images).
+   * Producción recomendada: Cron Railway → npm run jobs:images (dejar esto en 0).
    */
   imageLifecycleJobs: {
     enabled: envBool("IMAGE_LIFECYCLE_JOBS", false),
@@ -153,7 +153,24 @@ export const config = {
       Number(env("IMAGE_LIFECYCLE_INTERVAL_MS", "3600000")) || 3_600_000
     ),
   },
+  /**
+   * Boot liviano en producción:
+   * - bootSync: demos/pilotos/normalize (default off en prod; forzar con BOOT_SYNC=1)
+   * - syncIndexesOnBoot: Match.syncIndexes (default off en prod; forzar con SYNC_INDEXES=1)
+   * - SKIP_BOOT_SYNC=1 apaga bootSync aunque no sea prod
+   */
+  boot: {
+    syncData:
+      envBool("SKIP_BOOT_SYNC", false)
+        ? false
+        : envBool("BOOT_SYNC", process.env.NODE_ENV !== "production"),
+    syncIndexes: envBool(
+      "SYNC_INDEXES",
+      process.env.NODE_ENV !== "production"
+    ),
+  },
 };
 
 export const isMemoryDb = config.mongoUri === "memory";
+export const isProductionRuntime = process.env.NODE_ENV === "production";
 

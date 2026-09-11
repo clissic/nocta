@@ -30,6 +30,10 @@ swipeSchema.index(
   { fromUserId: 1, toUserId: 1, venueId: 1 },
   { unique: true }
 );
+/** Deck / rewind: swipes del viewer en un espacio. */
+swipeSchema.index({ fromUserId: 1, venueId: 1, createdAt: -1 });
+/** Likes recibidos. */
+swipeSchema.index({ toUserId: 1, direction: 1, createdAt: -1 });
 
 export type SwipeDocument = InferSchemaType<typeof swipeSchema> & {
   _id: mongoose.Types.ObjectId;
