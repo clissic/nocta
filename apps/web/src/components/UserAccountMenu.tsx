@@ -243,7 +243,7 @@ export function UserAccountMenu({
               type="button"
               className="btn btn-outline-light account-drawer-btn"
               tabIndex={open ? 0 : -1}
-              onClick={openSettings}
+              onClick={() => openSettings()}
             >
               <i className="bi bi-gear" aria-hidden="true" />
               Configuración
