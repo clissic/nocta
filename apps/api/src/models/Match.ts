@@ -109,7 +109,7 @@ export async function backfillMatchPairKeys() {
     if (!users || users.length !== 2) continue;
     await Match.updateOne(
       { _id: doc._id },
-      { $set: { pairKey: matchPairKey(users[0]!, users[1]!) } }
+      { $set: { pairKey: matchPairKey(users[0]!.toString(), users[1]!.toString()) } }
     );
   }
 }
