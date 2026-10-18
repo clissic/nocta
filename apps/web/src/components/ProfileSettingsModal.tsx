@@ -17,8 +17,10 @@ import { fetchNearestAppCity } from "../lib/appCities";
 
 type Props = {
   user: AuthUser;
+  focus?: "teleport";
   onClose: () => void;
   onUserUpdated: (user: AuthUser) => void;
+  onDeleteAccount: () => void;
 };
 
 type SettingKey =
@@ -44,8 +46,10 @@ const MAX_MB = Math.round(MAX_IDENTITY_VERIFICATION_FILE_BYTES / (1024 * 1024));
 
 export function ProfileSettingsModal({
   user,
+  focus,
   onClose,
   onUserUpdated,
+  onDeleteAccount,
 }: Props) {
   const toast = useToast();
   const [autoAccept, setAutoAccept] = useState(user.autoAcceptFollowRequests);
@@ -273,6 +277,82 @@ export function ProfileSettingsModal({
     }
   }
 
+  const teleportControls = (
+    <>
+      <div className="form-check form-switch profile-settings-switch">
+        <input
+          className="form-check-input"
+          type="checkbox"
+          role="switch"
+          id="settings-teleport-mode"
+          checked={teleportMode}
+          disabled={busyKey === "teleportMode"}
+          onChange={(event) => {
+            const next = event.target.checked;
+            if (next && !user.premium) {
+              setPremiumInitialPlanId(null);
+              setPremiumModalOpen(true);
+              return;
+            }
+            setTeleportMode(next);
+            void patchSetting("teleportMode", next);
+          }}
+        />
+        <label
+          className="form-check-label"
+          htmlFor="settings-teleport-mode"
+        >
+          <span className="profile-settings-switch-title">
+            Modo Teleport
+            <i
+              className="bi bi-gem profile-settings-premium-gem"
+              aria-hidden="true"
+              title="Premium"
+            />
+          </span>
+          <small className="d-block text-secondary">
+            Explorá Espacios de otra ciudad sin usar tu GPS
+          </small>
+        </label>
+      </div>
+
+      {teleportMode && user.premium && (
+        <div
+          className={`profile-settings-teleport-panel${
+            busyKey === "teleportMode" || teleportBusy ? " is-busy" : ""
+          }`}
+        >
+          <p className="small text-secondary mb-2">
+            Tocá el mapa para elegir un punto. Asignamos la ciudad
+            registrada más cercana (Uruguay, Argentina o Brasil).
+          </p>
+          <div className="profile-settings-teleport-map">
+            <LocationPickerMap
+              center={mapCenter}
+              value={teleportPin}
+              onPick={(coords) => {
+                if (teleportBusy) return;
+                void saveTeleportPin(coords);
+              }}
+            />
+          </div>
+          {previewTeleportCity ? (
+            <p className="small mb-0 mt-2">
+              Vas a explorar:{" "}
+              <strong>
+                {previewTeleportCity.city}, {previewTeleportCity.country}
+              </strong>
+            </p>
+          ) : (
+            <p className="small text-secondary mb-0 mt-2">
+              Elegí un punto para activar la ciudad Teleport.
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <>
       <div
@@ -289,7 +369,9 @@ export function ProfileSettingsModal({
         />
         <div className="profile-connections-dialog">
           <header className="profile-connections-head">
-            <h2 id="profile-settings-title">Configuración</h2>
+            <h2 id="profile-settings-title">
+              {focus === "teleport" ? "Teleport" : "Configuración"}
+            </h2>
             <button
               type="button"
               className="profile-connections-close"
@@ -301,6 +383,10 @@ export function ProfileSettingsModal({
           </header>
 
           <OverflowFade className="profile-connections-body profile-settings-body">
+            {focus === "teleport" ? (
+              <section className="profile-settings-privacy">{teleportControls}</section>
+            ) : (
+            <>
             <section
               className="profile-settings-premium"
               aria-labelledby="settings-premium-heading"
@@ -570,86 +656,29 @@ export function ProfileSettingsModal({
                 </label>
               </div>
 
-              <div className="form-check form-switch profile-settings-switch">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  role="switch"
-                  id="settings-teleport-mode"
-                  checked={teleportMode}
-                  disabled={busyKey === "teleportMode"}
-                  onChange={(event) => {
-                    const next = event.target.checked;
-                    if (next && !user.premium) {
-                      setPremiumInitialPlanId(null);
-                      setPremiumModalOpen(true);
-                      return;
-                    }
-                    setTeleportMode(next);
-                    void patchSetting("teleportMode", next);
-                  }}
-                />
-                <label
-                  className="form-check-label"
-                  htmlFor="settings-teleport-mode"
-                >
-                  <span className="profile-settings-switch-title">
-                    Modo Teleport
-                    <i
-                      className="bi bi-gem profile-settings-premium-gem"
-                      aria-hidden="true"
-                      title="Premium"
-                    />
-                  </span>
-                  <small className="d-block text-secondary">
-                    Explorá Espacios de otra ciudad sin usar tu GPS
-                  </small>
-                </label>
-              </div>
+              {teleportControls}
 
-                  {teleportMode && user.premium && (
-                <div
-                  className={`profile-settings-teleport-panel${
-                    busyKey === "teleportMode" || teleportBusy
-                      ? " is-busy"
-                      : ""
-                  }`}
-                >
-                  <p className="small text-secondary mb-2">
-                    Tocá el mapa para elegir un punto. Asignamos la ciudad
-                    registrada más cercana (Uruguay, Argentina o Brasil).
-                  </p>
-                  <div className="profile-settings-teleport-map">
-                    <LocationPickerMap
-                      center={mapCenter}
-                      value={teleportPin}
-                      onPick={(coords) => {
-                        if (teleportBusy) return;
-                        void saveTeleportPin(coords);
-                      }}
-                    />
-                  </div>
-                  {previewTeleportCity ? (
-                    <p className="small mb-0 mt-2">
-                      Vas a explorar:{" "}
-                      <strong>
-                        {previewTeleportCity.city},{" "}
-                        {previewTeleportCity.country}
-                      </strong>
-                    </p>
-                  ) : (
-                    <p className="small text-secondary mb-0 mt-2">
-                      Elegí un punto para activar la ciudad Teleport.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <Link className="profile-settings-link" to="/profile/blocked">
+              <Link
+                className="profile-settings-link"
+                to="/profile/blocked"
+                onClick={onClose}
+              >
                 <i className="bi bi-slash-circle" aria-hidden="true" />
                 <span>
                   <strong>Usuarios bloqueados</strong>
                   <small>Consultá y administrá tus bloqueos</small>
+                </span>
+                <i className="bi bi-chevron-right" aria-hidden="true" />
+              </Link>
+              <Link
+                className="profile-settings-link"
+                to="/profile/reports"
+                onClick={onClose}
+              >
+                <i className="bi bi-flag" aria-hidden="true" />
+                <span>
+                  <strong>Mis denuncias</strong>
+                  <small>El estado de las denuncias que enviaste</small>
                 </span>
                 <i className="bi bi-chevron-right" aria-hidden="true" />
               </Link>
@@ -687,6 +716,20 @@ export function ProfileSettingsModal({
                 </label>
               </div>
             </section>
+
+            <button
+              type="button"
+              className="btn profile-settings-delete-btn"
+              onClick={() => {
+                onClose();
+                onDeleteAccount();
+              }}
+            >
+              <i className="bi bi-trash3" aria-hidden="true" />
+              Eliminar cuenta
+            </button>
+            </>
+            )}
           </OverflowFade>
         </div>
       </div>

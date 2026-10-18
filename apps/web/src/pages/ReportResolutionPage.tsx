@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
   REPORT_REASON_LABELS,
   SUSPENSION_DURATION_LABELS,
@@ -10,6 +10,12 @@ import { NoctaLoading } from "../components/NoctaLoading";
 
 export function ReportResolutionPage() {
   const { reportId } = useParams<{ reportId: string }>();
+  const fromReports =
+    (useLocation().state as { from?: string } | null)?.from === "reports";
+  const backTo = fromReports ? "/profile/reports" : "/notifications";
+  const backLabel = fromReports
+    ? "Volver a mis denuncias"
+    : "Volver a notificaciones";
   const [report, setReport] = useState<MyReportResolution | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -52,8 +58,8 @@ export function ReportResolutionPage() {
       <header className="report-resolution-head">
         <Link
           className="btn btn-sm btn-outline-light"
-          to="/notifications"
-          aria-label="Volver a notificaciones"
+          to={backTo}
+          aria-label={backLabel}
         >
           <i className="bi bi-arrow-left" aria-hidden="true" />
         </Link>
@@ -68,8 +74,8 @@ export function ReportResolutionPage() {
       ) : error ? (
         <div className="report-resolution-empty">
           <strong>{error}</strong>
-          <Link className="btn btn-outline-light" to="/notifications">
-            Volver a notificaciones
+          <Link className="btn btn-outline-light" to={backTo}>
+            {backLabel}
           </Link>
         </div>
       ) : report ? (

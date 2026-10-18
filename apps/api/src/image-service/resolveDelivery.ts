@@ -1,9 +1,27 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { ImageAsset } from "../models/ImageAsset.js";
 import { createImageService } from "./imageService.js";
 import { getStorage } from "../storage/index.js";
 import type { ImageType } from "./types.js";
-import { parseMediaImageId } from "./refs.js";
+import { extractLegacyUploadPath, parseMediaImageId } from "./refs.js";
 import { config } from "../config.js";
+import { UPLOADS_DIR } from "../uploads/paths.js";
+
+/** memory:// no es cargable por browser/RN → proxy HTTP de la API. */
+function apiMediaProxyUrl(
+  imageId: string,
+  variant: DeliveryVariant,
+  format: DeliveryFormat
+): string {
+  const base = config.apiPublicUrl.replace(/\/$/, "");
+  const path = `/api/media/${imageId}?v=${variant}&f=${format}`;
+  return base ? `${base}${path}` : path;
+}
+
+function isMemoryDeliveryUrl(url: string): boolean {
+  return url.startsWith("memory://");
+}
 
 export type DeliveryVariant = "thumb" | "medium" | "large";
 export type DeliveryFormat = "webp" | "avif";
@@ -14,9 +32,18 @@ type ExpandOpts = {
 };
 
 function absolutizeLegacyUpload(url: string): string {
-  if (!url.startsWith("/uploads/")) return url;
+  const legacy = extractLegacyUploadPath(url) ?? url;
+  if (!legacy.startsWith("/uploads/")) return url;
   const base = config.apiPublicUrl.replace(/\/$/, "");
-  return base ? `${base}${url}` : url;
+  return base ? `${base}${legacy}` : legacy;
+}
+
+function legacyFileExists(legacyPath: string): boolean {
+  const name = legacyPath.slice("/uploads/".length);
+  if (!name || name.includes("..") || name.includes("/") || name.includes("\\")) {
+    return false;
+  }
+  return existsSync(join(UPLOADS_DIR, name));
 }
 
 async function resolveManagedDelivery(
@@ -37,24 +64,53 @@ async function resolveManagedDelivery(
   const file = slot?.[format];
   if (!file?.key) return undefined;
 
-  const images = createImageService(getStorage());
+  const storage = getStorage();
+  const images = createImageService(storage);
   try {
+    // Driver memory: no hay CDN ni URL firmada HTTP; servir vía /api/media.
+    if (storage.driver === "memory") {
+      const exists = await storage.exists(file.key);
+      if (!exists) return undefined;
+      return apiMediaProxyUrl(imageId, variant, format);
+    }
     const resolved = await images.resolveReadUrl(
       doc.imageType as ImageType,
       file.key,
       { preferPublicUrl: true }
     );
+    if (isMemoryDeliveryUrl(resolved.url)) {
+      return apiMediaProxyUrl(imageId, variant, format);
+    }
     return resolved.url;
   } catch {
     return undefined;
   }
 }
 
+async function resolveLegacyDelivery(
+  legacyPath: string,
+  opts: ExpandOpts
+): Promise<string | undefined> {
+  const migrated = await ImageAsset.findOne({
+    legacySource: legacyPath,
+    visibility: "public",
+  }).lean();
+  if (migrated?.imageId) {
+    const delivered = await resolveManagedDelivery(migrated.imageId, opts);
+    if (delivered) return delivered;
+  }
+  if (legacyFileExists(legacyPath)) {
+    return absolutizeLegacyUpload(legacyPath);
+  }
+  // Ref rota (archivo ausente y sin ImageAsset): no devolver URL 404.
+  return undefined;
+}
+
 /**
  * Resuelve una ref de producto a URL de entrega directa.
- * - Legacy `/uploads/...` → API (compat read-only Fase 11).
+ * - Legacy `/uploads/...` (también absolutas) → Object Storage migrado, o API si existe en disco.
  * - Managed públicas → CDN o URL firmada (Browser → Object Storage).
- * - Private → undefined (no exponer).
+ * - Private / rotas → undefined (no exponer).
  */
 export async function resolveDeliveryUrl(
   ref: string | null | undefined,
@@ -64,14 +120,15 @@ export async function resolveDeliveryUrl(
   const trimmed = ref.trim();
   if (!trimmed) return undefined;
 
+  const legacy = extractLegacyUploadPath(trimmed);
+  if (legacy) {
+    return resolveLegacyDelivery(legacy, opts);
+  }
+
   if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("blob:")) {
     const mediaId = parseMediaImageId(trimmed);
     if (!mediaId) return trimmed;
     return (await resolveManagedDelivery(mediaId, opts)) ?? undefined;
-  }
-
-  if (trimmed.startsWith("/uploads/")) {
-    return absolutizeLegacyUpload(trimmed);
   }
 
   const imageId = parseMediaImageId(trimmed);
@@ -89,24 +146,50 @@ export async function resolveDeliveryUrls(
   const format = opts.format ?? "webp";
   const list = refs.map((r) => (typeof r === "string" ? r.trim() : ""));
 
+  const legacyPaths = [
+    ...new Set(
+      list
+        .map((r) => (r ? extractLegacyUploadPath(r) : null))
+        .filter((p): p is string => Boolean(p))
+    ),
+  ];
+
   const ids = [
     ...new Set(
       list
-        .map((r) => (r ? parseMediaImageId(r) : null))
+        .map((r) => {
+          if (!r || extractLegacyUploadPath(r)) return null;
+          return parseMediaImageId(r);
+        })
         .filter((id): id is string => Boolean(id))
     ),
   ];
 
-  const docs =
+  const [docs, legacyDocs] = await Promise.all([
     ids.length > 0
-      ? await ImageAsset.find({
+      ? ImageAsset.find({
           imageId: { $in: ids },
           visibility: "public",
         }).lean()
-      : [];
+      : Promise.resolve([]),
+    legacyPaths.length > 0
+      ? ImageAsset.find({
+          legacySource: { $in: legacyPaths },
+          visibility: "public",
+        }).lean()
+      : Promise.resolve([]),
+  ]);
+
   const byId = new Map(docs.map((d) => [d.imageId, d]));
-  const images = createImageService(getStorage());
+  const byLegacy = new Map(
+    legacyDocs
+      .filter((d) => typeof d.legacySource === "string")
+      .map((d) => [d.legacySource as string, d])
+  );
+  const storage = getStorage();
+  const images = createImageService(storage);
   const signedCache = new Map<string, string>();
+  const memoryDriver = storage.driver === "memory";
 
   async function signKey(imageType: ImageType, key: string): Promise<string> {
     const cached = signedCache.get(key);
@@ -118,18 +201,47 @@ export async function resolveDeliveryUrls(
     return resolved.url;
   }
 
+  async function deliverDoc(
+    doc: (typeof docs)[number] | undefined
+  ): Promise<string> {
+    const file = doc?.variants?.[variant]?.[format];
+    if (!doc || !file?.key) return "";
+    try {
+      if (memoryDriver) {
+        const exists = await storage.exists(file.key);
+        if (!exists) return "";
+        return apiMediaProxyUrl(doc.imageId, variant, format);
+      }
+      const url = await signKey(doc.imageType as ImageType, file.key);
+      if (isMemoryDeliveryUrl(url)) {
+        return apiMediaProxyUrl(doc.imageId, variant, format);
+      }
+      return url;
+    } catch {
+      return "";
+    }
+  }
+
   const out: string[] = [];
   for (const ref of list) {
     if (!ref) {
       out.push("");
       continue;
     }
-    if (/^https?:\/\//i.test(ref) && !parseMediaImageId(ref)) {
-      out.push(ref);
+
+    const legacy = extractLegacyUploadPath(ref);
+    if (legacy) {
+      const migrated = byLegacy.get(legacy);
+      if (migrated) {
+        out.push(await deliverDoc(migrated));
+        continue;
+      }
+      out.push(legacyFileExists(legacy) ? absolutizeLegacyUpload(legacy) : "");
       continue;
     }
-    if (ref.startsWith("/uploads/")) {
-      out.push(absolutizeLegacyUpload(ref));
+
+    if (/^https?:\/\//i.test(ref) && !parseMediaImageId(ref)) {
+      out.push(ref);
       continue;
     }
 
@@ -139,17 +251,7 @@ export async function resolveDeliveryUrls(
       continue;
     }
 
-    const doc = byId.get(imageId);
-    const file = doc?.variants?.[variant]?.[format];
-    if (!doc || !file?.key) {
-      out.push("");
-      continue;
-    }
-    try {
-      out.push(await signKey(doc.imageType as ImageType, file.key));
-    } catch {
-      out.push("");
-    }
+    out.push(await deliverDoc(byId.get(imageId)));
   }
   return out;
 }

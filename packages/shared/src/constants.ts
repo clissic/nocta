@@ -581,6 +581,33 @@ export function premiumPeriodFullPriceUsd(
   return premiumPeriodPriceUsd(1, planId) * months;
 }
 
+/** “Desde …/mes” de las tarjetas: el periodo más barato por mes. */
+export function premiumCheapestMonthlyUsd(
+  periods: Array<{ months: number; priceUsd: number }>
+): { monthly: number; months: number } | null {
+  let monthly = Infinity;
+  let months = 0;
+  for (const period of periods) {
+    if (period.months <= 0) continue;
+    const perMonth = period.priceUsd / period.months;
+    if (perMonth < monthly) {
+      monthly = perMonth;
+      months = period.months;
+    }
+  }
+  if (!Number.isFinite(monthly)) return null;
+  return { monthly, months };
+}
+
+/** Aclara de qué periodo sale el “Desde …/mes”. */
+export function premiumFromPriceNote(months: number) {
+  if (months === 12) return "Calculado con el plan anual";
+  if (months === 6) return "Calculado con el plan semestral";
+  if (months === 3) return "Calculado con el plan trimestral";
+  if (months === 1) return "Precio del plan mensual";
+  return `Calculado a ${months} meses`;
+}
+
 /** % de ahorro vs precio mes a mes; redondeado al entero más cercano (0 si 1 mes). */
 export function premiumPeriodSavingsPercent(
   months: (typeof PREMIUM_PERIOD_MONTHS)[number],

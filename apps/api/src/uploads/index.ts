@@ -4,6 +4,7 @@ export {
   ensureClaimEvidenceDir,
   ensureIdentityVerificationDir,
   UPLOADS_DIR,
+  WEB_PUBLIC_IMAGES_DIR,
   TEMP_UPLOAD_DIR,
   CLAIM_EVIDENCE_DIR,
   IDENTITY_VERIFICATION_DIR,

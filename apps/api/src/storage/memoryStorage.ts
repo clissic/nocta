@@ -1,4 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
 import { StorageObjectNotFoundError } from "./errors.js";
 import { buildPublicObjectUrl } from "./publicUrl.js";
 import type {
@@ -23,21 +32,98 @@ type StoredObject = {
   lastModified: Date;
 };
 
+type DiskMeta = {
+  key: string;
+  contentType: string;
+  cacheControl?: string;
+  metadata?: Record<string, string>;
+  etag: string;
+  lastModified: string;
+};
+
 function toBuffer(body: StorageBody): Buffer {
   if (typeof body === "string") return Buffer.from(body);
   return Buffer.from(body);
 }
 
+function fileIdForKey(key: string): string {
+  return createHash("sha256").update(key).digest("hex");
+}
+
 /**
  * Driver in-memory para tests y desarrollo local sin bucket Railway.
- * No persiste entre procesos.
+ * Con `persistDir`, los objetos sobreviven reinicios del proceso (Mongo Atlas
+ * + storage memory dejan de “borrar” fotos al reiniciar la API).
  */
 export function createMemoryStorage(opts?: {
   publicBaseUrl?: string;
+  /** Directorio local para persistir blobs entre reinicios. */
+  persistDir?: string;
 }): ObjectStorage {
   const store = new Map<string, StoredObject>();
   const publicBaseUrl = (opts?.publicBaseUrl ?? "").replace(/\/$/, "");
   const tokens = new Map<string, { key: string; expiresAt: number }>();
+  const persistDir = opts?.persistDir?.trim()
+    ? path.resolve(opts.persistDir.trim())
+    : null;
+
+  function metaPath(id: string) {
+    return path.join(persistDir!, `${id}.json`);
+  }
+  function bodyPath(id: string) {
+    return path.join(persistDir!, `${id}.bin`);
+  }
+
+  function persistObject(key: string, obj: StoredObject) {
+    if (!persistDir) return;
+    mkdirSync(persistDir, { recursive: true });
+    const id = fileIdForKey(key);
+    const meta: DiskMeta = {
+      key,
+      contentType: obj.contentType,
+      cacheControl: obj.cacheControl,
+      metadata: obj.metadata,
+      etag: obj.etag,
+      lastModified: obj.lastModified.toISOString(),
+    };
+    writeFileSync(metaPath(id), JSON.stringify(meta), "utf8");
+    writeFileSync(bodyPath(id), obj.body);
+  }
+
+  function unpersistObject(key: string) {
+    if (!persistDir) return;
+    const id = fileIdForKey(key);
+    for (const file of [metaPath(id), bodyPath(id)]) {
+      if (existsSync(file)) rmSync(file, { force: true });
+    }
+  }
+
+  if (persistDir && existsSync(persistDir)) {
+    for (const name of readdirSync(persistDir)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const meta = JSON.parse(
+          readFileSync(path.join(persistDir, name), "utf8")
+        ) as DiskMeta;
+        if (!meta?.key || typeof meta.key !== "string") continue;
+        const id = name.slice(0, -".json".length);
+        const bin = bodyPath(id);
+        if (!existsSync(bin)) continue;
+        store.set(meta.key, {
+          body: readFileSync(bin),
+          contentType: meta.contentType || "application/octet-stream",
+          cacheControl: meta.cacheControl,
+          metadata: meta.metadata,
+          etag: meta.etag || "",
+          lastModified: meta.lastModified
+            ? new Date(meta.lastModified)
+            : new Date(),
+        });
+      } catch {
+        /* ignore corrupt entry */
+      }
+    }
+  }
 
   return {
     driver: "memory",
@@ -45,23 +131,29 @@ export function createMemoryStorage(opts?: {
     async putObject(input: PutObjectInput): Promise<PutObjectResult> {
       const body = toBuffer(input.body);
       const etag = createHash("md5").update(body).digest("hex");
-      store.set(input.key, {
+      const obj: StoredObject = {
         body,
         contentType: input.contentType,
         cacheControl: input.cacheControl,
         metadata: input.metadata,
         etag,
         lastModified: new Date(),
-      });
+      };
+      store.set(input.key, obj);
+      persistObject(input.key, obj);
       return { key: input.key, etag };
     },
 
     async deleteObject(key: string): Promise<void> {
       store.delete(key);
+      unpersistObject(key);
     },
 
     async deleteObjects(keys: string[]): Promise<void> {
-      for (const key of keys) store.delete(key);
+      for (const key of keys) {
+        store.delete(key);
+        unpersistObject(key);
+      }
     },
 
     async exists(key: string): Promise<boolean> {

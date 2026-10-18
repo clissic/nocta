@@ -73,6 +73,11 @@ export const config = {
   seedOnEmpty: env("SEED_ON_EMPTY", "true") !== "false",
   jwtSecret: env("JWT_SECRET", "nocta-dev-secret"),
   clientOrigin: env("CLIENT_ORIGIN", "http://localhost:5173"),
+  /**
+   * Scheme de la app nativa (deep links). Ej. `nocta` → `nocta://auth/callback`.
+   * Usado para reset password / OAuth cuando `client=mobile`.
+   */
+  mobileAppScheme: env("MOBILE_APP_SCHEME", "nocta").replace(/:\/\/$/, ""),
   apiPublicUrl: env("API_PUBLIC_URL", "http://localhost:4000"),
   adminEmail: env("ADMIN_EMAIL", "admin@nocta.app"),
   adminPassword: env("ADMIN_PASSWORD", "Admin1234!"),
@@ -107,6 +112,13 @@ export const config = {
     /** Moneda de Checkout (USD / UYU / ARS según la cuenta). */
     currency: env("MP_CURRENCY", "USD").toUpperCase() || "USD",
     webhookSecret: env("MP_WEBHOOK_SECRET"),
+    /**
+     * Vuelta tras autorizar la suscripción. MP no acepta localhost.
+     * Si falta, se arma con CLIENT_ORIGIN (solo sirve si esa origen ya es pública).
+     */
+    backUrl:
+      env("MP_BACK_URL") ||
+      `${env("CLIENT_ORIGIN", "http://localhost:5173").replace(/\/$/, "")}/premium?status=success`,
   },
   oauth: {
     google: {
@@ -159,6 +171,14 @@ export const config = {
    * - syncIndexesOnBoot: Match.syncIndexes (default off en prod; forzar con SYNC_INDEXES=1)
    * - SKIP_BOOT_SYNC=1 apaga bootSync aunque no sea prod
    */
+  /** Token opcional de expo.dev para el envío de push (más cupo). */
+  expo: {
+    accessToken: env("EXPO_ACCESS_TOKEN"),
+  },
+  /** Cloudflare Turnstile. Vacío = la web no exige el chequeo. */
+  turnstile: {
+    secretKey: env("TURNSTILE_SECRET_KEY"),
+  },
   boot: {
     syncData:
       envBool("SKIP_BOOT_SYNC", false)

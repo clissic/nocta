@@ -4,7 +4,9 @@ import {
   isPremiumPlanDowngrade,
   monthlyBoostAllowance,
   monthlyHeartshotAllowance,
+  premiumCheapestMonthlyUsd,
   premiumDashboardFeatureItems,
+  premiumFromPriceNote,
   type PremiumPlanId,
 } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
@@ -73,17 +75,6 @@ function planCardFeatures(planId: string, comingSoon: boolean) {
   return [...base, ...extras];
 }
 
-function cheapestMonthlyPrice(periods: PlanPeriod[]) {
-  if (!periods.length) return null;
-  let best = Infinity;
-  for (const period of periods) {
-    if (period.months <= 0) continue;
-    const monthly = period.priceUsd / period.months;
-    if (monthly < best) best = monthly;
-  }
-  return Number.isFinite(best) ? best : null;
-}
-
 function formatMonthlyPrice(value: number) {
   const rounded = Math.round(value * 100) / 100;
   return Number.isInteger(rounded)
@@ -150,7 +141,11 @@ export function PremiumPlanCards({ onSelectPlan, className, intro }: Props) {
             String(item.id)
           );
           const isBlocked = isCurrentPlan || isLowerPlan;
-          const fromMonthly = cheapestMonthlyPrice(item.periods);
+          const fromPrice = premiumCheapestMonthlyUsd(item.periods);
+          const priceLabel =
+            fromPrice != null
+              ? `, desde ${currency} ${formatMonthlyPrice(fromPrice.monthly)} por mes, ${premiumFromPriceNote(fromPrice.months).toLowerCase()}`
+              : "";
           return (
             <button
               key={item.id}
@@ -163,11 +158,11 @@ export function PremiumPlanCards({ onSelectPlan, className, intro }: Props) {
                 disabled
                   ? `${item.name}, próximamente`
                   : isCurrentPlan
-                    ? `${item.name}, ya lo tenés`
+                    ? `${item.name}, ya lo tenés${priceLabel}`
                     : isLowerPlan
-                      ? `${item.name}, ya tenés un plan superior`
-                      : fromMonthly != null
-                        ? `Elegir ${item.name}, desde ${currency} ${formatMonthlyPrice(fromMonthly)} por mes`
+                      ? `${item.name}, ya tenés un plan superior${priceLabel}`
+                      : fromPrice != null
+                        ? `Elegir ${item.name}${priceLabel}`
                         : `Elegir ${item.name}`
               }
               onClick={() => {
@@ -247,9 +242,12 @@ export function PremiumPlanCards({ onSelectPlan, className, intro }: Props) {
                   )
                 )}
               </ul>
-              {!disabled && fromMonthly != null && (
-                <span className="premium-package-cta">
-                  Desde {currency} {formatMonthlyPrice(fromMonthly)} / mes
+              {!disabled && fromPrice != null && (
+                <span className="premium-package-price">
+                  <span className="premium-package-cta">
+                    Desde {currency} {formatMonthlyPrice(fromPrice.monthly)} / mes
+                  </span>
+                  <small>{premiumFromPriceNote(fromPrice.months)}</small>
                 </span>
               )}
             </button>

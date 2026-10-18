@@ -497,6 +497,17 @@ export interface BlockedUser {
   blockedAt: string;
 }
 
+/** Fila del historial de denuncias propias. */
+export interface MyReportListItem {
+  id: string;
+  reason: ReportReason;
+  status: ReportStatus;
+  source: ReportSource;
+  createdAt: string;
+  reportedName: string;
+  resolutionAction?: ReportResolutionAction;
+}
+
 /** Resultado de una denuncia propio (solo el denunciante). */
 export interface MyReportResolution {
   id: string;
@@ -551,7 +562,11 @@ export interface ReceivedLike {
     /** Solo si `canSeeLikes` / Heartshot; sin eso el cliente muestra un placeholder. */
     name?: string;
     age: number;
-    /** Solo si `canSeeLikes` / Heartshot; sin eso la API no envía URL de foto. */
+    /**
+     * Con `canSeeLikes` / Heartshot: URL de foto nítida.
+     * Sin eso: URL firmada de teaser **ya blurreado en el servidor**
+     * (`/api/discover/likes/:id/teaser`); id/name siguen ocultos.
+     */
     photo?: string;
   };
   /** Podés responder el like porque tenés presencia activa en ese Espacio. */
@@ -583,6 +598,18 @@ export interface MatchSummary {
     createdAt: string;
     fromUserId: string;
   };
+  /** Mensajes del otro posteriores a tu última lectura de este chat. */
+  unreadCount: number;
+}
+
+export interface MatchesListResponse {
+  matches: MatchSummary[];
+  /** Chats con al menos un mensaje sin leer. */
+  unreadChats: number;
+}
+
+export interface UnreadChatsResponse {
+  chats: number;
 }
 
 export interface ChatMessage {

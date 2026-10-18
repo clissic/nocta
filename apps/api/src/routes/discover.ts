@@ -18,7 +18,7 @@ import {
   resolvePublicAssetUrls,
 } from "../utils/serialize.js";
 import { canonicalizePhotoRef } from "../image-service/uploadBridge.js";
-import { isObjectId, sortedUserPair } from "../utils/ids.js";
+import { isObjectId, matchPairKey, sortedUserPair } from "../utils/ids.js";
 import { blockedPeerIds } from "../models/Block.js";
 import { Follow } from "../models/Follow.js";
 import { FollowRequest } from "../models/FollowRequest.js";
@@ -31,8 +31,60 @@ import { createNotification } from "../utils/notify.js";
 import { areBlocked } from "../utils/follows.js";
 import { moderationVisibleUserFilter } from "../utils/moderation.js";
 import { isPremiumActive, isBoostActive, consumeHeartshot, refundHeartshot } from "../utils/premium.js";
+import {
+  buildBlurredTeaserFromPhotoRef,
+  buildLikeTeaserUrl,
+  verifyLikeTeaserSig,
+} from "../utils/likePhotoTeaser.js";
+import { swipeLimiter } from "../middleware/rateLimits.js";
 
 const router = Router();
+
+/**
+ * Teaser blur de like bloqueado (URL firmada, sin Bearer).
+ * No expone imageId ni la foto nítida — el blur se genera en el servidor.
+ */
+router.get("/likes/:likeId/teaser", async (req, res) => {
+  const likeId = String(req.params.likeId || "").trim();
+  const viewerId = String(req.query.vid || "").trim();
+  const sig = String(req.query.sig || "").trim();
+  const exp = Number(req.query.exp);
+  if (
+    !isObjectId(likeId) ||
+    !isObjectId(viewerId) ||
+    !verifyLikeTeaserSig(likeId, viewerId, exp, sig)
+  ) {
+    return res.status(404).json({ error: "Imagen no encontrada" });
+  }
+
+  const swipe = await Swipe.findById(likeId)
+    .select("fromUserId toUserId direction")
+    .lean();
+  if (
+    !swipe ||
+    swipe.direction !== "like" ||
+    swipe.toUserId.toString() !== viewerId
+  ) {
+    return res.status(404).json({ error: "Imagen no encontrada" });
+  }
+
+  const fromUser = await User.findById(swipe.fromUserId)
+    .select("profile.photos")
+    .lean();
+  const photoRef = fromUser?.profile?.photos?.[0];
+  if (!photoRef) {
+    return res.status(404).json({ error: "Imagen no encontrada" });
+  }
+
+  const teaser = await buildBlurredTeaserFromPhotoRef(photoRef);
+  if (!teaser) {
+    return res.status(404).json({ error: "Imagen no encontrada" });
+  }
+
+  res.setHeader("Content-Type", "image/webp");
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  return res.status(200).send(teaser);
+});
 
 router.use(requireAuth, requireVerified);
 
@@ -379,7 +431,7 @@ router.get("/feed", async (req: AuthedRequest, res) => {
   });
 });
 
-router.post("/swipe", async (req: AuthedRequest, res) => {
+router.post("/swipe", swipeLimiter, async (req: AuthedRequest, res) => {
   const user = req.user!;
   const parsed = swipeSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -494,16 +546,18 @@ router.post("/swipe", async (req: AuthedRequest, res) => {
 
     if (reciprocal) {
       const users = sortedUserPair(user._id, parsed.data.toUserId);
+      const pairKey = matchPairKey(user._id, parsed.data.toUserId);
       try {
         const created = await Match.create({
           users,
+          pairKey,
           venueId: myPresence.venueId,
         });
         match = { id: created._id.toString() };
       } catch {
         const existing = await Match.findOne({
           venueId: myPresence.venueId,
-          users,
+          pairKey,
         });
         if (existing) match = { id: existing._id.toString() };
       }
@@ -593,10 +647,9 @@ router.post("/rewind", async (req: AuthedRequest, res) => {
   await Swipe.deleteOne({ _id: lastSwipe._id });
 
   if (wasLike) {
-    const users = sortedUserPair(user._id, toUserId);
     const match = await Match.findOne({
       venueId: myPresence.venueId,
-      users,
+      pairKey: matchPairKey(user._id, toUserId),
     });
     if (match) {
       await Message.deleteMany({ matchId: match._id });
@@ -702,6 +755,7 @@ router.get("/likes", async (req: AuthedRequest, res) => {
     planHasFeature(String(req.user!.premiumPlanId), "see_likes");
 
   const photoRefsForReveal: string[] = [];
+  const viewerId = me.toString();
   const pendingMeta = pending.map((s) => {
     const fromId = s.fromUserId.toString();
     const venueId = s.venueId.toString();
@@ -710,11 +764,8 @@ router.get("/likes", async (req: AuthedRequest, res) => {
     const venueName = venueMap.get(venueId);
     const isHeartshot = Boolean(s.isHeartshot);
     const reveal = canSeeLikes || isHeartshot;
-    const photoRef =
-      reveal && u?.profile?.photos?.[0]
-        ? u.profile.photos[0]
-        : null;
-    if (photoRef) photoRefsForReveal.push(photoRef);
+    const photoRef = u?.profile?.photos?.[0] ?? null;
+    if (reveal && photoRef) photoRefsForReveal.push(photoRef);
     return {
       s,
       fromId,
@@ -734,15 +785,19 @@ router.get("/likes", async (req: AuthedRequest, res) => {
   const likes = pendingMeta
     .map((row) => {
       if (!row.u?.profile || !row.birthDate || !row.venueName) return null;
+      const likeId = row.s._id.toString();
       let photo: string | undefined;
-      if (row.photoRef) {
+      if (row.reveal && row.photoRef) {
         photo =
           resolvedPhotos[photoIdx++] ||
           canonicalizePhotoRef(row.photoRef) ||
           undefined;
+      } else if (!row.reveal && row.photoRef) {
+        // Teaser blur del servidor (URL firmada; no filtra foto nítida ni imageId).
+        photo = buildLikeTeaserUrl(likeId, viewerId);
       }
       return {
-        id: row.s._id.toString(),
+        id: likeId,
         createdAt: row.s.createdAt.toISOString(),
         venueId: row.venueId,
         venueName: row.venueName,
@@ -752,10 +807,10 @@ router.get("/likes", async (req: AuthedRequest, res) => {
             ? {
                 id: row.fromId,
                 name: row.u.profile.name ?? "Usuario",
-                photo,
               }
             : {}),
           age: calcAge(row.birthDate),
+          ...(photo ? { photo } : {}),
         },
         canRespond: myVenueIds.has(row.venueId),
       };

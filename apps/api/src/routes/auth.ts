@@ -26,6 +26,12 @@ import {
   refreshExpiredSuspension,
   suspensionError,
 } from "../utils/moderation.js";
+import {
+  authEmailIpLimiter,
+  loginIpLimiter,
+  registerIpLimiter,
+} from "../middleware/rateLimits.js";
+import { requireTurnstile } from "../utils/turnstile.js";
 
 const router = Router();
 
@@ -75,7 +81,8 @@ async function issueVerificationCode(user: InstanceType<typeof User>) {
   return code;
 }
 
-router.post("/register", async (req, res) => {
+router.post("/register", registerIpLimiter, async (req, res) => {
+  if (!(await requireTurnstile(req, res))) return;
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -128,7 +135,8 @@ router.post("/register", async (req, res) => {
   });
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", loginIpLimiter, async (req, res) => {
+  if (!(await requireTurnstile(req, res))) return;
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Datos inválidos" });
@@ -170,7 +178,7 @@ router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   return res.json({ user: await serializeUser(req.user!) });
 });
 
-router.post("/resend-verification", async (req, res) => {
+router.post("/resend-verification", authEmailIpLimiter, async (req, res) => {
   const parsed = emailSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Email inválido" });
@@ -290,12 +298,18 @@ router.post("/verify-email", optionalAuth, async (req: AuthedRequest, res) => {
   });
 });
 
-router.post("/forgot-password", async (req, res) => {
-  const parsed = emailSchema.safeParse(req.body);
+router.post("/forgot-password", authEmailIpLimiter, async (req, res) => {
+  if (!(await requireTurnstile(req, res))) return;
+  const parsed = emailSchema
+    .extend({
+      client: z.enum(["web", "mobile"]).optional(),
+    })
+    .safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Email inválido" });
   }
   const email = parsed.data.email.toLowerCase();
+  const client = parsed.data.client === "mobile" ? "mobile" : "web";
   if (!rateLimit(`forgot:${email}`)) {
     return res
       .status(429)
@@ -314,6 +328,7 @@ router.post("/forgot-password", async (req, res) => {
         name: user.profile?.name || undefined,
         token: rawToken,
         ttlMinutes: PASSWORD_RESET_TTL_MINUTES,
+        client,
       });
     } catch (err) {
       console.error("[mail] reset send failed", err);

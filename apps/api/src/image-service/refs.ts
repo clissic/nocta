@@ -31,6 +31,36 @@ export function isManagedMediaRef(ref: string): boolean {
   return parseMediaImageId(ref) != null;
 }
 
+/**
+ * Extrae path estable `/uploads/{filename}` desde refs relativas o absolutas
+ * (`http://localhost:4000/uploads/...`). Evita persistir URLs de entrega.
+ */
+export function extractLegacyUploadPath(ref: string): string | null {
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+
+  let path = trimmed;
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      path = new URL(trimmed).pathname;
+    }
+  } catch {
+    const idx = trimmed.indexOf("/uploads/");
+    if (idx < 0) return null;
+    path = trimmed.slice(idx);
+  }
+
+  const q = path.indexOf("?");
+  if (q >= 0) path = path.slice(0, q);
+
+  if (!path.startsWith("/uploads/")) return null;
+  const name = path.slice("/uploads/".length);
+  if (!name || name.includes("..") || name.includes("/") || name.includes("\\")) {
+    return null;
+  }
+  return `/uploads/${name}`;
+}
+
 export function isLegacyUploadRef(ref: string): boolean {
-  return ref.startsWith("/uploads/") || ref.includes("/uploads/");
+  return extractLegacyUploadPath(ref) != null;
 }

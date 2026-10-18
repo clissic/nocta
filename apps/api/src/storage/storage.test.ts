@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 import { createMemoryStorage } from "./memoryStorage.js";
 import { createStorage, resetStorageSingleton } from "./createStorage.js";
@@ -34,6 +37,28 @@ describe("memory storage", () => {
 
     await storage.deleteObject(key);
     assert.equal(await storage.exists(key), false);
+  });
+
+  it("persistDir sobrevive a una nueva instancia", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "nocta-mem-store-"));
+    const key = "public/users/u1/img1/medium.webp";
+    try {
+      const a = createMemoryStorage({ persistDir: dir });
+      await a.putObject({
+        key,
+        body: Buffer.from("persisted"),
+        contentType: "image/webp",
+      });
+      const b = createMemoryStorage({ persistDir: dir });
+      assert.equal(await b.exists(key), true);
+      const got = await b.getObject(key);
+      assert.equal(got.body.toString(), "persisted");
+      await b.deleteObject(key);
+      const c = createMemoryStorage({ persistDir: dir });
+      assert.equal(await c.exists(key), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("listObjects / deleteByPrefix", async () => {

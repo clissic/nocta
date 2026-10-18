@@ -19,11 +19,19 @@ import {
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (
+    email: string,
+    password: string,
+    turnstileToken?: string
+  ) => Promise<AuthUser>;
   register: (
     email: string,
     password: string,
-    extra?: { name?: string; marketingEmailsOptIn?: boolean }
+    extra?: {
+      name?: string;
+      marketingEmailsOptIn?: boolean;
+      turnstileToken?: string;
+    }
   ) => Promise<AuthUser>;
   verifyEmail: (code: string, email?: string) => Promise<AuthUser>;
   resendVerification: (email: string) => Promise<{ expiresInMinutes?: number }>;
@@ -70,10 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, turnstileToken?: string) => {
     const data = await api<{ token: string; user: AuthUser }>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        ...(turnstileToken ? { turnstileToken } : {}),
+      }),
     });
     clearSuspensionNotice();
     setToken(data.token);
@@ -85,7 +97,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       email: string,
       password: string,
-      extra?: { name?: string; marketingEmailsOptIn?: boolean }
+      extra?: {
+        name?: string;
+        marketingEmailsOptIn?: boolean;
+        turnstileToken?: string;
+      }
     ) => {
       const data = await api<{ token: string; user: AuthUser }>("/api/auth/register", {
         method: "POST",
@@ -94,6 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
           ...(extra?.name ? { name: extra.name.trim() } : {}),
           marketingEmailsOptIn: Boolean(extra?.marketingEmailsOptIn),
+          ...(extra?.turnstileToken
+            ? { turnstileToken: extra.turnstileToken }
+            : {}),
         }),
       });
       clearSuspensionNotice();

@@ -6,7 +6,7 @@ type Props = {
   followRequestCount: number;
   onOpenSettings: () => void;
   onOpenFollowRequests: () => void;
-  onOpenDeleteAccount: () => void;
+  onOpenLogout: () => void;
 };
 
 const DESKTOP_MQ = "(min-width: 992px)";
@@ -15,7 +15,7 @@ export function ProfileActionButtons({
   followRequestCount,
   onOpenSettings,
   onOpenFollowRequests,
-  onOpenDeleteAccount,
+  onOpenLogout,
 }: Props) {
   const groupRef = useRef<HTMLDivElement>(null);
 
@@ -93,12 +93,12 @@ export function ProfileActionButtons({
       </Link>
       <button
         type="button"
-        className="btn profile-action-btn profile-action-delete"
-        aria-label="Eliminar cuenta"
-        onClick={onOpenDeleteAccount}
-        {...popoverProps("Eliminar cuenta")}
+        className="btn profile-action-btn profile-action-logout"
+        aria-label="Cerrar sesión"
+        onClick={onOpenLogout}
+        {...popoverProps("Cerrar sesión")}
       >
-        <i className="bi bi-trash3" aria-hidden="true" />
+        <i className="bi bi-box-arrow-right" aria-hidden="true" />
       </button>
     </div>
   );

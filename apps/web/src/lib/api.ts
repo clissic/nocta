@@ -21,14 +21,20 @@ export function apiUrl(path: string) {
 
 /**
  * URLs de media para <img>.
- * https/CDN/firmada tal cual; `/uploads/` y `/api/media/` (fallback) vía API.
+ * https/CDN/firmada tal cual; `/uploads/`, `/api/media/` y teasers de likes vía API.
  */
 export function mediaUrl(src?: string | null) {
   if (!src) return "";
   if (/^https?:\/\//i.test(src) || src.startsWith("blob:") || src.startsWith("data:")) {
     return src;
   }
-  if (src.startsWith("/uploads/") || src.startsWith("/api/media/")) return apiUrl(src);
+  if (
+    src.startsWith("/uploads/") ||
+    src.startsWith("/api/media/") ||
+    src.startsWith("/api/discover/")
+  ) {
+    return apiUrl(src);
+  }
   return src;
 }
 

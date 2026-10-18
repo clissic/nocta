@@ -14,7 +14,7 @@ export type CreateNotificationInput = {
 
 export async function createNotification(input: CreateNotificationInput) {
   try {
-    return await Notification.create({
+    const doc = await Notification.create({
       userId: input.userId,
       type: input.type,
       title: input.title,
@@ -24,6 +24,10 @@ export async function createNotification(input: CreateNotificationInput) {
       dedupeKey: input.dedupeKey,
       readAt: null,
     });
+    void import("./expoPush.js")
+      .then(({ dispatchExpoPush }) => dispatchExpoPush(doc))
+      .catch((err) => console.warn("[push] despacho falló", err));
+    return doc;
   } catch (err: unknown) {
     if (
       err &&

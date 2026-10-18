@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { api } from "../lib/api";
 import { ADMIN_NAV } from "./admin/AdminLayout";
 import { AppFooter } from "./AppFooter";
 import { NoctaWordmark } from "./NoctaWordmark";
@@ -20,6 +21,21 @@ function discoverClass({ isActive }: { isActive: boolean }) {
     .join(" ");
 }
 
+function formatUnread(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
+
+function MatchesNavIcon({ unread }: { unread: number }) {
+  return (
+    <span className="nav-icon-wrap">
+      <i className="bi bi-chat-heart" aria-hidden="true" />
+      {unread > 0 ? (
+        <span className="nav-unread-badge">{formatUnread(unread)}</span>
+      ) : null}
+    </span>
+  );
+}
+
 export function AppLayout() {
   const { user, logout, setUser } = useAuth();
   const navigate = useNavigate();
@@ -29,6 +45,33 @@ export function AppLayout() {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [unreadChats, setUnreadChats] = useState(0);
+  const matchesLabel =
+    unreadChats > 0
+      ? `Matches, ${unreadChats} chats sin leer`
+      : "Matches";
+
+  useEffect(() => {
+    if (!user) {
+      setUnreadChats(0);
+      return;
+    }
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const data = await api<{ chats: number }>("/api/matches/unread-count");
+        if (!cancelled) setUnreadChats(data.chats ?? 0);
+      } catch {
+        /* el badge no bloquea la navegación */
+      }
+    }
+    void refresh();
+    const id = window.setInterval(() => void refresh(), 12000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [user, location.pathname]);
 
   useEffect(() => {
     setAdminMenuOpen(false);
@@ -178,8 +221,12 @@ export function AppLayout() {
               <i className="bi bi-fire" aria-hidden="true" />
               Discover
             </NavLink>
-            <NavLink to="/matches" className={linkClass}>
-              <i className="bi bi-chat-heart" aria-hidden="true" />
+            <NavLink
+              to="/matches"
+              className={linkClass}
+              aria-label={matchesLabel}
+            >
+              <MatchesNavIcon unread={unreadChats} />
               Matches
             </NavLink>
             <NavLink to="/profile" className={linkClass}>
@@ -287,8 +334,8 @@ export function AppLayout() {
             <i className="bi bi-fire" aria-hidden="true" />
             <span>Discover</span>
           </NavLink>
-          <NavLink to="/matches" className={linkClass}>
-            <i className="bi bi-chat-heart" aria-hidden="true" />
+          <NavLink to="/matches" className={linkClass} aria-label={matchesLabel}>
+            <MatchesNavIcon unread={unreadChats} />
             Matches
           </NavLink>
           <NavLink to="/profile" className={linkClass}>

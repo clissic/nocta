@@ -16,8 +16,9 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 6. [Backend](#backend)
 7. [Image Service](#image-service)
 8. [Frontend](#frontend)
-9. [Shared](#shared-noctashared)
-10. [Convenciones](#convenciones)
+9. [Mobile](#mobile-android--expo)
+10. [Shared](#shared-noctashared)
+11. [Convenciones](#convenciones)
 
 ---
 
@@ -35,7 +36,7 @@ Flujo usuario:
 1. Auth (email/password u OAuth Google; Apple y Microsoft UI deshabilitadas “próximamente”) → onboarding
 2. Espacios (búsqueda + filtro por tipo + paginación) → publicar presencia
 3. Discover del espacio → like/pass → match → chat
-4. Likes: plan **4 AM+** (`see_likes`) revela fotos y abre ese perfil en Discover; free / 2 AM las fotos quedan bloqueadas y se ofrecen paquetes
+4. Likes: plan **4 AM+** (`see_likes`) revela identidad y abre ese perfil en Discover; free / 2 AM reciben teaser **blur del servidor** + candado y se ofrecen paquetes
 
 Nav principal (mobile + tablet/desktop): **Espacios → Likes → Discover → Matches → Perfil**.
 
@@ -51,14 +52,15 @@ Ciudad piloto: **Montevideo**. El catálogo de seed tiene 113 Espacios reales (b
 nocta/
 ├── apps/
 │   ├── api/          # Express + MongoDB + JWT + OAuth
-│   └── web/          # React + Vite + Bootstrap 5
+│   ├── web/          # React + Vite + Bootstrap 5
+│   └── mobile/       # Expo / React Native (Android primero)
 ├── packages/
 │   └── shared/       # Tipos, enums, constantes compartidas
 ├── .cursor/rules/    # Reglas Cursor del proyecto
 └── README.md         # Este archivo (único)
 ```
 
-Stack: **MERN** (Mongo, Express, React, Node) + TypeScript + workspaces npm.
+Stack: **MERN** (Mongo, Express, React, Node) + TypeScript + workspaces npm + **Expo** (`apps/mobile`).
 
 ---
 
@@ -70,13 +72,15 @@ Requisitos: **Node 20+**.
 npm install
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
+cp apps/mobile/.env.example apps/mobile/.env
 ```
 
-Dos terminales:
+Dos o tres terminales:
 
 ```bash
-npm run dev:api   # http://localhost:4000
-npm run dev:web   # http://localhost:5173
+npm run dev:api      # http://localhost:4000
+npm run dev:web      # http://localhost:5173
+npm run dev:mobile   # Expo (Android: emulador o dispositivo)
 ```
 
 Por defecto `MONGODB_URI=memory` (Mongo embebido; al arrancar la API corre seed demo).
@@ -127,6 +131,8 @@ En login hay atajos visuales para cargar estas cuentas (demo).
 | `npm install` | Instala workspaces + build de `@nocta/shared` |
 | `npm run dev:api` | API en watch (`tsx`) |
 | `npm run dev:web` | Vite (proxy `/api` y `/uploads` → `:4000`) |
+| `npm run dev:mobile` | Expo Dev Server (`apps/mobile`) |
+| `npm run android` | Expo → Android |
 | `npm run seed` | Seed admin + venues + demos (`seedDemoData`) |
 | `npm run migrate:images` | Migrar imágenes legacy → Image Service (`--preview`/`DRY_RUN=1`; real exige credenciales Railway) |
 | `npm run validate:images` | Validar ledger + Object Storage post-migración |
@@ -186,20 +192,46 @@ Ver `apps/api/.env.example`.
 | `MONGODB_RETRIES` | Reintentos al arranque (default `5`) |
 | `SEED_ON_EMPTY` | Seed en Atlas si no hay users |
 | `JWT_SECRET` | Firma JWT |
-| `CLIENT_ORIGIN` | CORS + redirects OAuth (URL del web, p. ej. Railway) |
+| `CLIENT_ORIGIN` | CORS + redirects OAuth/web (URL del web, p. ej. Railway) |
+| `MOBILE_APP_SCHEME` | Scheme deep link nativo (default `nocta`) para reset/OAuth con `client=mobile` |
 | `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` legacy en JSON |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed (defaults de la tabla demo) |
 | `MAIL_TRANSPORT` | `auto` (default) \| `smtp` \| `resend` — `smtp` fuerza Gmail aunque exista `RESEND_API_KEY` |
 | `RESEND_API_KEY` | Mail vía Resend (HTTPS). En `auto` tiene prioridad; sin dominio solo envía al mail de la cuenta Resend |
 | `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer (DNS IPv4); `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |
 | OAuth `GOOGLE_*` / `APPLE_*` / `MICROSOFT_*` / `MICROSOFT_TENANT` | Social login (`MICROSOFT_TENANT` default `common`) |
+| `TURNSTILE_SECRET_KEY` | Secret de Cloudflare Turnstile. Si está, registro, login y recupero exigen el token en web y app. El widget queda oculto si el chequeo pasa solo y aparece únicamente cuando Cloudflare pide confirmación. Site key pública: `VITE_TURNSTILE_SITE_KEY` (web) y `EXPO_PUBLIC_TURNSTILE_SITE_KEY` (app). El WebView de la app usa origen `http://localhost` hasta el dominio público (`EXPO_PUBLIC_TURNSTILE_BASE_URL`) |
 | `STORAGE_DRIVER` | `auto` (default) \| `railway` \| `memory` — Object Storage |
+| `MEMORY_STORAGE_DIR` | Solo con `memory`: carpeta de blobs (default `apps/api/.data/memory-storage`). `0`/`off` = solo RAM |
 | `STORAGE_PUBLIC_BASE_URL` | Base CDN/custom delante del bucket (opcional; sin esto las públicas salen firmadas al bucket) |
 | `STORAGE_SIGNED_URL_TTL_SECONDS` | TTL de URLs firmadas (default `3600`) |
 | `AWS_ENDPOINT_URL` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_S3_BUCKET_NAME` / `AWS_DEFAULT_REGION` / `AWS_S3_URL_STYLE` | Credenciales Railway Bucket (preset AWS SDK). También acepta `ENDPOINT`/`BUCKET`/`ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`/`REGION` o prefijo `STORAGE_*` |
+| `EXPO_ACCESS_TOKEN` | Opcional. Token de [expo.dev](https://expo.dev/accounts/clissic/settings/access-tokens) para el cupo de avisos push. Sin esto el envío usa el cupo anónimo |
+| `RATE_LIMIT_DISABLED` | `1` apaga los cupos de `express-rate-limit`. Default apagado (los cupos están activos). Los tests e2e los saltean con `NOCTA_E2E=1` |
+
+### Cupos de solicitudes
+
+`express-rate-limit`, contador en memoria del proceso. `429` con «Demasiadas solicitudes. Probá de nuevo en un momento.» `trust proxy` está en 1 para leer la IP real detrás de Railway.
+
+Con sesión el cupo es por usuario (el `sub` del JWT). Sin sesión, por IP: en un Espacio mucha gente comparte la red. `GET /health` y `POST /api/premium/webhook` no entran.
+
+| Ruta | Ventana | Máximo | Clave |
+|------|---------|--------|--------|
+| `POST /api/auth/login` | 15 min | 10 | IP |
+| `POST /api/auth/register` | 1 h | 5 | IP |
+| Reenvío de código y olvidé mi contraseña | 15 min | 5 | IP. Además, 1 por minuto por email |
+| `GET /api/auth/oauth/:provider` | 15 min | 20 | IP |
+| `GET /api/venues`, `/api/cities`, `/api/ads` | 1 min | 300 | IP |
+| Resto de `/api` con JWT | 1 min | 120 | usuario |
+| `POST /api/discover/swipe` | 1 min | 40 | usuario |
+| `POST /api/matches/:id/messages` | 1 min | 30 | usuario |
+| `POST /api/premium/checkout` | 10 min | 5 | usuario |
+| `POST /api/me/push-token` | 1 min | 10 | usuario |
+
+Fotos: 30 subidas, 40 borrados y 5 archivos sensibles por minuto, por usuario. Al reiniciar la API los contadores vuelven a cero. Con más de una instancia, cada una tiene el suyo.
 
 **Object Storage / Image Service (Fase 1–8):** ver sección dedicada [Image Service](#image-service). Resumen: Sharp + Railway Object Storage; públicos sin original permanente; Express no sirve bytes de imágenes managed nuevas; identity PRIVATE/SENSITIVE; `OptimizedImage` en FE; `/uploads` solo legacy.
-- Tests: `npm run test -w @nocta/api` · `npm run test:e2e -w @nocta/api` · `npm run test -w @nocta/web`.
+- Tests: `npm run test -w @nocta/api` (imágenes, storage y producto: auth, presencia, swipe, match, premium) · `npm run test:e2e -w @nocta/api` · `npm run test -w @nocta/web`.
 
 ### Image Service
 
@@ -219,10 +251,11 @@ Upload multipart → multer temp → validate (MIME real, size, dims, bombs)
 1. MongoDB **nunca** almacena binarios de imagen (solo refs `/api/media/{id}`, paths legacy o imageIds privados).
 2. Los **originales públicos no se almacenan** de forma permanente (solo variantes WebP/AVIF).
 3. Express **no sirve** bytes de imágenes públicas managed nuevas (`GET /api/media/:id` = 302 a Storage). **`/uploads` es legacy read-only** (telemetría `[legacy-uploads]`; writes → 405).
-4. **Railway Object Storage** es el storage actual (`STORAGE_DRIVER=railway|auto|memory`).
-5. **identity_verification** es PRIVATE/SENSITIVE (`admin_signed`, TTL 180d; no Discover/perfiles/JSON público). Staging multer en `tmp/upload-staging`, no en `private/`.
-6. **`OptimizedImage`** es el componente público genérico del FE.
-7. **`/uploads` ya no acepta almacenamiento permanente nuevo** (Fase 11). Corpus residual + FE compat hasta cleanup confirmado.
+4. **Railway Object Storage** es el storage de producción (`STORAGE_DRIVER=railway|auto|memory`). En local, si el bucket responde 403, usá `memory`.
+5. **`STORAGE_DRIVER=memory` + Atlas:** los blobs se persisten en `apps/api/.data/memory-storage` (o `MEMORY_STORAGE_DIR`) para que las fotos no desaparezcan al reiniciar la API. `MEMORY_STORAGE_DIR=0`/`off` = solo RAM (tests/E2E).
+6. **identity_verification** es PRIVATE/SENSITIVE (`admin_signed`, TTL 180d; no Discover/perfiles/JSON público). Staging multer en `tmp/upload-staging`, no en `private/`.
+7. **`OptimizedImage`** es el componente público genérico del FE (web). Mobile usa `NoctaImage` + `resolveImageUri`.
+8. **`/uploads` ya no acepta almacenamiento permanente nuevo** (Fase 11). Corpus residual + FE compat hasta cleanup confirmado.
 
 #### ImageTypes
 
@@ -245,7 +278,7 @@ Registry: `apps/api/src/image-service/registry.ts`.
 - **variants_v1:** thumb/medium/large × webp/avif; `rotate()` + re-encode (sin EXIF/GPS); sin upscale; sin original.
 - **identity_raw / evidence_raw:** JPEG/PDF privado; sin variantes públicas; sin URL CDN.
 - **Cache Storage:** públicos `Cache-Control: public, max-age=31536000, immutable`; privados `private, no-store`.
-- **Rate limits (en memoria):** upload 30/min · delete 40/min · sensitive 5/min por usuario (`IMAGE_RATE_LIMIT` → 429).
+- **Rate limits (en memoria):** upload 30/min · delete 40/min · sensitive 5/min por usuario (`IMAGE_RATE_LIMIT` → 429). El resto de la API: [Cupos de solicitudes](#cupos-de-solicitudes).
 
 #### Seguridad
 
@@ -328,7 +361,7 @@ No loguean URLs firmadas, tokens, docs de identidad ni bytes de imagen (keys pri
 
 | Síntoma | Qué mirar | Acción |
 |---------|-----------|--------|
-| Fotos 404 / broken en UI | `diagnose:images` → `mongoWithoutObject`; logs `missing_object` | Remigrar o re-subir; no confiar en refs memory-migrate |
+| Fotos 404 / broken en UI | `diagnose:images` → `mongoWithoutObject`; logs `missing_object` | Con `STORAGE_DRIVER=memory` + Atlas: reiniciar la API sin persistencia borraba bytes (ahora se guardan en `apps/api/.data/memory-storage`). Remigrar/re-subir si el objeto ya faltaba; Railway sigue en 403 local |
 | Bucket crece sin Mongo | `objectWithoutMongo` (usa `listObjects`) | Revisar samples; borrar solo con `cleanup`/`deleteByPrefix` manual |
 | Variantes rotas / picture incompleto | `incompleteVariants` | Re-ingest de esa imagen |
 | Identity mezclada con pública | `inconsistentImageType` | Corregir metadata; identity nunca CDN |
@@ -375,7 +408,7 @@ Sin CDN (dev local):
 
 ```
 Mongo → API → URL firmada al bucket Railway/memory → Browser
-OptimizedImage cae a /api/media/{id}?v=&f= (302 firmado)
+OptimizedImage cae a /api/media/{id}?v=&f= (200 immutable; CDN pública sigue en 302)
 ```
 
 | Variable | Rol |
@@ -383,7 +416,7 @@ OptimizedImage cae a /api/media/{id}?v=&f= (302 firmado)
 | `STORAGE_PUBLIC_BASE_URL` | Origen CDN / custom domain delante del bucket (sin slash final) |
 | `STORAGE_SIGNED_URL_TTL_SECONDS` | TTL firmas (fallback sin CDN + privados) |
 
-**Cache:** objetos públicos en Storage llevan `Cache-Control: public, max-age=31536000, immutable` + `Content-Type` webp/avif. Privados: `private, no-store`. Redirect `/api/media` a CDN: `max-age=86400`; a firma: `max-age=60`.
+**Cache:** objetos públicos en Storage llevan `Cache-Control: public, max-age=31536000, immutable` + `Content-Type` webp/avif. Privados: `private, no-store`. `GET /api/media/:id` con CDN estable responde 302 (`max-age=86400`); sin CDN (firma o memory) responde **200** con el mismo `Cache-Control` immutable y `ETag`, para que la URL estable no se vuelva a bajar. Web (`OptimizedImage`) guarda `/api/media`, `/uploads` y `/images` en Cache API `nocta-images-v1` (clave `nocta:{imageId}:{variant}:{format}`). Mobile (`NoctaImage`) usa expo-image `memory-disk` con `cacheKey` `nocta:{imageId}:{variant}:webp`, así una firma nueva no dispara otra descarga. `/uploads` legacy: `max-age=30d, immutable`.
 
 **Seguridad:** `identity_verification` / keys `private/*` **nunca** reciben URL CDN (`getPublicUrl` → null; `resolveReadUrl` → signed). Mongo **no** guarda URLs absolutas.
 
@@ -447,7 +480,7 @@ Los mails de verificación y recuperación usan plantilla responsive dark de Noc
 | `GET` | `/api/auth/me` | Usuario del Bearer; controla suspensión y versión de sesión en cada request |
 | `POST` | `/api/auth/verify-email` | `{ email, code }` o `{ code }` + Bearer; una cuenta ya verificada no emite JWT sin sesión propia |
 | `POST` | `/api/auth/resend-verification` | Nuevo código; rate-limit 60s |
-| `POST` | `/api/auth/forgot-password` / `reset-password` | Reset por link (API lista; **sin pantalla dedicada en el web aún**) |
+| `POST` | `/api/auth/forgot-password` / `reset-password` | Reset por link. Body forgot: `{ email, client?: "web"\|"mobile" }` — `mobile` envía deep link `nocta://auth/reset-password?token=…` |
 
 Shared: `EMAIL_VERIFICATION_CODE_LENGTH=6`, `EMAIL_VERIFICATION_TTL_MINUTES=15`, `PASSWORD_HINT`.
 
@@ -491,6 +524,7 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 | `PATCH` | `/api/me/settings` | `autoAcceptFollowRequests`, `showActivityToFollowers` (parcial; default `true`; legado `hideActivityFromFollowers` se interpreta al leer) |
 | `GET` | `/api/me/blocked-users` | Usuarios bloqueados por la cuenta, paginados (`page`, `limit`) |
 | `DELETE` | `/api/me/blocked-users/:id` | Desbloquea al usuario indicado |
+| `GET` | `/api/me/reports` | Historial de denuncias propias, paginado (`page`, `limit`). Solo las del denunciante |
 | `GET` | `/api/me/reports/:id` | Resultado de una denuncia propia (solo el denunciante) |
 | `DELETE` | `/api/me/account` | Soft-delete (30 días de recuperación) con `{ confirmation: "Eliminar" }`; perfil invisible; no borra imágenes aún; protege la última cuenta admin activa |
 | `POST` | `/api/me/account/restore` | Cancela el borrado pendiente dentro de los 30 días |
@@ -500,11 +534,11 @@ La zona horaria de vigencia de promos se deriva del país del perfil (Uruguay = 
 
 ### Auth social (OAuth)
 
-1. `GET /api/auth/oauth/:provider` → redirect al IdP (`google` \| `apple` \| `microsoft`)
+1. `GET /api/auth/oauth/:provider` → redirect al IdP (`google` \| `apple` \| `microsoft`). Query opcional `?client=mobile` para deep link nativo
 2. Callback `GET` (Google/Microsoft) o `POST` (Apple) en `/api/auth/oauth/:provider/callback`
 3. Exchange del `code` → **`upsertOAuthUser`** (`emailVerified: true`)
-4. Si la cuenta está suspendida → `/login` con código y fechas de bloqueo
-5. JWT → `{CLIENT_ORIGIN}/auth/callback?token=...`
+4. Si la cuenta está suspendida → `/login` (web) o `nocta://login` (mobile) con código y fechas de bloqueo
+5. JWT → `{CLIENT_ORIGIN}/auth/callback?token=...` (web) o `nocta://auth/callback?token=...` (mobile; scheme = `MOBILE_APP_SCHEME`)
 6. Error → `{CLIENT_ORIGIN}/login?error=...`
 
 En login, Apple y Microsoft están deshabilitados en UI (toast “próximamente”); las rutas backend siguen existiendo.
@@ -572,7 +606,8 @@ Presets UI: `PRESENCE_PRESETS` — 24h / 48h / 1 semana / permanente.
 | Método | Ruta | Notas |
 |--------|------|--------|
 | `GET` | `/api/discover/feed` | Deck del `venueId` activo + `likeAllowance`; sin presencia → `400` `NO_PRESENCE`. Cards con `isFollowing` / `isFollowRequested`. Acepta `?userId=` para priorizar esa persona si quien consulta es Premium. **Fotos:** entrega CDN/firmada solo `photos[0]`; el resto refs `/api/media/{id}` o `/uploads/...` (sin firmar el álbum completo) |
-| `GET` | `/api/discover/likes` | Likes **recibidos** pendientes. Excluye bloqueados; `viewerPremium` + `canSeeLikes` (plan **4 AM+** con `see_likes`). Sin `canSeeLikes` **no** envía `user.id`, `name` ni `photo` (salvo Heartshot). Cada ítem trae `canRespond` si tenés presencia en ese `venueId` |
+| `GET` | `/api/discover/likes` | Likes **recibidos** pendientes. Excluye bloqueados; `viewerPremium` + `canSeeLikes` (plan **4 AM+** con `see_likes`). Sin `canSeeLikes` **no** envía `user.id` ni `name` (salvo Heartshot); `user.photo` es URL firmada de teaser blur del servidor. Cada ítem trae `canRespond` si tenés presencia en ese `venueId` |
+| `GET` | `/api/discover/likes/:likeId/teaser` | WebP blur generado en API (Sharp). Auth por firma HMAC (`exp`, `vid`, `sig`); no requiere Bearer. No expone `imageId` ni la foto nítida |
 | `POST` | `/api/discover/swipe` | `{ toUserId, direction }` → `{ ok, match, likeAllowance }`; rechaza pares bloqueados; sin cuota → `429 LIKES_EXHAUSTED` |
 | `POST` | `/api/discover/rewind` | Deshace el último swipe del espacio activo; si era like, borra match+mensajes y `refundLike`; nunca restaura perfiles bloqueados |
 
@@ -587,15 +622,36 @@ Anuncios insertados en el deck de Discover (client-side) cada **7–10** swipes 
 
 Seed demo: 3 creatividades vía `ensureDemoAds()` al sembrar / asegurar cuentas demo.
 
+### Premium (Mercado Pago)
+
+Planes `nocta_2am` / `nocta_4am` / `nocta_6am` con periodos 1 / 3 / 6 / 12 meses. Checkout = PreApproval MP; webhook sincroniza estado.
+
+| Método | Ruta | Notas |
+|--------|------|--------|
+| `GET` | `/api/premium/plans` | Catálogo + periodos/precios (`currency` = `MP_CURRENCY`) |
+| `POST` | `/api/premium/checkout` | `{ planId, periodMonths }` → `{ initPoint }` (redirigir a MP) |
+| `GET` | `/api/premium/me` | `user` + `subscription` (active, plan, vigencia, features, `managedByMercadoPago`) |
+| `GET` | `/api/premium/payments` | Historial paginado de cobros aprobados |
+| `POST` | `/api/premium/cancel` | Cancela renovación (sigue hasta `premiumExpiresAt`) |
+| `POST` | `/api/premium/pause` / `resume` | Solo suscripciones MP; `resume` puede devolver `NEEDS_CHECKOUT` |
+| `POST` | `/api/premium/boost` | Consume un Boost del plan |
+| `POST` | `/api/premium/webhook` | Webhook Mercado Pago (sin JWT) |
+
+Env: `MP_ACCESS_TOKEN`, `MP_CURRENCY`, `MP_BACK_URL` (https pública; Mercado Pago rechaza `localhost`), `MP_WEBHOOK_SECRET?`. Mobile abre `initPoint` con `expo-web-browser`.
+
 ### Notificaciones
 
-Inbox in-app con polling (sin WebSocket en v1). Campana a la izquierda del Logout (user y admin).
+Inbox in-app con polling (sin WebSocket en v1). En Android, al crear el aviso también se manda un push de Expo si el teléfono registró un token (`POST /api/me/push-token`). Verificado el 17 oct 2026 en dos teléfonos con el APK de desarrollo (match y mensaje). Expo Go no recibe estos avisos: muestra el warning de SDK 53 y `ExpoTopicSubscriptionModule` ausente; el resto de la app sigue. Campana a la izquierda del Logout (user y admin). En mobile, la denuncia resuelta abre su resultado, la verificación abre Configuración, una solicitud de seguimiento abre Solicitudes, una solicitud de Espacio abre Registrar o reclamar y un Espacio del organizador abre su gestión. Likes, Discover, Espacios y Perfil abren esa pestaña. El toque del aviso del sistema usa el mismo destino. El panel de admin sigue en la web.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
 | `GET` | `/api/notifications` | Lista paginada (`page`, `limit`; default page size 10). Preview campana: `limit=5`. Purga leídas con +30 días |
 | `GET` | `/api/notifications/unread-count` | Badge |
 | `POST` | `/api/notifications/read` | `{ ids? }` o `{ all: true }` — al leer setea `expiresAt` (+30 días) |
+| `POST` | `/api/me/push-token` | `{ token, platform: "android" }` registra el token de Expo. Requiere JWT |
+| `DELETE` | `/api/me/push-token` | `{ token }` lo borra al cerrar sesión |
+
+Env opcional: `EXPO_ACCESS_TOKEN` (cupo de envío en expo.dev). El archivo `google-services.json` vive en `apps/mobile` y no se commitea. Alta y rebuild: [Avisos nativos (Android)](#avisos-nativos-android).
 
 Tipos: like, match, mensaje, follows, actividad de personas seguidas, Espacio (organizador), presencia vencida, likes recargados, solicitud de Espacio resuelta, denuncias (admins + resolución al denunciante), presencia de seguidos (**solo Premium** si el actor tiene `showActivityToFollowers`).
 
@@ -617,12 +673,15 @@ Match: like mutuo en el mismo `venueId`; par ordenado + índice unique.
 
 | Método | Ruta | Notas |
 |--------|------|--------|
-| `GET` | `/api/matches` | Summaries (otro user, venue, lastMessage); omite peers bloqueados |
-| `GET` | `/api/matches/:id/messages` | Thread (participantes; `403` si bloqueado) |
-| `POST` | `/api/matches/:id/messages` | `{ body }` máx 2000 |
+| `GET` | `/api/matches` | Summaries (otro user, venue, lastMessage, `unreadCount`); `unreadChats` = chats con mensajes sin leer. Omite peers bloqueados |
+| `GET` | `/api/matches/unread-count` | `{ chats }` para el badge del ícono Matches |
+| `GET` | `/api/matches/:id/messages` | Thread (participantes; `403` si bloqueado). Marca el chat como leído para quien consulta |
+| `POST` | `/api/matches/:id/messages` | `{ body }` máx 2000. Emite `message:new` por Socket.IO a la sala del match |
 | `DELETE` | `/api/matches/:id` | Unmatch / disuelve el match (conserva mensajes del chat para auditoría) |
 | `POST` | `/api/matches/:id/report` | `{ reason, details?, unmatch? }` (`unmatch` default `true`) → crea `Report` |
 | `POST` | `/api/matches/:id/block` | Crea `Block` + disuelve **todos** los matches entre el par |
+
+El mismo proceso HTTP expone Socket.IO en `/socket.io`. El handshake lleva el JWT (`auth.token`). El cliente entra con `chat:join` (solo si participa y no está bloqueado) y sale con `chat:leave`. El inbox de notificaciones sigue por polling.
 
 ### Admin
 
@@ -671,7 +730,7 @@ y noticias.
 | **Report** | reporterId, reportedUserId, matchId?, reason, details?, status |
 | **Presence** | userId, venueId, startsAt, endsAt\|null, status (`active`\|`expired`\|`revoked`) |
 | **Swipe** | fromUserId, toUserId, venueId, direction — unique `(from,to,venue)` |
-| **Match** | users[2] ordenados, venueId — unique `(users, venueId)` |
+| **Match** | users[2] ordenados, `pairKey` (`idA:idB`), venueId — unique `(pairKey, venueId)`. Una persona puede tener varios matches en el mismo Espacio |
 | **Message** | matchId, senderId, body |
 | **Notification** | userId, type, title, body?, href?, data, dedupeKey?, readAt, expiresAt (TTL 30 días tras leer) |
 
@@ -682,7 +741,7 @@ y noticias.
 - Admin + **113 Espacios de Montevideo** (bar, pub, boliche, cervecería, concierto) con calle y pin geocodificado; promo “Promo Nocta” en **Jackson Bar**
 - `syncPilotVenues()` en cada boot: limpia entradas antiguas sin organizador y hace upsert de los 113. Nunca borra Espacios registrados ni pisa datos editados por un Organizador.
 - Dirección visible = calle; `location` queda en el catálogo (sin Nominatim en cada boot)
-- Fotos de catálogo: la UI lee `apps/web/public/images/venues/{NombreEspacio}Img.webp` (URL `/images/venues/…`) a partir del nombre. Convención: PascalCase sin acentos ni signos + `Img.webp` (`Jackson Bar` → `JacksonBarImg.webp`, `Negroni` → `NegroniImg.webp`). Si falta el archivo, cae al placeholder. Una foto subida a `/uploads/` (organizador) pisa esa portada.
+- Fotos de catálogo: la UI lee `apps/web/public/images/venues/{NombreEspacio}Img.webp` (URL `/images/venues/…`) a partir del nombre. Convención: PascalCase sin acentos ni signos + `Img.webp` (`Jackson Bar` → `JacksonBarImg.webp`, `Negroni` → `NegroniImg.webp`). Si falta el archivo, cae al placeholder. Una foto subida a `/uploads/` (organizador) pisa esa portada. La API también monta ese directorio en `GET /images/...` para mobile y clientes sin Vite.
 - Users demo Sofía (premium) / Mateo / Valentina con perfil completo y presencia 48h en **Jackson Bar**; creatividades demo de anuncios (`ensureDemoAds`)
 - Follows user↔user y de Espacios, noticias, reseñas, eventos de actividad y `PromoPurchase` demo de Mateo
 - Auto-ejecución al boot si `MONGODB_URI=memory` (o Atlas vacío con `SEED_ON_EMPTY`)
@@ -721,7 +780,7 @@ y noticias.
 - Path: `apps/web`
 - Recharts (gráficas del Resumen admin)
 - Estilos tema: `src/theme.css` (dark + lima; anillos de foco de `.btn` en lima, sin flash azul default de Bootstrap)
-- Mapas: CARTO raster `dark_all` + Leaflet; configurar `VITE_CARTO_BASEMAPS_API_KEY` en `apps/web/.env.local` (las atribuciones OSM/CARTO permanecen visibles)
+- Mapas: CARTO raster `dark_all` + Leaflet (`VenueMap`, `LocationPickerMap`); configurar `VITE_CARTO_BASEMAPS_API_KEY` en `apps/web/.env.local` (mismas atribuciones OSM/CARTO). Mobile reusa la clave como `EXPO_PUBLIC_CARTO_BASEMAPS_API_KEY`
 - Assets: `public/images/` — logos Nocta (`nocta-logo-limaneon-nobg.png`, blanco/negro); fotos de Espacios en `public/images/venues/{Nombre}Img.webp` (listado y detalle las piden por nombre). Si falta el archivo, caen al placeholder. `index.html` puede referenciar favicon
 
 ### UX / responsive
@@ -742,34 +801,36 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 
 ### Componentes clave (además de páginas)
 
-- Perfil: `ProfileActionButtons`, `ProfileSettingsModal` (solo preferencias), `FollowRequestsModal`, `ProfileConnectionsModal`, `ProfileMyReviewsAccordion`, `FollowRequestProfileModal`, `DeleteAccountModal`
+- Perfil: `ProfileActionButtons` (incluye cerrar sesión), `ProfileSettingsModal` (preferencias + Eliminar cuenta), `FollowRequestsModal`, `ProfileConnectionsModal`, `ProfileMyReviewsAccordion`, `FollowRequestProfileModal`, `DeleteAccountModal`
 - Discover / venues: `DiscoverProfileDetail`, `VenueReviewsSection`, `VenueMap`, `LocationPickerMap`, `VenueTrustBadge`, `VenueFormFields`, `VenueClaimForm`, `VenueEvidenceFields`
-- Misc: `AuthAtmosphere`, `PromoQrCode`, `PhotoLightbox`, `ToastProvider`, `NoctaWordmark`, `NoctaLoading` (Cargando con luna limaneon + anillos), `AppFooter`, `NotificationsBell`, `PremiumPackagesModal`, `AdminSearchSelect` (desplegable administrativo con búsqueda interna)
+- Misc: `AuthAtmosphere`, `PromoQrCode`, `PhotoLightbox`, `ToastProvider`, `NoctaWordmark`, `NoctaLoading` (Cargando con luna limaneon + anillos), `AppFooter`, `NotificationsBell`, `PremiumPackagesModal` / `PremiumPlanCards`, `AdminSearchSelect` (desplegable administrativo con búsqueda interna)
 
 ### Rutas UI
 
 | Ruta | Pantalla |
 |------|----------|
-| `/login` · `/register` | Auth con escena Nocta; login local/OAuth informa suspensiones temporales o permanentes con fecha de inicio/fin; Apple/Microsoft deshabilitados (toast) |
+| `/login` · `/register` | Auth con escena Nocta. Tras enviar login, registro o recupero, `/auth/check` muestra Turnstile centrado y sigue con esa solicitud al verificar. Login local/OAuth informa suspensiones temporales o permanentes con fecha de inicio/fin; Apple/Microsoft deshabilitados (toast) |
 | `/verify-email` | OTP 6 dígitos, pegado y reenvío con cooldown |
 | `/auth/callback` | Recibe `?token=` post-OAuth |
 | `/onboarding` | 6 pasos: datos + identidad + ubicación → estilo de vida → trabajo → búsqueda (1) + gustos → fotos (guardar) → Planazos (3 planes Premium; Omitir) |
 | `/` | Redirect a `/venues` |
-| `/venues` | Home de usuario. Cards 1/2/3 cols; strip “Publicado” 24h + CTA Discover; CTA para solicitar un Espacio faltante; ícono verificado si hay `ownerId` |
-| `/venues/:id` | Foto + mapa (`col-12` / `col-md-5`); reseñas y CTA (`col-12` / `col-md-7`); ícono de organizador al lado del nombre |
+| `/venues` | Home de usuario. Cards 1/2/3 cols; strip “Publicado” con punto rojo que pulsa + CTA Discover; CTA para solicitar un Espacio faltante; ícono verificado si hay `ownerId` |
+| `/venues/:id` | Foto + mapa CARTO/Leaflet (`col-12` / `col-md-5` en desktop; en mobile el mapa va bajo el hero); reseñas y CTA; ícono de organizador al lado del nombre. Mobile nativo: mapa al final del detalle (`VenueMap`) |
 | `/venues/:id/manage` | Organizador: descripción, seguidores, acceso a edición, noticias, promos y Mercado Pago “próximamente” |
 | `/venues/:id/edit` | Edición separada del Espacio: identidad, País/Ciudad, mapa, descripción y reemplazo opcional de portada |
-| `/likes` | Likes recibidos pendientes: plan **4 AM+** ve foto/nombre + Discover; free / 2 AM placeholder + modal; grilla 2 cols en mobile |
+| `/likes` | Likes recibidos pendientes: plan **4 AM+** ve foto/nombre + Discover; free / 2 AM teaser blur del servidor + modal Premium; grilla 2 cols en mobile |
 | `/muro` | Redirect a `/venues` (pantalla retirada) |
-| `/discover` | Sin presencia: portada. Varias (Clone): picker de Espacios. Con una elegida: swipe (← pass / → like / ↑ Heartshot) + botones; Boost en header; rewind Premium; likes agotados → CTA Premium; detalle con bloquear/denunciar. Cada 7–10 swipes (usuarios sin `no_ads`) inserta un anuncio: like → `/ads/:id`, pass saltea. **Imágenes:** `OptimizedImage`; 1 foto activa por card (thumb/medium) + preload de la 1.ª del siguiente; galería del detalle lazy por índice |
+| `/discover` | Sin presencia: portada con órbitas. Clone (varias): “Elegí un Espacio” y tarjetas. Con una elegida: swipe (← pass / → like / ↑ Heartshot). Botones: pass rojo, like lima, Heartshot violeta; rewind y seguir. Header: Boost con pulso lima si está ON, y píldora roja para dejar de publicar en ese Espacio. Cada foto muestra un dato del perfil (busca, sobre mí, gustos, altura, trabajo, vive en, orientación e idiomas, zodíaco, estilo de vida, redes). Sin más perfiles: “Deck completo”. Cada 7–10 swipes (sin `no_ads`) inserta un anuncio: like → `/ads/:id`. **Imágenes:** 1 foto activa (thumb/medium) + preload de la siguiente |
 | `/ads/:id` | Landing del anuncio (imagen, copy, CTA externo o in-app) |
 | `/report/:userId` | Formulario protegido para denunciar un perfil por motivo y detalles |
 | `/reports/:reportId` | Resultado de una denuncia propia (descarte o medidas aplicadas) |
-| `/matches` | Vacío animado o lista/grilla; menú eliminar / denunciar / bloquear |
-| `/matches/:id` | Chat. En desktop (≥992): perfil a la izquierda (carrusel de fotos, datos, eliminar match / bloquear / denunciar al final del scroll) y conversación a la derecha. Unmatch conserva mensajes para auditoría |
+| `/matches` | Vacío animado o lista/grilla; badge de mensajes sin leer antes del menú (eliminar / denunciar / bloquear). El ícono Matches muestra cuántos chats tienen sin leer |
+| `/matches/:id` | Chat de texto, para coordinar. En desktop (≥992): perfil a la izquierda (carrusel de fotos, datos, eliminar match / bloquear / denunciar al final del scroll) y conversación a la derecha. Unmatch conserva mensajes para auditoría |
 | `/notifications` | Inbox completo (10 por página); campana muestra las últimas 5 + Ver más |
-| `/profile` | Hero + galería; Mis reseñas; contadores; Mis promos / Mis espacios; cuatro acciones con popover (configuración, solicitudes, editar y eliminar); borrado con confirmación escrita; acceso al dashboard si es admin; **único sitio con footer** |
+| `/premium` | Sin plan: marketing (órbita 2/4/6 AM + “Ver planes”). Con plan: dashboard (stats, beneficios, pausar/cancelar, historial MP). Modal `PremiumPackagesModal` para contratar/cambiar. El “Desde …/mes” de cada tarjeta es el periodo más barato (hoy, el anual ÷ 12) y la tarjeta lo aclara. Mobile: `PremiumScreen` + `PremiumPackagesSheet` |
+| `/profile` | Hero + galería; Mis reseñas; contadores; **Visible en** una sola frase con los Espacios activos (hasta 3 con Clone); Mis promos / Mis espacios; cuatro acciones (configuración, solicitudes, editar, **cerrar sesión**); footer con el email; **Eliminar cuenta** desde Configuración (confirmación escrita); acceso al dashboard si es admin; **único sitio con AppFooter** |
 | `/profile/blocked` | Lista paginada de usuarios bloqueados con opción para desbloquear |
+| `/profile/reports` | Historial de denuncias propias. Cada fila abre `/reports/:id` |
 | `/profile/promos` | Mis promos + QR |
 | `/profile/venue-request` | Pestañas Registrar/Reclamar: el alta **no** pide portada (la publica el admin); sugerencia u Organizador con comprobantes; reclamación sin cambios |
 | `/admin/overview` | Resumen con pestañas (Usuarios, Espacios, Solicitudes, Transacciones, Ciudades): KPIs + gráficas de 12 meses |
@@ -783,7 +844,7 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 
 - Cliente: `src/lib/api.ts` — `api()` / OAuth usan `apiUrl()`; `VITE_API_URL` (bake en build) apunta a la API en producción; vacío en local → rutas relativas + proxy Vite
 - Helper `mediaUrl()`: `https://…` (CDN/firmada) tal cual; `/uploads/` y `/api/media/` vía API
-- **`OptimizedImage`** (`components/OptimizedImage.tsx`): único componente para fotos PUBLIC (perfil, Espacios, promos/news, reviews, Discover). `<picture>` AVIF→WebP + srcset; prop `variants` para limitar (swipe: thumb+medium); legacy `/uploads` y `/images` como `<img>`; lazy + `decoding="async"`; fallback ante error. **No** usar en identity_verification.
+- **`OptimizedImage`** (`components/OptimizedImage.tsx`): único componente para fotos PUBLIC (perfil, Espacios, promos/news, reviews, Discover). `<picture>` AVIF→WebP + srcset en CDN pública; prop `variants` para limitar (swipe: thumb+medium); `/api/media`, `/uploads` y `/images` se leen una vez y quedan en Cache API (`src/lib/imageCache.ts`); lazy + `decoding="async"`; fallback ante error. **No** usar en identity_verification.
 - Proxy Vite: `/api` y `/uploads` → `http://localhost:4000` (solo legacy/local)
 - Producción (p. ej. Railway, web y API en dominios distintos):
   - Web: `VITE_API_URL=https://…api…` y **redesplegar** (Vite incrusta el env en el build)
@@ -795,18 +856,238 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 
 ---
 
+## Mobile (Android / Expo)
+
+> Actualizar esta sección al agregar pantallas, env, emulador o builds EAS de `apps/mobile`.
+> Documento vivo del flujo local en **Windows + emulador Android + Expo Go**. No hace falta un README paralelo en `apps/mobile`.
+
+App: `apps/mobile` (workspace `@nocta/mobile`). La web (`npm run dev:web`) **no** es necesaria para desarrollar mobile; sí la **API**.
+
+### Stack
+
+- Expo SDK 57 + React Native + TypeScript
+- React Navigation (stack + tabs); tab bar custom con FAB Discover (espejo web mobile)
+- JWT en `expo-secure-store`; cliente HTTP en `src/lib/api.ts` (`EXPO_PUBLIC_API_URL`)
+- Tipos/constantes: `@nocta/shared` (no se comparte UI con Bootstrap)
+- UI: tokens alineados a `theme.css` (lima `#d6ff4b`, canvas `#0a0a0b`); Syne + Outfit; `NoctaLoading` / `ui.tsx`
+- Gestos Discover: `react-native-gesture-handler` + `react-native-reanimated`
+- Imágenes: `NoctaImage` + `resolveImageUri` / `mediaUrl` — CDN/https tal cual; `/uploads`, `/api/media` y catálogo `/images/...` vía API; reescribe `localhost` → host del emulador; portadas de Espacios usan `venueCoverSrc` + `VENUE_PHOTO_FALLBACK` si falta el asset. Cache en disco y memoria (`cachePolicy="memory-disk"`, `imageDiskCacheKey`) para no re-descargar la misma foto.
+- Deep links: scheme `nocta://` (reset password, OAuth callback)
+- Wordmark: `src/components/NoctaWordmark.tsx` (Syne 800 + luna limaneon)
+- Feedback: `useToast()` nativo (regla `.cursor/rules/mobile-android.mdc`)
+- Mapas: `react-native-webview` + Leaflet/CARTO (`VenueMap`); clipboard: `expo-clipboard`; checkout Premium: `expo-web-browser`
+- Mapas en detalle de Espacio: tiles CARTO dark; clave `EXPO_PUBLIC_CARTO_BASEMAPS_API_KEY` = misma que `VITE_CARTO_BASEMAPS_API_KEY` en web; geocode Nominatim si no hay `location`; al final del detalle
+- Backlog de paridad diferida: [`apps/mobile/BACKLOG-PARIDAD-WEB.md`](apps/mobile/BACKLOG-PARIDAD-WEB.md)
+
+### Requisitos (una vez)
+
+1. **Node 20+**, JDK **17** (builds nativos), **Android Studio** + Android SDK + al menos un AVD (API 34+)
+2. **Expo Go** en el emulador (o Dev Client vía EAS)
+3. Repo en ruta local **fuera de OneDrive** (ej. `C:\dev\Nocta`). Si Metro falla con `Failed to construct transformer` / `EINVAL readlink` / pantalla blanca: sacar el repo de OneDrive, borrar `node_modules` y `npm install`
+4. En la raíz del monorepo: `npm install`
+5. Env mobile:
+   ```powershell
+   copy apps\mobile\.env.example apps\mobile\.env
+   ```
+
+### Variables de entorno (`apps/mobile/.env`)
+
+| Variable | Emulador | Dispositivo físico |
+|----------|----------|--------------------|
+| `EXPO_PUBLIC_API_URL` | `http://10.0.2.2:4000` (default) | `http://<IP-LAN-PC>:4000` (ej. `http://192.168.1.10:4000`) |
+| `EXPO_PUBLIC_CARTO_BASEMAPS_API_KEY` | Misma clave que `VITE_CARTO_BASEMAPS_API_KEY` en web | Igual |
+| Project id EAS | En `app.config.ts` → `extra.eas.projectId` | Igual. No va en `.env` |
+
+`10.0.2.2` es el alias del emulador Android hacia el `localhost` del host. No uses `localhost` ni `127.0.0.1` desde la app en el emulador.
+
+`extra.eas.projectId` está fijo en `app.config.ts` (proyecto `@clissic/nocta`). EAS no puede escribir ese archivo porque la config es dinámica, y no lee un `EAS_PROJECT_ID` del `.env`. Un projectId inventado hace que Expo Go pida *Log in / Proceed anonymously* en cada reload y robe el stdin de Metro.
+
+Opcional API (media absolutizada): en local suele bastar `API_PUBLIC_URL=http://localhost:4000`. Para OAuth en emulador ver [OAuth Google (mobile)](#oauth-google-mobile).
+
+### Emulador Android (Windows)
+
+`emulator` suele **no** estar en el PATH. Usá la ruta del SDK (default):
+
+```powershell
+# Listar AVDs
+& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -list-avds
+
+# Arrancar (recomendado: Medium Phone; ocupa menos pantalla que Pixel_10)
+& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd Medium_Phone_API_37.0
+
+# Alternativa más grande
+& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd Pixel_10
+```
+
+Si el SDK está en otra carpeta: Android Studio → **Settings → Languages & Frameworks → Android SDK → Android SDK Location**, y reemplazá la base de la ruta.
+
+**PATH opcional (sesión actual):**
+
+```powershell
+$env:Path += ";$env:LOCALAPPDATA\Android\Sdk\emulator;$env:LOCALAPPDATA\Android\Sdk\platform-tools"
+emulator -list-avds
+```
+
+**Sin CLI:** Device Manager / Virtual Device Manager de Android Studio → ▶ en el AVD. No hace falta dejar el IDE abierto después.
+
+**Tamaño de ventana:** el flag `-scale` está **obsoleto** (emulator 37+ lo ignora). Achicá arrastrando el borde de la ventana, o usá un AVD más chico (`Medium_Phone_API_37.0`).
+
+**No hace falta** abrir Android Studio completo en cada sesión: solo el emulador (CLI o Device Manager).
+
+### Flujo diario de desarrollo
+
+Dos terminales en `C:\dev\Nocta` (+ el emulador):
+
+| Paso | Acción |
+|------|--------|
+| 1 | `npm run dev:api` → esperar `Nocta API en http://localhost:4000` (`/health` OK) |
+| 2 | Arrancar el AVD (comando de arriba o Device Manager) → home Android |
+| 3 | `npm run dev:mobile` (o `npm run dev:mobile -- -c` para limpiar caché Metro) |
+| 4 | En la terminal de Metro (con foco): tecla **`a`** → abre en Expo Go / emulador |
+
+Smoke demo: `sofia@nocta.app` / `Demo1234!` → Espacios → publicar presencia → Discover (Jackson Bar). Otras demos: ver [Credenciales demo](#credenciales-demo).
+
+### OAuth Google (mobile)
+
+Flujo: botón Google → `expo-web-browser` → `GET /api/auth/oauth/google?client=mobile&returnUrl=<Linking.createURL>` → Google → callback API → vuelve al `returnUrl` con `?token=…` (en Expo Go es `exp://…/--/auth/callback`; en build nativo puede ser `nocta://…`). Sin `returnUrl` compatible el browser del emulador suele quedar en “cargando” tras elegir la cuenta.
+
+Mismos `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` que la web (`apps/api/.env`).
+
+#### Google Cloud Console
+
+1. [APIs y servicios → Credenciales](https://console.cloud.google.com/apis/credentials) → cliente OAuth **Aplicación web**.
+2. Distinguí los dos campos:
+   - **Orígenes de JavaScript autorizados** — solo origen, **sin path** (ej. `http://localhost:4000`).
+   - **URIs de redirección autorizados** — URL **completa** del callback.
+3. Redirects válidos típicos:
+   ```
+   http://localhost:4000/api/auth/oauth/google/callback
+   https://<tu-api-prod>/api/auth/oauth/google/callback
+   ```
+4. **No uses** `http://10.0.2.2:…` ni IPs privadas (`192.168.x.x`) como redirect: Google las rechaza (*debe terminar con un dominio público* / *Dominio privado principal*).
+
+#### Emulador Android (recomendado: `adb reverse`)
+
+Google solo acepta `localhost` en local; el navegador del AVD no llega solo a la API del host. Solución:
+
+1. Emulador prendido. En PowerShell (cualquier carpeta):
+   ```powershell
+   & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" devices
+   & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" reverse tcp:4000 tcp:4000
+   ```
+   Si `devices` muestra `emulator-…. device` y el reverse no falla, listo.
+2. En `apps/api/.env`: `API_PUBLIC_URL=http://localhost:4000` (y el redirect `localhost` ya registrado en Google).
+3. Reiniciá la API (`npm run dev:api`) y probá Continuar con Google en la app.
+
+Repetí el `adb reverse` si reiniciás el emulador o se desconecta adb.
+
+#### Dispositivo físico
+
+`API_PUBLIC_URL` con un host que Google acepte (p. ej. tunnel tipo ngrok/`*.railway.app`) y ese mismo URL como redirect en la consola. Las IPs LAN suelen ser rechazadas por Google igual que `10.0.2.2`.
+
+### Atajos Metro / Expo
+
+| Tecla / acción | Efecto |
+|----------------|--------|
+| `a` | Abrir Android |
+| `r` | Reload de la app |
+| `j` | Debugger |
+| `?` | Ayuda |
+| Ctrl+C | Parar Metro (si no hay menú interactivo encima) |
+
+Recargar preferí **`r`** en Metro o el menú de desarrollo del emulador. El Reload de herramientas de Expo Go puede re-disparar prompts de cuenta.
+
+### Troubleshooting Metro / Expo Go
+
+| Síntoma | Qué hacer |
+|---------|-----------|
+| Prompt *Proceed anonymously* / *Log in* y la terminal no scrollea ni responde `r`/`a` | Ese menú de flechas captura el stdin. Enter → *Proceed anonymously*, o `npx expo login` (misma cuenta en Expo Go). El `projectId` de `app.config.ts` tiene que ser el real de EAS |
+| Ctrl+C no mata Metro | El prompt interactivo atrapó la terminal. Cerrar la pestaña y matar el proceso del puerto **8081**, luego `npm run dev:mobile -- -c` |
+| App no llega a la API | Emulador → `EXPO_PUBLIC_API_URL=http://10.0.2.2:4000`; API en `:4000`; reiniciar Metro tras cambiar `.env` |
+| Mapa CARTO pide API key / tiles en blanco | Copiá la clave de `apps/web/.env.local` (`VITE_CARTO_…`) a `EXPO_PUBLIC_CARTO_BASEMAPS_API_KEY` en `apps/mobile/.env` y **reiniciá Metro** (no alcanza con `r`) |
+| Foto de perfil desaparece tras reiniciar la API | Con `STORAGE_DRIVER=memory` + Atlas: re-subí una vez (persistencia en `apps/api/.data/memory-storage`). Si Railway 403, no uses `railway` hasta arreglar el bucket |
+| Algunas portadas de Espacios en blanco / 404 `/images/venues/...` | Solo ~20 assets en `apps/web/public/images/venues`; la API sirve ese directorio en `GET /images/...`; el resto usa `VENUE_PHOTO_FALLBACK` (Unsplash) vía `NoctaImage` |
+| `Unable to connect to adb daemon` al boot del AVD | Suele resolverse solo al iniciar `adb`; si el emulador queda offline, cerrarlo y volver a abrir |
+| Google OAuth: redirect inválido / `10.0.2.2` rechazado | No registres IPs privadas en Google. Usá `localhost` + `adb reverse tcp:4000 tcp:4000` (ver [OAuth Google (mobile)](#oauth-google-mobile)) |
+| OAuth abre Google pero falla el callback en emulador | `API_PUBLIC_URL=http://localhost:4000`, redirect localhost en Console, `adb reverse` activo, API reiniciada |
+
+### Dispositivo físico
+
+1. Mismo Wi‑Fi que la PC
+2. `EXPO_PUBLIC_API_URL=http://<IP-LAN>:4000` en `apps/mobile/.env`
+3. Firewall Windows: permitir Node en puertos **4000** y **8081**
+4. API + `npm run dev:mobile` → QR en Expo Go
+5. Opcional: `npx expo login` + misma cuenta en la app Expo Go
+
+### Scripts / EAS
+
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev:mobile` | Metro / Expo (`apps/mobile`) |
+| `npm run android` | Expo → Android |
+| `npm run dev:mobile -- -c` | Metro con caché limpia |
+| `$env:EAS_NO_VCS=1; npx eas-cli build -p android --profile development` | APK de desarrollo, desde `apps/mobile`. El paquete npm es `eas-cli` |
+
+Perfiles EAS: `development` (Dev Client + APK), `preview`, `production` (AAB). El project id está en `app.config.ts`.
+
+### Avisos nativos (Android)
+
+Funcionan en el APK de EAS. Expo Go no incluye el módulo nativo desde el SDK 53.
+
+| Pieza | Dónde quedó |
+|-------|-------------|
+| Proyecto EAS | [@clissic/nocta](https://expo.dev/accounts/clissic/projects/nocta). Id `49230155-22fc-48ae-abf2-d81333188fe2` en `app.config.ts` → `extra.eas.projectId`. No va en `.env` |
+| Paquete Android | `app.nocta.mobile` |
+| Firebase | Proyecto `nocta-app-fb6f1`. `google-services.json` en `apps/mobile/` (gitignored) |
+| Archivo en el build | Variable secreta `GOOGLE_SERVICES_JSON` en EAS (development, preview y production). `app.config.ts` la usa en el builder |
+| Keystore | Generado por EAS. Nombre `Build Credentials f9KscSGun5`. Copia local `apps/mobile/@clissic__nocta.jks` (gitignored). No volver a subirlo por el formulario web |
+| Clave de envío | FCM v1 en EAS: Google Service Account del proyecto Firebase. FCM Legacy y Play Store quedan vacíos |
+| API del teléfono | En `eas.json`, perfil `development`, `EXPO_PUBLIC_API_URL` = IP LAN de la PC (`http://<IP>:4000`). `10.0.2.2` solo sirve en el emulador |
+| Cupo Expo | `EXPO_ACCESS_TOKEN` en `apps/api/.env` (opcional) |
+
+Rebuild, desde `apps/mobile`:
+
+```powershell
+$env:EAS_NO_VCS=1; npx eas-cli build -p android --profile development
+```
+
+`EAS_NO_VCS=1` hace falta en esta máquina: el pack de git local está dañado y `eas build` falla al clonar `file:///C:/dev/Nocta` (exit 128). Credenciales nuevas: `npx eas-cli credentials -p android`, perfil `development`. Para la clave de avisos, **Manage your Google Service Account Key for Push Notifications (FCM V1)** y después **Set up** → **Upload a new service account key**. El JSON sale de [Cuentas de servicio](https://console.firebase.google.com/project/nocta-app-fb6f1/settings/serviceaccounts/adminsdk) → Generar nueva clave privada. No es `google-services.json`.
+
+### Pantallas MVP
+
+| Área | Qué hay |
+|------|---------|
+| **Auth** | Login / register / forgot = panel + `NoctaWordmark`. Al enviar, una pantalla centrada muestra Turnstile (WebView, origen `localhost`) y sigue con esa solicitud al verificar. Register: reglas de contraseña, confirmar, términos (el enlace abre el documento), marketing. Verify / reset = `AuthAtmosphere`. OAuth Google vía `expo-web-browser` + `?client=mobile` (Apple/Microsoft = stub) |
+| **Onboarding** | 6 pasos (parity web) + Planazos en carrusel horizontal (la tarjeta se centra al deslizar; beneficios completos, con explicación al tocar el ícono). El precio “Desde …/mes” es el del plan anual y la tarjeta lo aclara. Tocar una tarjeta abre Premium en los periodos de ese plan. Editar perfil reusa el flujo (`Onboarding` con `edit`) |
+| **Barra superior** | Igual que la web en mobile: wordmark a Espacios, contador de Boost con pulso lima, campana con panel (últimas 5 + Ver más) y menú de cuenta desde la derecha (perfil, editar, configuración, Teleport con tuerca a sus opciones —si no hay Premium abre la compra de 2 A.M.—, Boost, Premium, Mis promos con QR, cerrar sesión). El pie abre Términos |
+| **Tabs** | Espacios · Likes · Discover (FAB) · Matches · Perfil |
+| **Espacios** | Listado full-bleed de la ciudad Teleport si está activa, o de la ciudad del catálogo más cercana al GPS (`POST /api/cities/nearest`). Sin permiso de ubicación no se listan Espacios. Punto rojo con pulso en “Publicado” / “Ahora”. **Detalle** parity web mobile: hero, follow, trust, reseñas, promos/noticias, publicar presencia (presets en una fila, mismo ancho), mapa CARTO al final |
+| **Discover** | Swipe RNGH + Reanimated. Botones como la web: pass rojo, like lima, Heartshot violeta, rewind y seguir. Header: Boost (pulso si está ON) y píldora roja para dejar de publicar. Cada foto muestra el dato de perfil (busca, sobre mí, gustos, altura, trabajo, vive en, orientación e idiomas, zodíaco, estilo de vida, redes). El perfil ampliado repite la ficha completa: vive en, orientación, zodíaco, estudios, mascotas, bebidas, fitness, trabajo e idiomas, y permite bloquear o denunciar. Like de un anuncio abre su landing (imagen, copy y CTA). Clone: “Elegí un Espacio” con tarjetas. Sin más perfiles: “Deck completo”. Sin presencia: portada con órbitas |
+| **Likes / Matches** | Grid de likes + gate Premium; matches + chat. El hilo carga el historial por REST y recibe cada mensaje nuevo por Socket.IO; si el socket no conecta, vuelve a consultar cada 8 s. El ícono Matches muestra cuántos chats tienen mensajes sin leer; cada fila, el badge de mensajes sin leer antes del menú. Chat de texto (para coordinar): header con avatar/venue, separadores de día, burbujas con hora, composer con ícono enviar |
+| **Perfil** | Hero + galería 3×3; **Visible en** en una sola frase con los Espacios activos; acordeón Mis reseñas; Mis promos abre los QR; **Mis espacios** abre la gestión (ficha, noticias y promos); **Registrar espacio** abre el alta o la reclamación con mapa; acciones (settings, solicitudes, editar, cerrar sesión); email al final; Eliminar cuenta, bloqueados y Mis denuncias en Configuración; follows / conexiones; Notificaciones; Premium |
+| **Premium** | Sin plan: marketing (órbita 2/4/6 AM). Con plan: dashboard (hero, stats, beneficios, pausar/cancelar, historial). Sheet de planes + periodos + checkout MP (`expo-web-browser`). El “Desde …/mes” de las tarjetas y de Planazos es el periodo más barato (hoy, el anual ÷ 12) y aclara el periodo |
+| **Stack** | `VenueDetail`, `Chat`, `Notifications` (listado como la web: tarjeta, ícono, nombre en lima, hora, paginación), `Premium` (`planId?` desde settings), `Terms`, `MyPromos`, `UserReport`, `Ad` (`adId`), `ReportResolution` (`reportId`), `VenueRequest` (registrar o reclamar un Espacio, con mapa), `VenueManage` y `VenueEdit` (organizador: ficha, noticias y promos) |
+
+### Pendiente en mobile
+
+La lista viva está en [`PENDIENTES.md`](PENDIENTES.md). Tachá ahí cada ítem al cerrarlo. El historial de paridad con la web sigue en [`apps/mobile/BACKLOG-PARIDAD-WEB.md`](apps/mobile/BACKLOG-PARIDAD-WEB.md).
+
+---
+
 ## Shared (`@nocta/shared`)
 
-Tipos y catálogos usados por API y Web:
+Tipos y catálogos usados por API, Web y Mobile:
 
 - Catálogos: `LOOKING_FOR`, `INTERESTS`, `INTEREST_CATEGORIES`, `WORK_STATUS`, `GENDERS`, `VENUE_TYPES`, `SEXUAL_ORIENTATIONS`, `LANGUAGES`, `ZODIAC_SIGNS`, `EDUCATION_LEVELS`, `PETS`, `DRINKING`, `FITNESS`, `SOCIAL_NETWORKS`, `VENUE_COUNTRIES`, `VENUE_CITIES_BY_COUNTRY`, `PROFILE_COUNTRIES`, `OAUTH_PROVIDERS`, `REPORT_REASONS`, `VENUE_REQUEST_STATUSES`, `VENUE_REQUEST_REJECT_REASONS`, `FOLLOW_TARGET_TYPES`, `FOLLOW_REQUEST_STATUSES`, `PROMO_PURCHASE_STATUSES` (+ labels)
 - Límites: `VENUES_PAGE_SIZE` (9), `REVIEWS_PAGE_SIZE`, `MY_REVIEWS_PAGE_SIZE` (5), `MIN/MAX_VENUE_RATING`, `MAX_REVIEW_BODY_LENGTH`, `MAX_REVIEW_PHOTOS` (3), portada de Espacio WebP (`VENUE_COVER_WIDTH/HEIGHT` = 1600×1200), `MAX_POST_BODY_LENGTH` (200), `MAX_POST_PHOTOS` (3), `MIN/MAX_PHOTOS`, `MIN/MAX_AGE`, `DAILY_LIKE_LIMIT` (50), `LIKE_RECHARGE_HOURS` (8)
 - Actividad: `ACTIVITY_TYPES` + `ACTIVITY_TYPE_LABELS` (incluye `user_post_created`)
 - Notificaciones: `NOTIFICATION_TYPES` + `NOTIFICATION_TYPE_LABELS`, `NOTIFICATION_READ_TTL_DAYS` (30), `NOTIFICATIONS_PREVIEW_LIMIT` (5), `NOTIFICATIONS_PAGE_SIZE` (10)
 - Presencia: `PRESENCE_PRESETS` (24h / 48h / 1 semana / permanente)
+- Premium: `PREMIUM_PLANS` / `PREMIUM_PERIOD_*`, `premiumDashboardFeatureItems`, `planHasFeature`, `isPremiumPlanDowngrade`, `maxActivePresencesForPlan`
 - Zodíaco editorial: `ZODIAC_INSIGHTS`; geografía de Espacios: Uruguay, Argentina y Brasil habilitados; `DISPLAY_ADDRESS_HINT`
 - Password / verify / upload: `PASSWORD_RULES`, `PASSWORD_HINT`, constantes de mail y multipart
 - Timezone (`timezone.ts`): `timezoneFromCountry`, anclas de día civil para vigencia de promos
+- Términos (`termsContent.ts`): `TERMS_SECTIONS`, `TERMS_VERSION`, `TERMS_UPDATED_LABEL` (web y mobile)
 - Tipos: `AuthUser`, `SuspensionDuration`, `ModerationStatus`, `FollowListUser`, `FollowRequestItem`, `Venue`, `VenueReview`, `DiscoverCard`, `AdminReport`, etc.
 
 Tras cambiar shared: `npm run build:shared` (o `postinstall`).

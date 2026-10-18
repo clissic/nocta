@@ -18,6 +18,7 @@ import {
   type PremiumPlanId,
 } from "@nocta/shared";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import { checkoutLimiter } from "../middleware/rateLimits.js";
 import { requireVerified } from "../middleware/gates.js";
 import { config } from "../config.js";
 import { PremiumPurchase } from "../models/PremiumPurchase.js";
@@ -89,6 +90,7 @@ const checkoutSchema = z.object({
 
 router.post(
   "/checkout",
+  checkoutLimiter,
   requireAuth,
   requireVerified,
   async (req: AuthedRequest, res) => {
@@ -181,7 +183,7 @@ router.post(
             transaction_amount: amount,
             currency_id: config.mercadoPago.currency,
           },
-          back_url: `${config.clientOrigin}/premium?status=success`,
+          back_url: config.mercadoPago.backUrl,
           status: "pending",
         },
       });

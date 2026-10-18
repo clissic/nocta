@@ -62,6 +62,21 @@ describe("phase11 — legacy deprecation", () => {
     );
   });
 
+  it("canonicalize baja URLs absolutas de /uploads a path estable", () => {
+    assert.equal(
+      canonicalizePhotoRef(
+        "http://localhost:4000/uploads/6a80d431445de803f10600b1-1.png"
+      ),
+      "/uploads/6a80d431445de803f10600b1-1.png"
+    );
+    assert.equal(
+      canonicalizePhotoRef(
+        "https://api.example.com/uploads/foto.webp?x=1"
+      ),
+      "/uploads/foto.webp"
+    );
+  });
+
   it("telemetría de acceso legacy", () => {
     resetLegacyUploadAccessStats();
     noteLegacyUploadGet("/foo.webp");

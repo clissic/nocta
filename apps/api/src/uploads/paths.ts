@@ -10,6 +10,15 @@ const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
  */
 export const UPLOADS_DIR = resolve(apiRoot, "uploads");
 
+/**
+ * Catálogo estático compartido con web (`apps/web/public/images`).
+ * Mobile (y clientes sin Vite) leen `/images/...` desde la API.
+ */
+export const WEB_PUBLIC_IMAGES_DIR = resolve(
+  apiRoot,
+  "../web/public/images"
+);
+
 /** Staging multipart → Image Service (nunca servido por express.static). */
 export const TEMP_UPLOAD_DIR = resolve(apiRoot, "tmp/upload-staging");
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   GENDER_LABELS,
   INTEREST_CATEGORIES,
@@ -45,9 +46,10 @@ function calcAge(birthDate?: string) {
 }
 
 export function ProfilePage() {
-  const { user, setUser } = useAuth();
+  const { user, setUser, logout } = useAuth();
+  const navigate = useNavigate();
   const toast = useToast();
-  const [presence, setPresence] = useState<Presence | null>(null);
+  const [presences, setPresences] = useState<Presence[]>([]);
   const [ownedVenues, setOwnedVenues] = useState<Venue[]>([]);
   const [promoPurchases, setPromoPurchases] = useState<PromoPurchase[]>([]);
   const [followRequests, setFollowRequests] = useState<FollowRequestItem[]>(
@@ -59,6 +61,7 @@ export function ProfilePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [followRequestsOpen, setFollowRequestsOpen] = useState(false);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const profile = user?.profile;
   const closeConnections = useCallback(() => setConnectionsMode(null), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
@@ -69,9 +72,35 @@ export function ProfilePage() {
   const closeDeleteAccount = useCallback(() => setDeleteAccountOpen(false), []);
 
   useEffect(() => {
-    void api<{ presence: Presence | null }>("/api/presence/me")
-      .then((r) => setPresence(r.presence))
-      .catch(() => setPresence(null));
+    if (!logoutOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLogoutOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [logoutOpen]);
+
+  function confirmLogout() {
+    logout();
+    navigate("/login");
+  }
+
+  useEffect(() => {
+    void api<{
+      presence: Presence | null;
+      presences?: Presence[];
+    }>("/api/presence/me")
+      .then((r) =>
+        setPresences(
+          r.presences ?? (r.presence ? [r.presence] : [])
+        )
+      )
+      .catch(() => setPresences([]));
     void api<{ venues: Venue[] }>("/api/me/venues/owned")
       .then((r) => setOwnedVenues(r.venues))
       .catch(() => setOwnedVenues([]));
@@ -238,7 +267,7 @@ export function ProfilePage() {
                   followRequestCount={followRequests.length}
                   onOpenSettings={() => setSettingsOpen(true)}
                   onOpenFollowRequests={() => setFollowRequestsOpen(true)}
-                  onOpenDeleteAccount={() => setDeleteAccountOpen(true)}
+                  onOpenLogout={() => setLogoutOpen(true)}
                 />
               </div>
             </div>
@@ -354,16 +383,26 @@ export function ProfilePage() {
                 followRequestCount={followRequests.length}
                 onOpenSettings={() => setSettingsOpen(true)}
                 onOpenFollowRequests={() => setFollowRequestsOpen(true)}
-                onOpenDeleteAccount={() => setDeleteAccountOpen(true)}
+                onOpenLogout={() => setLogoutOpen(true)}
               />
             </div>
 
             <div className="profile-status">
-              {presence?.venue ? (
+              {presences.length > 0 ? (
                 <>
                   <span className="live-dot" aria-hidden="true" />
                   <span>
-                    Visible en <strong>{presence.venue.name}</strong>
+                    Visible en{" "}
+                    {presences.map((row, index) => (
+                      <span key={row.id}>
+                        {index > 0
+                          ? index === presences.length - 1
+                            ? " y "
+                            : ", "
+                          : null}
+                        <strong>{row.venue?.name ?? "Espacio"}</strong>
+                      </span>
+                    ))}
                   </span>
                 </>
               ) : (
@@ -468,7 +507,7 @@ export function ProfilePage() {
 
           <section className="profile-space-cta d-none d-md-block">
             <h2 className="profile-space-cta-title">¿Eres administrador de un espacio?</h2>
-            <Link className="btn btn-primary btn-sm profile-space-cta-btn" to="/profile/venue-request">
+            <Link className="btn btn-primary profile-space-cta-btn" to="/profile/venue-request">
               Registrar espacio
             </Link>
           </section>
@@ -548,7 +587,7 @@ export function ProfilePage() {
 
           <section className="profile-space-cta d-md-none">
             <h2 className="profile-space-cta-title">¿Eres administrador de un espacio?</h2>
-            <Link className="btn btn-primary btn-sm profile-space-cta-btn" to="/profile/venue-request">
+            <Link className="btn btn-primary profile-space-cta-btn" to="/profile/venue-request">
               Registrar espacio
             </Link>
           </section>
@@ -573,6 +612,7 @@ export function ProfilePage() {
           user={user}
           onClose={closeSettings}
           onUserUpdated={setUser}
+          onDeleteAccount={() => setDeleteAccountOpen(true)}
         />
       )}
       {followRequestsOpen && (
@@ -586,6 +626,51 @@ export function ProfilePage() {
       {deleteAccountOpen && (
         <DeleteAccountModal onClose={closeDeleteAccount} />
       )}
+      {logoutOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="logout-confirm-layer" role="presentation">
+            <button
+              type="button"
+              className="logout-confirm-backdrop"
+              aria-label="Cancelar cierre de sesión"
+              onClick={() => setLogoutOpen(false)}
+            />
+            <section
+              className="logout-confirm-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="profile-logout-title"
+              aria-describedby="profile-logout-description"
+            >
+              <div className="logout-confirm-icon" aria-hidden="true">
+                <i className="bi bi-box-arrow-right" />
+              </div>
+              <h2 id="profile-logout-title">¿Cerrar sesión?</h2>
+              <p id="profile-logout-description">
+                Tendrás que volver a ingresar tus datos para acceder a Nocta.
+              </p>
+              <div className="logout-confirm-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline-light"
+                  onClick={() => setLogoutOpen(false)}
+                  autoFocus
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={confirmLogout}
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            </section>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

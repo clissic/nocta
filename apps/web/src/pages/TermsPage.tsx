@@ -8,7 +8,7 @@ import {
   TERMS_UPDATED_LABEL,
   TERMS_VERSION,
   type TermsBlock,
-} from "../legal/termsContent";
+} from "@nocta/shared";
 
 function TermsBlockView({ block }: { block: TermsBlock }) {
   if (block.type === "ul") {

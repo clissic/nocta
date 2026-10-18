@@ -52,21 +52,27 @@ export function MatchesPage() {
   const [reportReason, setReportReason] = useState<ReportReason>("spam");
   const [mode, setMode] = useState<"menu" | "report">("menu");
 
-  async function load() {
-    setLoading(true);
-    setError("");
+  async function load(silent = false) {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const data = await api<{ matches: MatchSummary[] }>("/api/matches");
       setMatches(data.matches);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudieron cargar");
+      if (!silent) {
+        setError(err instanceof ApiError ? err.message : "No se pudieron cargar");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
+    const id = window.setInterval(() => void load(true), 12000);
+    return () => window.clearInterval(id);
   }, []);
 
   function closeSheet() {
@@ -209,17 +215,27 @@ export function MatchesPage() {
                 </div>
               </div>
             </Link>
-            <button
-              type="button"
-              className="btn btn-link link-secondary match-row-menu"
-              aria-label={`Opciones de ${m.otherUser.name}`}
-              onClick={() => {
-                setMenuMatch(m);
-                setMode("menu");
-              }}
-            >
-              <i className="bi bi-three-dots-vertical" aria-hidden="true" />
-            </button>
+            <div className="match-row-side">
+              {m.unreadCount > 0 ? (
+                <span
+                  className="match-unread-badge"
+                  aria-label={`${m.unreadCount} mensajes sin leer`}
+                >
+                  {m.unreadCount > 99 ? "99+" : m.unreadCount}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-link link-secondary match-row-menu"
+                aria-label={`Opciones de ${m.otherUser.name}`}
+                onClick={() => {
+                  setMenuMatch(m);
+                  setMode("menu");
+                }}
+              >
+                <i className="bi bi-three-dots-vertical" aria-hidden="true" />
+              </button>
+            </div>
           </article>
         ))}
       </div>

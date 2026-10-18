@@ -24,6 +24,10 @@ import {
   resolveDeliveryUrl,
   resolveDeliveryUrls,
 } from "../image-service/resolveDelivery.js";
+import {
+  extractLegacyUploadPath,
+  isManagedMediaRef,
+} from "../image-service/refs.js";
 
 /**
  * Absolutiza legacy `/uploads` de forma síncrona.
@@ -59,8 +63,16 @@ export async function resolvePublicAssetUrls(urls?: string[] | null) {
   const list = urls ?? [];
   if (!list.length) return [];
   const resolved = await resolveDeliveryUrls(list);
-  // Mantener longitud: huecos vacíos → ref original (o "") para no desalinear índices.
-  return resolved.map((u, i) => u || list[i] || "");
+  // Mantener longitud. Si legacy/managed no resolvió (objeto ausente en storage),
+  // no reenviar la ref cruda → evita 404 en /api/media o /uploads.
+  return resolved.map((u, i) => {
+    if (u) return u;
+    const original = list[i] || "";
+    if (extractLegacyUploadPath(original) || isManagedMediaRef(original)) {
+      return "";
+    }
+    return original;
+  });
 }
 
 function calcAge(birthDate: Date): number {

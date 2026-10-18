@@ -13,7 +13,10 @@ import { UserPost } from "../models/UserPost.js";
 import { VenueRequest } from "../models/VenueRequest.js";
 import { ImageAsset } from "../models/ImageAsset.js";
 import { ImageMigrationRecord } from "../models/ImageMigrationRecord.js";
-import { isManagedMediaRef } from "../image-service/refs.js";
+import {
+  extractLegacyUploadPath,
+  isManagedMediaRef,
+} from "../image-service/refs.js";
 import { looksLikeManagedImageId } from "../image-service/privateAccess.js";
 import type { ImageType } from "../image-service/types.js";
 
@@ -79,8 +82,9 @@ function fileBytes(abs?: string): number {
 }
 
 function uploadAbs(ref: string): string | undefined {
-  if (!ref.startsWith("/uploads/")) return undefined;
-  const name = ref.slice("/uploads/".length);
+  const legacy = extractLegacyUploadPath(ref);
+  if (!legacy) return undefined;
+  const name = legacy.slice("/uploads/".length);
   if (!name || name.includes("..") || name.includes("/") || name.includes("\\")) {
     return undefined;
   }
@@ -96,6 +100,45 @@ function pushHit(
   byType[hit.imageType] = (byType[hit.imageType] ?? 0) + 1;
 }
 
+/** Clasifica una ref pública: legacy /uploads (también absolutas) o managed/CDN. */
+function notePublicPhotoRef(opts: {
+  ref: string;
+  hits: LegacyRefHit[];
+  byType: Record<string, number>;
+  referencedUploads: Set<string>;
+  counters: { managedPublicRefs: number; brokenRefs: number };
+  imageType: ImageType;
+  entityCollection: string;
+  entityId: string;
+  field: string;
+  index: number;
+}) {
+  const legacy = extractLegacyUploadPath(opts.ref);
+  if (legacy) {
+    const abs = uploadAbs(legacy);
+    const exists = Boolean(abs && existsSync(abs));
+    if (!exists) opts.counters.brokenRefs += 1;
+    if (abs) opts.referencedUploads.add(abs);
+    pushHit(opts.hits, opts.byType, {
+      sourceKey: `${opts.entityCollection}:${opts.entityId}:${opts.field}:${opts.index}:${legacy}`,
+      imageType: opts.imageType,
+      legacyRef: legacy,
+      entityCollection: opts.entityCollection,
+      entityId: opts.entityId,
+      field: opts.field,
+      index: opts.index,
+      absolutePath: abs,
+      existsOnDisk: exists,
+      bytesOnDisk: fileBytes(abs),
+      visibility: "public",
+    });
+    return;
+  }
+  if (isManagedMediaRef(opts.ref) || /^https?:\/\//i.test(opts.ref)) {
+    opts.counters.managedPublicRefs += 1;
+  }
+}
+
 /** Inventario de refs legacy y archivos en disco. No modifica nada. */
 export async function buildImageInventory(): Promise<InventoryReport> {
   const hits: LegacyRefHit[] = [];
@@ -103,8 +146,7 @@ export async function buildImageInventory(): Promise<InventoryReport> {
   const referencedUploads = new Set<string>();
   const referencedClaims = new Set<string>();
   const referencedIdentity = new Set<string>();
-  let managedPublicRefs = 0;
-  let brokenRefs = 0;
+  const counters = { managedPublicRefs: 0, brokenRefs: 0 };
 
   const users = await User.find({}).select(
     "profile.photos identityVerification.documentFrontPath identityVerification.selfieWithDocumentPath"
@@ -113,27 +155,17 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     const photos = user.profile?.photos ?? [];
     photos.forEach((ref, index) => {
       if (!ref) return;
-      if (isManagedMediaRef(ref) || /^https?:\/\//i.test(ref)) {
-        managedPublicRefs += 1;
-        return;
-      }
-      if (!ref.startsWith("/uploads/")) return;
-      const abs = uploadAbs(ref);
-      const exists = Boolean(abs && existsSync(abs));
-      if (!exists) brokenRefs += 1;
-      if (abs) referencedUploads.add(abs);
-      pushHit(hits, byType, {
-        sourceKey: `users:${user._id}:photos:${index}:${ref}`,
+      notePublicPhotoRef({
+        ref,
+        hits,
+        byType,
+        referencedUploads,
+        counters,
         imageType: "user_profile",
-        legacyRef: ref,
         entityCollection: "users",
         entityId: user._id.toString(),
         field: "profile.photos",
         index,
-        absolutePath: abs,
-        existsOnDisk: exists,
-        bytesOnDisk: fileBytes(abs),
-        visibility: "public",
       });
     });
 
@@ -149,12 +181,12 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     ] as const) {
       if (!stored) continue;
       if (looksLikeManagedImageId(stored)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         continue;
       }
       const abs = join(IDENTITY_VERIFICATION_DIR, stored);
       const exists = existsSync(abs);
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       referencedIdentity.add(stored);
       pushHit(hits, byType, {
         sourceKey: `users:${user._id}:identity:${field}:${stored}`,
@@ -176,13 +208,13 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     (venue.photos ?? []).forEach((ref, index) => {
       if (!ref) return;
       if (isManagedMediaRef(ref) || /^https?:\/\//i.test(ref)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         return;
       }
       if (!ref.startsWith("/uploads/")) return;
       const abs = uploadAbs(ref);
       const exists = Boolean(abs && existsSync(abs));
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       if (abs) referencedUploads.add(abs);
       pushHit(hits, byType, {
         sourceKey: `venues:${venue._id}:photos:${index}:${ref}`,
@@ -205,13 +237,13 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     (review.photos ?? []).forEach((ref, index) => {
       if (!ref) return;
       if (isManagedMediaRef(ref) || /^https?:\/\//i.test(ref)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         return;
       }
       if (!ref.startsWith("/uploads/")) return;
       const abs = uploadAbs(ref);
       const exists = Boolean(abs && existsSync(abs));
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       if (abs) referencedUploads.add(abs);
       pushHit(hits, byType, {
         sourceKey: `venuereviews:${review._id}:photos:${index}:${ref}`,
@@ -234,13 +266,13 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     (item.photos ?? []).forEach((ref, index) => {
       if (!ref) return;
       if (isManagedMediaRef(ref) || /^https?:\/\//i.test(ref)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         return;
       }
       if (!ref.startsWith("/uploads/")) return;
       const abs = uploadAbs(ref);
       const exists = Boolean(abs && existsSync(abs));
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       if (abs) referencedUploads.add(abs);
       pushHit(hits, byType, {
         sourceKey: `venuenews:${item._id}:photos:${index}:${ref}`,
@@ -263,13 +295,13 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     (post.photos ?? []).forEach((ref, index) => {
       if (!ref) return;
       if (isManagedMediaRef(ref) || /^https?:\/\//i.test(ref)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         return;
       }
       if (!ref.startsWith("/uploads/")) return;
       const abs = uploadAbs(ref);
       const exists = Boolean(abs && existsSync(abs));
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       if (abs) referencedUploads.add(abs);
       pushHit(hits, byType, {
         sourceKey: `userposts:${post._id}:photos:${index}:${ref}`,
@@ -294,13 +326,13 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     (request.photos ?? []).forEach((ref, index) => {
       if (!ref) return;
       if (isManagedMediaRef(ref) || /^https?:\/\//i.test(ref)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         return;
       }
       if (!ref.startsWith("/uploads/")) return;
       const abs = uploadAbs(ref);
       const exists = Boolean(abs && existsSync(abs));
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       if (abs) referencedUploads.add(abs);
       pushHit(hits, byType, {
         sourceKey: `venuerequests:${request._id}:photos:${index}:${ref}`,
@@ -318,12 +350,12 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     });
     for (const file of request.evidenceFiles ?? []) {
       if (looksLikeManagedImageId(file.filename)) {
-        managedPublicRefs += 1;
+        counters.managedPublicRefs += 1;
         continue;
       }
       const abs = join(CLAIM_EVIDENCE_DIR, file.filename);
       const exists = existsSync(abs);
-      if (!exists) brokenRefs += 1;
+      if (!exists) counters.brokenRefs += 1;
       referencedClaims.add(file.filename);
       pushHit(hits, byType, {
         sourceKey: `venuerequests:${request._id}:evidence:${file.id}:${file.filename}`,
@@ -370,8 +402,8 @@ export async function buildImageInventory(): Promise<InventoryReport> {
     identityDirFiles: identityFiles.length,
     legacyPublicRefs: hits.filter((h) => h.visibility === "public").length,
     legacyPrivateRefs: hits.filter((h) => h.visibility === "private").length,
-    managedPublicRefs,
-    brokenRefs,
+    managedPublicRefs: counters.managedPublicRefs,
+    brokenRefs: counters.brokenRefs,
     migratableRefs,
     alreadyMigratedLedger,
     approximateBytesOnDisk,

@@ -1196,7 +1196,7 @@ export function DiscoverPage() {
             </span>
           </button>
           <button
-            className="btn btn-sm btn-link link-secondary text-decoration-none"
+            className="btn btn-sm discover-unpublish-btn"
             type="button"
             aria-label="Dejar de publicar"
             onClick={async () => {

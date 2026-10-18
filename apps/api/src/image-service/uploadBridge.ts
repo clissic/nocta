@@ -9,6 +9,7 @@ import {
   ingestIdentityImage,
   ingestPrivateEvidence,
   ingestPublicImage,
+  extractLegacyUploadPath,
   isLegacyUploadRef,
   isManagedMediaRef,
   parseMediaImageId,
@@ -48,12 +49,14 @@ export function findForbiddenNewLegacyUploadRefs(
   return forbidden;
 }
 
-/** Normaliza refs absolutas de /api/media a path relativo estable. */
+/** Normaliza refs absolutas de /api/media o /uploads a path relativo estable. */
 export function canonicalizePhotoRef(value: string): string {
-  const id = parseMediaImageId(value);
+  const trimmed = value.trim();
+  const id = parseMediaImageId(trimmed);
   if (id) return `/api/media/${id}`;
-  if (value.startsWith("/uploads/")) return value;
-  return value;
+  const legacy = extractLegacyUploadPath(trimmed);
+  if (legacy) return legacy;
+  return trimmed;
 }
 
 export async function removePhotoRef(ref: string): Promise<void> {

@@ -418,7 +418,7 @@ router.get("/users", async (req: AuthedRequest, res) => {
     User.countDocuments(filter),
   ]);
   return res.json({
-    users: users.map(serializeUser),
+    users: await Promise.all(users.map((user) => serializeUser(user))),
     pagination: paginationMeta(page, limit, total),
   });
 });

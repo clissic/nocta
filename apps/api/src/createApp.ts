@@ -6,6 +6,7 @@ import {
   ensureTempUploadDir,
   ensureUploadsDir,
   UPLOADS_DIR,
+  WEB_PUBLIC_IMAGES_DIR,
 } from "./uploads/index.js";
 import {
   noteLegacyUploadBlockedWrite,
@@ -27,10 +28,16 @@ import premiumRoutes from "./routes/premium.js";
 import cityRoutes from "./routes/cities.js";
 import adsRoutes from "./routes/ads.js";
 import mediaRoutes from "./routes/media.js";
+import {
+  authedUserLimiter,
+  publicReadLimiter,
+} from "./middleware/rateLimits.js";
 
 /** App Express sin listen (tests E2E / boot). */
 export function createApp() {
   const app = express();
+  // Un salto (Railway). Sin esto todos los clientes cuentan como la IP del proxy.
+  app.set("trust proxy", 1);
 
   ensureUploadsDir();
   ensureTempUploadDir();
@@ -67,6 +74,21 @@ export function createApp() {
     express.static(UPLOADS_DIR, {
       fallthrough: true,
       index: false,
+      maxAge: "30d",
+      immutable: true,
+    })
+  );
+
+  /**
+   * Catálogo de marca / portadas de Espacios (`apps/web/public/images`).
+   * Web también las sirve vía Vite; mobile y otros clientes las piden a la API.
+   */
+  app.use(
+    "/images",
+    express.static(WEB_PUBLIC_IMAGES_DIR, {
+      fallthrough: true,
+      index: false,
+      maxAge: "7d",
     })
   );
 
@@ -77,6 +99,11 @@ export function createApp() {
       db: config.mongoUri === "memory" ? "memory" : "atlas",
     });
   });
+
+  app.use("/api/venues", publicReadLimiter);
+  app.use("/api/cities", publicReadLimiter);
+  app.use("/api/ads", publicReadLimiter);
+  app.use("/api", authedUserLimiter);
 
   app.use("/api/auth/oauth", oauthRoutes);
   app.use("/api/auth", authRoutes);

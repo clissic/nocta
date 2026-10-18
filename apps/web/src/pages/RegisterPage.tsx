@@ -7,10 +7,12 @@ import {
   PASSWORD_RULES,
 } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
+import type { HumanCheckRequest } from "../auth/humanCheck";
 import { AuthAtmosphere } from "../components/AuthAtmosphere";
 import { NoctaWordmark } from "../components/NoctaWordmark";
 import { PasswordInput } from "../components/PasswordInput";
 import { ApiError } from "../lib/api";
+import { turnstileEnabled } from "../components/TurnstileField";
 
 export function RegisterPage() {
   const { register, user, loading } = useAuth();
@@ -60,6 +62,17 @@ export function RegisterPage() {
     }
     if (!acceptTerms) {
       setError("Tenés que aceptar los términos para crear la cuenta");
+      return;
+    }
+    if (turnstileEnabled()) {
+      const next: HumanCheckRequest = {
+        kind: "register",
+        email: email.trim(),
+        password,
+        name: name.trim(),
+        marketingEmailsOptIn: acceptMarketingEmails,
+      };
+      navigate("/auth/check", { state: next });
       return;
     }
 

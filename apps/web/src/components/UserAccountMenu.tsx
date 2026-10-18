@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { AuthUser, PremiumPlanId } from "@nocta/shared";
-import { planHasFeature } from "@nocta/shared";
+import { PREMIUM_PLANS, planHasFeature } from "@nocta/shared";
 import { api, ApiError } from "../lib/api";
 import { AppFooter } from "./AppFooter";
 import { formatBoostCountdown } from "./BoostTopbarIndicator";
 import { OverflowFade } from "./OverflowFade";
 import { PremiumPackagesModal } from "./PremiumPackagesModal";
+import { DeleteAccountModal } from "./DeleteAccountModal";
 import { ProfileSettingsModal } from "./ProfileSettingsModal";
 import { useToast } from "./ToastProvider";
 import { OptimizedImage } from "./OptimizedImage";
@@ -63,7 +64,10 @@ export function UserAccountMenu({
 }: Props) {
   const toast = useToast();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFocus, setSettingsFocus] = useState<"teleport" | undefined>();
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [premiumPlanId, setPremiumPlanId] = useState<PremiumPlanId | undefined>();
   const [boostBusy, setBoostBusy] = useState(false);
   const [avatarBroken, setAvatarBroken] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -106,13 +110,31 @@ export function UserAccountMenu({
     return () => window.clearInterval(id);
   }, [boostExpiresAt]);
 
-  function openSettings() {
+  function openSettings(focus?: "teleport") {
+    setSettingsFocus(focus);
     onClose();
     setSettingsOpen(true);
+  }
+
+  function openTeleport() {
+    const canTeleport = Boolean(
+      user.premium && planHasFeature(user.premiumPlanId, "teleport")
+    );
+    if (!canTeleport) {
+      const planId = PREMIUM_PLANS.find(
+        (plan) => !plan.comingSoon && plan.features.includes("teleport")
+      )?.id;
+      setPremiumPlanId(planId);
+      onClose();
+      setPremiumOpen(true);
+      return;
+    }
+    openSettings("teleport");
   }
   async function activateBoost() {
     if (boostBusy) return;
     if (!canBoost) {
+      setPremiumPlanId(undefined);
       onClose();
       setPremiumOpen(true);
       return;
@@ -231,6 +253,15 @@ export function UserAccountMenu({
           <p className="account-drawer-teleport mb-0">
             <i className="bi bi-geo-alt" aria-hidden="true" />
             <span>{teleportLabel(user)}</span>
+            <button
+              type="button"
+              className="account-drawer-teleport-gear"
+              aria-label="Opciones de Teleport"
+              tabIndex={open ? 0 : -1}
+              onClick={openTeleport}
+            >
+              <i className="bi bi-gear" aria-hidden="true" />
+            </button>
           </p>
 
           <button
@@ -324,12 +355,29 @@ export function UserAccountMenu({
       {settingsOpen ? (
         <ProfileSettingsModal
           user={user}
-          onClose={() => setSettingsOpen(false)}
+          focus={settingsFocus}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsFocus(undefined);
+          }}
           onUserUpdated={onUserUpdated}
+          onDeleteAccount={() => {
+            setSettingsOpen(false);
+            setDeleteAccountOpen(true);
+          }}
         />
       ) : null}
+      {deleteAccountOpen ? (
+        <DeleteAccountModal onClose={() => setDeleteAccountOpen(false)} />
+      ) : null}
       {premiumOpen ? (
-        <PremiumPackagesModal onClose={() => setPremiumOpen(false)} />
+        <PremiumPackagesModal
+          planId={premiumPlanId}
+          onClose={() => {
+            setPremiumOpen(false);
+            setPremiumPlanId(undefined);
+          }}
+        />
       ) : null}
     </>
   );

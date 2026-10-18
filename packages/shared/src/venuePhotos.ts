@@ -1,4 +1,8 @@
-/** Fotos de catálogo: Vite sirve `apps/web/public/images/venues`. */
+/** Fotos de catálogo: Vite / API sirven `apps/web/public/images/venues`. */
+
+/** Placeholder cuando falta el asset de catálogo (solo ~20 portadas en disco). */
+export const VENUE_PHOTO_FALLBACK =
+  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=1200";
 
 export function venuePhotoFilename(name: string): string {
   const words = name

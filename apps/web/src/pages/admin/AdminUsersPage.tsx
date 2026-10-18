@@ -52,7 +52,7 @@ function UserAvatar({
   photo,
 }: {
   name?: string;
-  email: string;
+  email?: string;
   photo?: string;
 }) {
   if (photo) {
@@ -68,7 +68,7 @@ function UserAvatar({
   }
   return (
     <div className="admin-list-thumb is-avatar" aria-hidden="true">
-      {(name?.[0] ?? email[0] ?? "?").toUpperCase()}
+      {(name?.trim()?.[0] || email?.trim()?.[0] || "?").toUpperCase()}
     </div>
   );
 }

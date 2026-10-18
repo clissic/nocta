@@ -15,6 +15,9 @@ import { createNotification, notifyMany } from "../utils/notify.js";
 import { dissolveMatch } from "../utils/matchActions.js";
 import { blockUser } from "../utils/userSafety.js";
 import { resolvePublicAssetUrls } from "../utils/serialize.js";
+import { emitChatMessage } from "../realtime/chat.js";
+import { messageLimiter } from "../middleware/rateLimits.js";
+import type { ChatMessage } from "@nocta/shared";
 
 const router = Router();
 
@@ -34,6 +37,93 @@ function otherUserId(
 ) {
   return match.users.map((u) => u.toString()).find((u) => u !== userId)!;
 }
+
+function serializeMessage(message: {
+  _id: { toString(): string };
+  matchId: { toString(): string };
+  senderId: { toString(): string };
+  body: string;
+  createdAt: Date;
+}): ChatMessage {
+  return {
+    id: message._id.toString(),
+    matchId: message.matchId.toString(),
+    senderId: message.senderId.toString(),
+    body: message.body,
+    createdAt: message.createdAt.toISOString(),
+  };
+}
+
+function readCursor(
+  match: {
+    reads?: { userId: mongoose.Types.ObjectId; readAt: Date }[];
+  },
+  userId: string
+) {
+  const hit = match.reads?.find((row) => row.userId.toString() === userId);
+  return hit?.readAt ?? new Date(0);
+}
+
+async function unreadCountByMatch(
+  userId: mongoose.Types.ObjectId,
+  matches: {
+    _id: mongoose.Types.ObjectId;
+    reads?: { userId: mongoose.Types.ObjectId; readAt: Date }[];
+  }[]
+) {
+  const counts = new Map<string, number>();
+  if (!matches.length) return counts;
+  const or = matches.map((match) => ({
+    matchId: match._id,
+    createdAt: { $gt: readCursor(match, userId.toString()) },
+  }));
+  const rows = await Message.aggregate<{
+    _id: mongoose.Types.ObjectId;
+    count: number;
+  }>([
+    { $match: { senderId: { $ne: userId }, $or: or } },
+    { $group: { _id: "$matchId", count: { $sum: 1 } } },
+  ]);
+  for (const row of rows) counts.set(row._id.toString(), row.count);
+  return counts;
+}
+
+async function markMatchRead(
+  match: {
+    reads?: { userId: mongoose.Types.ObjectId; readAt: Date }[];
+    save: () => Promise<unknown>;
+    markModified: (path: string) => void;
+  },
+  userId: string
+) {
+  const now = new Date();
+  const reads = match.reads ?? [];
+  const hit = reads.find((row) => row.userId.toString() === userId);
+  if (hit) hit.readAt = now;
+  else {
+    reads.push({
+      userId: new mongoose.Types.ObjectId(userId),
+      readAt: now,
+    });
+  }
+  match.reads = reads;
+  match.markModified("reads");
+  await match.save();
+}
+
+router.get("/unread-count", async (req: AuthedRequest, res) => {
+  const userId = req.user!._id;
+  const blocked = new Set(await blockedPeerIds(userId));
+  const matches = await Match.find({ users: userId })
+    .select("users reads")
+    .lean();
+  const visible = matches.filter(
+    (match) => !blocked.has(otherUserId(match, userId.toString()))
+  );
+  const counts = await unreadCountByMatch(userId, visible);
+  const chats = [...counts.values()].filter((n) => n > 0).length;
+  return res.json({ chats });
+});
 
 router.get("/", async (req: AuthedRequest, res) => {
   const userId = req.user!._id;
@@ -103,6 +193,11 @@ router.get("/", async (req: AuthedRequest, res) => {
     photoByUser.set(id, resolvedPhotos[photoIdx++] || ref);
   }
 
+  const visibleMatches = matches.filter(
+    (m) => !blocked.has(otherUserId(m, userId.toString()))
+  );
+  const unreadByMatch = await unreadCountByMatch(userId, visibleMatches);
+
   const summaries = matches.map((m) => {
     const otherId = otherUserId(m, userId.toString());
     if (blocked.has(otherId)) return null;
@@ -126,10 +221,15 @@ router.get("/", async (req: AuthedRequest, res) => {
             fromUserId: last.senderId.toString(),
           }
         : undefined,
+      unreadCount: unreadByMatch.get(m._id.toString()) ?? 0,
     };
   });
 
-  return res.json({ matches: summaries.filter(Boolean) });
+  const list = summaries.filter(Boolean);
+  return res.json({
+    matches: list,
+    unreadChats: list.filter((row) => (row?.unreadCount ?? 0) > 0).length,
+  });
 });
 
 router.get("/:id/messages", async (req: AuthedRequest, res) => {
@@ -146,15 +246,10 @@ router.get("/:id/messages", async (req: AuthedRequest, res) => {
   const messages = await Message.find({ matchId: match._id }).sort({
     createdAt: 1,
   });
+  await markMatchRead(match, userId);
 
   return res.json({
-    messages: messages.map((m) => ({
-      id: m._id.toString(),
-      matchId: m.matchId.toString(),
-      senderId: m.senderId.toString(),
-      body: m.body,
-      createdAt: m.createdAt.toISOString(),
-    })),
+    messages: messages.map((m) => serializeMessage(m)),
   });
 });
 
@@ -162,7 +257,7 @@ const messageSchema = z.object({
   body: z.string().min(1).max(2000),
 });
 
-router.post("/:id/messages", async (req: AuthedRequest, res) => {
+router.post("/:id/messages", messageLimiter, async (req: AuthedRequest, res) => {
   const id = paramId(req.params.id);
   const parsed = messageSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -183,6 +278,7 @@ router.post("/:id/messages", async (req: AuthedRequest, res) => {
     senderId: req.user!._id,
     body: parsed.data.body,
   });
+  await markMatchRead(match, userId);
 
   match.updatedAt = new Date();
   await match.save();
@@ -205,14 +301,11 @@ router.post("/:id/messages", async (req: AuthedRequest, res) => {
     },
   });
 
+  const payload = serializeMessage(message);
+  emitChatMessage(match._id.toString(), payload);
+
   return res.status(201).json({
-    message: {
-      id: message._id.toString(),
-      matchId: message.matchId.toString(),
-      senderId: message.senderId.toString(),
-      body: message.body,
-      createdAt: message.createdAt.toISOString(),
-    },
+    message: payload,
   });
 });
 

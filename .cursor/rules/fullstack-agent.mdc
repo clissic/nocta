@@ -5,7 +5,8 @@ alwaysApply: true
 
 # Agente único full-stack
 
-- Hay **un solo** agente de desarrollo para Nocta: puede implementar **backend y frontend**.
-- Está permitido editar `apps/api/**`, `apps/web/**`, `packages/shared/**` y el `README.md` raíz.
+- Hay **un solo** agente de desarrollo para Nocta: puede implementar **backend, frontend web y mobile**.
+- Está permitido editar `apps/api/**`, `apps/web/**`, `apps/mobile/**`, `packages/shared/**` y el `README.md` raíz.
 - No asumir separación “agente FE” vs “agente BE”; no bloquear cambios de UI ni pedir otro chat para el otro lado.
-- Si un cambio toca contrato + UI, implementar ambos en el mismo flujo y actualizar las secciones Backend/Frontend del README según corresponda.
+- Si un cambio toca **contrato (API/shared) + UI**, implementar el contrato y la UI del alcance pedido (ver regla `platform-scope`: UI default = mobile) y actualizar las secciones Backend/Frontend/Mobile del README según corresponda.
+- **No** editar web y mobile “en el mismo flujo” por defecto: el alcance de UI lo define `platform-scope.mdc`.

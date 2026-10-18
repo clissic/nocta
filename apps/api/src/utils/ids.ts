@@ -23,6 +23,15 @@ export function sortedUserPair(
   return aId.toString() < bId.toString() ? [aId, bId] : [bId, aId];
 }
 
+/** Clave estable del par. El índice único va sobre esto, no sobre cada id del array `users`. */
+export function matchPairKey(
+  a: mongoose.Types.ObjectId | string,
+  b: mongoose.Types.ObjectId | string
+): string {
+  const [x, y] = sortedUserPair(a, b);
+  return `${x.toString()}:${y.toString()}`;
+}
+
 /** Normaliza param de Express (string | string[]) a string. */
 export function paramId(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";

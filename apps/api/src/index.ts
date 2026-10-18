@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { config, isMemoryDb } from "./config.js";
 import { connectDb } from "./db.js";
 import {
@@ -6,11 +7,16 @@ import {
   normalizeLookingForSingleChoice,
   syncPilotVenues,
 } from "./seedData.js";
-import { Match } from "./models/Match.js";
+import {
+  Match,
+  backfillMatchPairKeys,
+  repairMissingMatches,
+} from "./models/Match.js";
 import { User } from "./models/User.js";
 import { verifyMailTransport } from "./mail/mailer.js";
 import { ensureAppCitiesSeeded } from "./utils/appCities.js";
 import { createApp } from "./createApp.js";
+import { attachChatRealtime } from "./realtime/chat.js";
 
 const app = createApp();
 
@@ -41,11 +47,16 @@ async function maybeSeed() {
 async function start() {
   await connectDb();
 
+  await backfillMatchPairKeys();
   try {
     await Match.collection.dropIndex("users_1_venueId_1");
   } catch {
-    /* no existía */
+    /* índice viejo (único por persona) ya no está */
   }
+  await Match.collection.createIndex(
+    { pairKey: 1, venueId: 1 },
+    { unique: true, name: "pairKey_1_venueId_1" }
+  );
 
   if (config.boot.syncIndexes) {
     await Match.syncIndexes();
@@ -68,6 +79,8 @@ async function start() {
     );
   }
 
+  await repairMissingMatches();
+
   await verifyMailTransport();
 
   const { startImageLifecycleScheduler } = await import(
@@ -75,7 +88,9 @@ async function start() {
   );
   startImageLifecycleScheduler();
 
-  app.listen(config.port, () => {
+  const server = createServer(app);
+  attachChatRealtime(server);
+  server.listen(config.port, () => {
     console.log(`Nocta API en http://localhost:${config.port}`);
   });
 }

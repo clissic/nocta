@@ -42,8 +42,11 @@ import {
 } from "../image-service/index.js";
 import { sendIdentityVerificationSubmittedEmail } from "../mail/mailer.js";
 import { requireSensitiveImageRateLimit } from "../middleware/requireImageRateLimit.js";
+import pushTokenRoutes from "./pushToken.js";
 
 const router = Router();
+
+router.use("/push-token", pushTokenRoutes);
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -181,6 +184,53 @@ router.put("/teleport-location", requireAuth, async (req: AuthedRequest, res) =>
 const blockedUsersPaginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(10).max(50).default(20),
+});
+
+router.get("/reports", requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = blockedUsersPaginationSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Paginación inválida" });
+  }
+  const { page, limit } = parsed.data;
+  const filter = { reporterId: req.user!._id };
+  const [reports, total] = await Promise.all([
+    Report.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Report.countDocuments(filter),
+  ]);
+  const people = await User.find({
+    _id: { $in: reports.map((report) => report.reportedUserId) },
+  })
+    .select("profile.name")
+    .lean();
+  const namesById = new Map(
+    people.map((person) => [person._id.toString(), person.profile?.name])
+  );
+
+  return res.json({
+    reports: reports.map((report) => ({
+      id: report._id.toString(),
+      reason: report.reason,
+      status: report.status ?? "open",
+      source: report.source ?? (report.matchId ? "match" : "profile"),
+      createdAt: report.createdAt.toISOString(),
+      reportedName:
+        namesById.get(report.reportedUserId.toString())?.trim() || "Usuario",
+      ...(report.resolution?.action
+        ? { resolutionAction: report.resolution.action }
+        : {}),
+    })),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page * limit < total,
+    },
+  });
 });
 
 router.get("/reports/:id", requireAuth, async (req: AuthedRequest, res) => {

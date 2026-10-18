@@ -2,10 +2,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import type { OAuthProvider } from "@nocta/shared";
 import { useAuth } from "../auth/AuthContext";
+import type { HumanCheckRequest } from "../auth/humanCheck";
 import { AuthAtmosphere } from "../components/AuthAtmosphere";
 import { NoctaWordmark } from "../components/NoctaWordmark";
 import { PasswordInput } from "../components/PasswordInput";
 import { useToast } from "../components/ToastProvider";
+import { turnstileEnabled } from "../components/TurnstileField";
 import {
   ApiError,
   apiUrl,
@@ -76,11 +78,10 @@ export function LoginPage() {
     );
   }
 
-  async function doLogin(nextEmail: string, nextPassword: string) {
-    setError("");
+  async function finishLogin(nextEmail: string, nextPassword: string, token: string) {
     setBusy(true);
     try {
-      const u = await login(nextEmail, nextPassword);
+      const u = await login(nextEmail, nextPassword, token);
       navigate(
         !u.emailVerified
           ? "/verify-email"
@@ -110,6 +111,21 @@ export function LoginPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function doLogin(nextEmail: string, nextPassword: string) {
+    setError("");
+    if (turnstileEnabled()) {
+      const next: HumanCheckRequest = {
+        kind: "login",
+        email: nextEmail.trim(),
+        password: nextPassword,
+        next: safeNext,
+      };
+      navigate("/auth/check", { state: next });
+      return;
+    }
+    await finishLogin(nextEmail, nextPassword, "");
   }
 
   async function onSubmit(e: FormEvent) {

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { ImageAsset } from "../models/ImageAsset.js";
 import { createImageService } from "../image-service/index.js";
 import {
@@ -15,7 +15,7 @@ import {
 import { getStorage } from "../storage/index.js";
 import {
   MEDIA_REDIRECT_PUBLIC_CACHE_CONTROL,
-  MEDIA_REDIRECT_SIGNED_CACHE_CONTROL,
+  PUBLIC_OBJECT_CACHE_CONTROL,
 } from "../storage/publicUrl.js";
 
 const router = Router();
@@ -34,10 +34,37 @@ function parseFormat(raw: unknown): VariantFormat {
     : "webp";
 }
 
+function publicImageEtag(
+  imageId: string,
+  variant: VariantName,
+  format: VariantFormat
+) {
+  return `"${imageId}-${variant}-${format}"`;
+}
+
+/** Bytes en la URL estable `/api/media/:id`. El cliente puede cachearla un año. */
+function sendImmutableImage(
+  req: Request,
+  res: Response,
+  body: Buffer,
+  contentType: string,
+  etag: string
+) {
+  res.setHeader("Content-Type", contentType || "image/webp");
+  res.setHeader("Cache-Control", PUBLIC_OBJECT_CACHE_CONTROL);
+  res.setHeader("ETag", etag);
+  if (req.headers["if-none-match"] === etag) {
+    return res.status(304).end();
+  }
+  res.setHeader("Content-Length", String(body.length));
+  return res.status(200).send(body);
+}
+
 /**
- * Fallback / deep-link: las respuestas API ya expanden fotos públicas
- * a URL directa (CDN o firmada). Este endpoint NO sirve bytes;
- * solo hace 302. Private → 404 (no enumerar).
+ * Entrega de media pública.
+ * - CDN estable: 302 (el objeto ya es immutable).
+ * - Firma o memory: 200 con los bytes y Cache-Control immutable en esta URL.
+ * Private → 404 (no enumerar).
  */
 router.get("/:imageId", async (req, res) => {
   const imageId = String(req.params.imageId || "").trim();
@@ -58,7 +85,8 @@ router.get("/:imageId", async (req, res) => {
     return res.status(404).json({ error: "Variante no encontrada" });
   }
 
-  const images = createImageService(getStorage());
+  const storage = getStorage();
+  const images = createImageService(storage);
   try {
     const exists = await images.exists(file.key);
     if (!exists) {
@@ -70,17 +98,39 @@ router.get("/:imageId", async (req, res) => {
       });
       return res.status(404).json({ error: "Imagen no encontrada" });
     }
+
+    // Dev local con STORAGE_DRIVER=memory: servir bytes (no redirigir a memory://).
+    const etag = publicImageEtag(imageId, variant, format);
+
+    if (storage.driver === "memory") {
+      const obj = await storage.getObject(file.key);
+      return sendImmutableImage(
+        req,
+        res,
+        obj.body,
+        obj.contentType || "image/webp",
+        etag
+      );
+    }
+
     const resolved = await images.resolveReadUrl(
       doc.imageType as "user_profile",
       file.key,
       { preferPublicUrl: true }
     );
-    res.setHeader(
-      "Cache-Control",
-      resolved.mode === "public"
-        ? MEDIA_REDIRECT_PUBLIC_CACHE_CONTROL
-        : MEDIA_REDIRECT_SIGNED_CACHE_CONTROL
-    );
+
+    if (resolved.url.startsWith("memory://") || resolved.mode === "signed") {
+      const obj = await storage.getObject(file.key);
+      return sendImmutableImage(
+        req,
+        res,
+        obj.body,
+        obj.contentType || "image/webp",
+        etag
+      );
+    }
+
+    res.setHeader("Cache-Control", MEDIA_REDIRECT_PUBLIC_CACHE_CONTROL);
     return res.redirect(302, resolved.url);
   } catch {
     return res.status(502).json({ error: "No se pudo resolver la imagen" });

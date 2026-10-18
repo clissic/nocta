@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
-    "test": "tsx --test \"src/image-service/**/*.test.ts\" \"src/storage/**/*.test.ts\" \"src/image-lifecycle/**/*.test.ts\"",
+    "test": "tsx --test \"src/image-service/**/*.test.ts\" \"src/storage/**/*.test.ts\" \"src/image-lifecycle/**/*.test.ts\" \"src/utils/likePhotoTeaser.test.ts\" \"src/utils/expoPush.test.ts\" \"src/middleware/rateLimits.test.ts\" \"src/e2e/product.test.ts\"",
     "test:e2e": "tsx --test src/e2e/images.e2e.test.ts",
     "test:all": "npm run test && npm run test:e2e",
     "validate:legacy-uploads": "tsx src/image-lifecycle/validateCli.ts",
@@ -29,6 +29,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.5.1",
     "jose": "^6.2.8",
     "jsonwebtoken": "^9.0.2",
     "mercadopago": "^3.6.1",
@@ -39,6 +40,7 @@
     "nodemailer": "^9.0.5",
     "resend": "^6.27.0",
     "sharp": "^0.35.4",
+    "socket.io": "^4.8.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {

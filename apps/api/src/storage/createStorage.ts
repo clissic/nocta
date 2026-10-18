@@ -1,8 +1,23 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { hasRailwayCredentials, readStorageEnv, type StorageEnv } from "./env.js";
 import { StorageNotConfiguredError } from "./errors.js";
 import { createMemoryStorage } from "./memoryStorage.js";
 import { createRailwayStorage } from "./railwayStorage.js";
 import type { ObjectStorage } from "./types.js";
+
+const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+/** Persistencia local del driver memory (sobrevive reinicios de la API). */
+function memoryPersistDir(): string | undefined {
+  if (process.env.NOCTA_E2E === "1") return undefined;
+  const nodeEnv = (process.env.NODE_ENV ?? "").toLowerCase();
+  if (nodeEnv === "test") return undefined;
+  const fromEnv = (process.env.MEMORY_STORAGE_DIR ?? "").trim();
+  if (fromEnv === "0" || fromEnv.toLowerCase() === "off") return undefined;
+  if (fromEnv) return path.resolve(fromEnv);
+  return path.join(API_ROOT, ".data", "memory-storage");
+}
 
 let singleton: ObjectStorage | null = null;
 
@@ -56,7 +71,10 @@ export function createStorage(opts: CreateStorageOptions = {}): ObjectStorage {
     );
   }
 
-  return createMemoryStorage({ publicBaseUrl: env.publicBaseUrl });
+  return createMemoryStorage({
+    publicBaseUrl: env.publicBaseUrl,
+    persistDir: memoryPersistDir(),
+  });
 }
 
 /** Instancia compartida (lazy). No usar en tests que mutan env. */

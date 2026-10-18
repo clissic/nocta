@@ -37,8 +37,10 @@ import { NoctaLoading } from "./components/NoctaLoading";
 import { UserReportPage } from "./pages/UserReportPage";
 import { ReportResolutionPage } from "./pages/ReportResolutionPage";
 import { BlockedUsersPage } from "./pages/BlockedUsersPage";
+import { MyReportsPage } from "./pages/MyReportsPage";
 import { TermsPage } from "./pages/TermsPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { HumanCheckPage } from "./pages/HumanCheckPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { AdPage } from "./pages/AdPage";
 import { PendingDeletionScreen } from "./components/PendingDeletionScreen";
@@ -93,6 +95,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/auth/check" element={<HumanCheckPage />} />
       <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -150,6 +153,7 @@ export default function App() {
         <Route path="profile">
           <Route index element={<ProfilePage />} />
           <Route path="blocked" element={<BlockedUsersPage />} />
+          <Route path="reports" element={<MyReportsPage />} />
         </Route>
         <Route path="premium" element={<PremiumPage />} />
         <Route path="profile/promos" element={<MyPromosPage />} />

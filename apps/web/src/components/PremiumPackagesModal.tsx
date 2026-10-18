@@ -248,7 +248,6 @@ export function PremiumPackagesModal({ onClose, planId }: Props) {
 
           {pickerMode ? (
             <PremiumPlanCards
-              intro="Elegí un plan para ver periodos y suscribirte. 2 A.M. arranca la noche; 4 A.M. suma Boost y Heartshots; 6 A.M. lleva Clone y Modo espía."
               onSelectPlan={(id) => {
                 setSelectedPlanId(id);
                 setPeriodMonths(3);

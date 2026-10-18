@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { randomBytes } from "node:crypto";
 import { OAUTH_PROVIDERS, type OAuthProvider } from "@nocta/shared";
-import { config } from "../config.js";
 import { signToken } from "../middleware/auth.js";
 import {
   buildAuthorizeUrl,
@@ -11,13 +10,31 @@ import {
 } from "../oauth/providers.js";
 import { upsertOAuthUser } from "../oauth/upsert.js";
 import {
+  parseAppClient,
+  clientPathUrl,
+  type AppClient,
+} from "../utils/clientOrigin.js";
+import {
+  appendQueryParams,
+  parseOAuthReturnUrl,
+} from "../utils/oauthReturnUrl.js";
+import { oauthStartIpLimiter } from "../middleware/rateLimits.js";
+import {
   refreshExpiredSuspension,
   suspensionError,
 } from "../utils/moderation.js";
 
 const router = Router();
 
-const pendingStates = new Map<string, { provider: OAuthProvider; exp: number }>();
+type PendingOAuth = {
+  provider: OAuthProvider;
+  client: AppClient;
+  /** Deep link / Expo URL de vuelta (mobile). */
+  returnUrl?: string;
+  exp: number;
+};
+
+const pendingStates = new Map<string, PendingOAuth>();
 
 function isProvider(value: string): value is OAuthProvider {
   return (OAUTH_PROVIDERS as readonly string[]).includes(value);
@@ -27,31 +44,57 @@ function paramProvider(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
-function rememberState(provider: OAuthProvider): string {
+function rememberState(
+  provider: OAuthProvider,
+  client: AppClient,
+  returnUrl?: string
+): string {
   const state = randomBytes(24).toString("hex");
   pendingStates.set(state, {
     provider,
+    client,
+    returnUrl,
     exp: Date.now() + 10 * 60 * 1000,
   });
   return state;
 }
 
-function consumeState(state: string, provider: OAuthProvider): boolean {
+function consumeState(
+  state: string,
+  provider: OAuthProvider
+):
+  | { ok: true; client: AppClient; returnUrl?: string }
+  | { ok: false } {
   const entry = pendingStates.get(state);
   pendingStates.delete(state);
-  if (!entry) return false;
-  if (entry.exp < Date.now()) return false;
-  return entry.provider === provider;
+  if (!entry) return { ok: false };
+  if (entry.exp < Date.now()) return { ok: false };
+  if (entry.provider !== provider) return { ok: false };
+  return { ok: true, client: entry.client, returnUrl: entry.returnUrl };
 }
 
-function frontendErrorRedirect(message: string) {
-  const url = new URL("/login", config.clientOrigin);
+function frontendErrorRedirect(
+  message: string,
+  client: AppClient = "web",
+  returnUrl?: string
+) {
+  if (returnUrl) {
+    return appendQueryParams(returnUrl, { error: message });
+  }
+  const url = new URL(clientPathUrl("login", client));
   url.searchParams.set("error", message);
   return url.toString();
 }
 
-function frontendSuccessRedirect(token: string) {
-  const url = new URL("/auth/callback", config.clientOrigin);
+function frontendSuccessRedirect(
+  token: string,
+  client: AppClient = "web",
+  returnUrl?: string
+) {
+  if (returnUrl) {
+    return appendQueryParams(returnUrl, { token });
+  }
+  const url = new URL(clientPathUrl("auth/callback", client));
   url.searchParams.set("token", token);
   return url.toString();
 }
@@ -59,10 +102,21 @@ function frontendSuccessRedirect(token: string) {
 function frontendSuspensionRedirect(
   suspension: NonNullable<
     Awaited<ReturnType<typeof refreshExpiredSuspension>>
-  >
+  >,
+  client: AppClient = "web",
+  returnUrl?: string
 ) {
   const data = suspensionError(suspension);
-  const url = new URL("/login", config.clientOrigin);
+  const params = {
+    code: data.code,
+    suspendedAt: data.suspendedAt,
+    duration: String(data.duration),
+    suspendedUntil: data.suspendedUntil,
+  };
+  if (returnUrl) {
+    return appendQueryParams(returnUrl, params);
+  }
+  const url = new URL(clientPathUrl("login", client));
   url.searchParams.set("code", data.code);
   url.searchParams.set("suspendedAt", data.suspendedAt);
   url.searchParams.set("duration", String(data.duration));
@@ -72,8 +126,11 @@ function frontendSuspensionRedirect(
   return url.toString();
 }
 
-/** Inicia el flujo OAuth: redirige al proveedor. */
-router.get("/:provider", (req, res) => {
+/**
+ * Inicia OAuth. `?client=mobile` + opcional `?returnUrl=` (Expo `exp://…` o `nocta://…`)
+ * para que el AuthSession del emulador cierre al volver.
+ */
+router.get("/:provider", oauthStartIpLimiter, (req, res) => {
   const providerParam = paramProvider(req.params.provider);
   if (!isProvider(providerParam)) {
     return res.status(404).json({ error: "Proveedor OAuth desconocido" });
@@ -87,7 +144,10 @@ router.get("/:provider", (req, res) => {
     });
   }
 
-  const state = rememberState(providerParam);
+  const client = parseAppClient(req.query.client);
+  const returnUrl =
+    client === "mobile" ? parseOAuthReturnUrl(req.query.returnUrl) : undefined;
+  const state = rememberState(providerParam, client, returnUrl);
   const url = buildAuthorizeUrl(providerParam, state);
   return res.redirect(url);
 });
@@ -99,35 +159,52 @@ async function handleCallback(
   oauthError: string | undefined,
   res: import("express").Response
 ) {
+  const consumed = state
+    ? consumeState(state, provider)
+    : { ok: false as const };
+  const client = consumed.ok ? consumed.client : "web";
+  const returnUrl = consumed.ok ? consumed.returnUrl : undefined;
+
   if (oauthError) {
     return res.redirect(
-      frontendErrorRedirect(`El proveedor rechazó el login: ${oauthError}`)
+      frontendErrorRedirect(
+        `El proveedor rechazó el login: ${oauthError}`,
+        client,
+        returnUrl
+      )
     );
   }
   if (!code || !state) {
     return res.redirect(
-      frontendErrorRedirect("Respuesta OAuth incompleta (falta code/state)")
+      frontendErrorRedirect(
+        "Respuesta OAuth incompleta (falta code/state)",
+        client,
+        returnUrl
+      )
     );
   }
-  if (!consumeState(state, provider)) {
-    return res.redirect(frontendErrorRedirect("State OAuth inválido o expirado"));
+  if (!consumed.ok) {
+    return res.redirect(
+      frontendErrorRedirect("State OAuth inválido o expirado", client, returnUrl)
+    );
   }
 
   try {
     const profile = await resolveOAuthProfile(provider, code);
-    // Persistencia: falla si Mongo/Atlas no está disponible o mal configurado.
     const user = await upsertOAuthUser(profile);
     const suspension = await refreshExpiredSuspension(user);
     if (suspension) {
-      return res.redirect(frontendSuspensionRedirect(suspension));
+      return res.redirect(
+        frontendSuspensionRedirect(suspension, client, returnUrl)
+      );
     }
     const token = signToken(user);
-    return res.redirect(frontendSuccessRedirect(token));
+    return res.redirect(frontendSuccessRedirect(token, client, returnUrl));
   } catch (err) {
     console.error(`[oauth/${provider}]`, err);
     const message =
       err instanceof Error ? err.message : "Error en autenticación OAuth";
-    return res.redirect(frontendErrorRedirect(message));
+    return res.redirect(frontendErrorRedirect(message, client, returnUrl));
   }
 }
 
@@ -157,13 +234,7 @@ router.post("/:provider/callback", async (req, res) => {
     state?: string;
     error?: string;
   };
-  await handleCallback(
-    providerParam,
-    body.code,
-    body.state,
-    body.error,
-    res
-  );
+  await handleCallback(providerParam, body.code, body.state, body.error, res);
 });
 
 export default router;

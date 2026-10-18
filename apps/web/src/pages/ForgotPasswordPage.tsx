@@ -1,12 +1,15 @@
 import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AuthAtmosphere } from "../components/AuthAtmosphere";
 import { NoctaWordmark } from "../components/NoctaWordmark";
 import { useToast } from "../components/ToastProvider";
 import { api, ApiError } from "../lib/api";
+import { turnstileEnabled } from "../components/TurnstileField";
+import type { HumanCheckRequest } from "../auth/humanCheck";
 
 export function ForgotPasswordPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,6 +18,11 @@ export function ForgotPasswordPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    if (turnstileEnabled()) {
+      const next: HumanCheckRequest = { kind: "forgot", email: email.trim() };
+      navigate("/auth/check", { state: next });
+      return;
+    }
     setBusy(true);
     try {
       await api<{ ok: boolean; message?: string }>("/api/auth/forgot-password", {

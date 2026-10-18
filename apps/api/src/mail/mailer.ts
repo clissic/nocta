@@ -214,8 +214,14 @@ export async function sendPasswordResetEmail(opts: {
   name?: string;
   token: string;
   ttlMinutes?: number;
+  /** `mobile` → deep link `nocta://auth/reset-password?token=…` */
+  client?: "web" | "mobile";
 }) {
-  const resetUrl = `${config.clientOrigin}/auth/reset-password?token=${encodeURIComponent(opts.token)}`;
+  const client = opts.client === "mobile" ? "mobile" : "web";
+  const resetUrl =
+    client === "mobile"
+      ? `${config.mobileAppScheme || "nocta"}://auth/reset-password?token=${encodeURIComponent(opts.token)}`
+      : `${config.clientOrigin.replace(/\/$/, "")}/auth/reset-password?token=${encodeURIComponent(opts.token)}`;
   await sendMail({
     to: opts.to,
     subject: "Restablecer contraseña — Nocta",

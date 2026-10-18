@@ -1,0 +1,30 @@
+---
+description: Alcance de plataforma (mobile/web/api); consultar si hay duda; declarar al final qué se editó
+alwaysApply: true
+---
+
+# Alcance de plataforma
+
+## Default UI
+
+- En cambios de **UI / pantallas / copy visual**, editar **solo mobile** (`apps/mobile/**`), salvo que el usuario pida explícitamente también la **webapp** (`apps/web/**`).
+- Backend (`apps/api/**`), `packages/shared/**` y `README.md` se tocan cuando el cambio lo requiere (contrato, env, docs), no “por simetría” con web.
+
+## Si hay duda → consultar
+
+Antes de editar, **preguntá** si no está claro:
+
+- ¿Solo mobile, solo web, ambos, o también API/shared?
+- ¿El pedido de “paridad” implica cambiar web, mobile, o alinear mobile a web sin tocar web?
+
+No asumas web + mobile en el mismo cambio salvo que lo digan.
+
+## Al final de cada cambio → declarar plataforma
+
+Cierre corto, al final de la respuesta:
+
+- Solo mobile: `Modificado: 📱`
+- Solo webapp: `Modificado: 💻`
+- Ambos: `Modificado: 📱 💻`
+- API (`apps/api/**`): `Modificado: 🤖`, solo o junto a la UI que también cambió (`Modificado: 📱 🤖`, `Modificado: 💻 🤖`, `Modificado: 📱 💻 🤖`)
+- Documentación o reglas: `Modificado: 📄`, solo o junto a lo demás (`Modificado: 📄 🤖`, `Modificado: 📱 📄`)

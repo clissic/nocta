@@ -1,10 +1,7 @@
 import type { SyntheticEvent } from "react";
-import { venueCoverSrc } from "@nocta/shared";
+import { VENUE_PHOTO_FALLBACK, venueCoverSrc } from "@nocta/shared";
 
-export { venueCoverSrc };
-
-export const VENUE_PHOTO_FALLBACK =
-  "https://images.unsplash.com/photo-1571266028247-e6734c9d1d0c?w=1200";
+export { venueCoverSrc, VENUE_PHOTO_FALLBACK };
 
 export function onVenuePhotoError(event: SyntheticEvent<HTMLImageElement>) {
   const img = event.currentTarget;

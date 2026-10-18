@@ -217,7 +217,7 @@ export function LikesPage() {
               }}
             >
               <div className="likes-card-media">
-                {revealed && (like.user.photo || FALLBACK_PHOTO) ? (
+                {revealed ? (
                   <OptimizedImage
                     src={like.user.photo || FALLBACK_PHOTO}
                     alt=""
@@ -227,9 +227,20 @@ export function LikesPage() {
                   />
                 ) : (
                   <div className="likes-card-locked-media" aria-hidden="true">
-                    <span className="likes-card-locked-blob is-one" />
-                    <span className="likes-card-locked-blob is-two" />
-                    <span className="likes-card-locked-blob is-three" />
+                    {like.user.photo ? (
+                      <OptimizedImage
+                        src={like.user.photo}
+                        alt=""
+                        sizes="(min-width: 768px) 280px, 100vw"
+                      />
+                    ) : (
+                      <>
+                        <span className="likes-card-locked-blob is-one" />
+                        <span className="likes-card-locked-blob is-two" />
+                        <span className="likes-card-locked-blob is-three" />
+                      </>
+                    )}
+                    <span className="likes-card-locked-scrim" />
                     <i className="bi bi-lock-fill" />
                   </div>
                 )}

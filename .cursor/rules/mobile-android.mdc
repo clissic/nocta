@@ -1,0 +1,30 @@
+# Mobile Android (React Native / Expo)
+
+App nativa en `apps/mobile` (Expo). Misma API y `@nocta/shared` que web.
+
+## Producto
+
+- En copy: **Espacio / Espacios**, **Organizador** (no Local/dueño).
+- Wordmark visual: componente `NoctaWordmark` nativo (`no` + luna lima + `ta`, Syne 800).
+- Feedback de interacción: `useToast()` nativo — no `Alert` para éxitos/errores de acción (sí `Alert` para confirms destructivos, p. ej. cancelar Premium).
+- Sin panel admin en mobile.
+
+## Stack
+
+- Expo + React Navigation; JWT en `expo-secure-store`.
+- API: `EXPO_PUBLIC_API_URL` (emulador `http://10.0.2.2:4000`).
+- UI propia (StyleSheet / tokens). No portar Bootstrap ni pantallas de `apps/web`.
+- Imágenes: `NoctaImage` + `resolveImageUri` (no `<picture>`).
+- Mapas: `VenueMap` (WebView + Leaflet/CARTO). Clave `EXPO_PUBLIC_CARTO_BASEMAPS_API_KEY` = misma que web.
+- Premium: `PremiumScreen` + `PremiumPackagesSheet`; checkout con `expo-web-browser`.
+
+## Deep links
+
+- Scheme: `nocta://`
+- Reset / OAuth: API con `client=mobile` → redirects al scheme.
+
+## Docs
+
+- Sección viva: `README.md` → **Mobile**.
+- Paridad pendiente: `apps/mobile/BACKLOG-PARIDAD-WEB.md`.
+---

@@ -51,6 +51,7 @@ export {
   parseMediaImageId,
   isManagedMediaRef,
   isLegacyUploadRef,
+  extractLegacyUploadPath,
 } from "./refs.js";
 export { PROCESSING, MEDIA_REF_PREFIX } from "./processingConstants.js";
 export {
