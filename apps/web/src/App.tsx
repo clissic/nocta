@@ -3,6 +3,7 @@ import { useAuth } from "./auth/AuthContext";
 import { AppLayout } from "./components/AppLayout";
 import { AdminLayout } from "./components/admin/AdminLayout";
 import { RequireVenueLocation } from "./components/RequireVenueLocation";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
@@ -92,6 +93,7 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -124,10 +126,6 @@ export default function App() {
           </Protected>
         }
       >
-        <Route
-          index
-          element={<Navigate to="/venues" replace />}
-        />
         <Route
           path="venues"
           element={

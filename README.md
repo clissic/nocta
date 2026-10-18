@@ -27,7 +27,7 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 | Rol | Qué puede hacer |
 |-----|-----------------|
 | **user** | Registro → código email → onboarding (≥ `MIN_PHOTOS` fotos), Espacios, Likes recibidos, publicar presencia, Discover, match, chat, follows, solicitar integración de espacio, gestionar noticias/promos de espacios donde sea `ownerId` |
-| **admin** | Misma experiencia de app que un usuario (Espacios, Discover, etc.) y además acceso al **Panel** desde el menú de cuenta. Al entrar a `/` se redirige a `/venues` |
+| **admin** | Misma experiencia de app que un usuario (Espacios, Discover, etc.) y además acceso al **Panel** desde el menú de cuenta. Con sesión, `/` sigue a `/venues` |
 
 **Organizador de espacio:** no es un rol. Es `Venue.ownerId → User`. Un usuario puede ser organizador de varios espacios; aparecen en su perfil.
 
@@ -813,7 +813,7 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 | `/verify-email` | OTP 6 dígitos, pegado y reenvío con cooldown |
 | `/auth/callback` | Recibe `?token=` post-OAuth |
 | `/onboarding` | 6 pasos: datos + identidad + ubicación → estilo de vida → trabajo → búsqueda (1) + gustos → fotos (guardar) → Planazos (3 planes Premium; Omitir) |
-| `/` | Redirect a `/venues` |
+| `/` | Landing pública (logo + Ingresar → `/login`). Con sesión completa redirige a `/venues` |
 | `/venues` | Home de usuario. Cards 1/2/3 cols; strip “Publicado” con punto rojo que pulsa + CTA Discover; CTA para solicitar un Espacio faltante; ícono verificado si hay `ownerId` |
 | `/venues/:id` | Foto + mapa CARTO/Leaflet (`col-12` / `col-md-5` en desktop; en mobile el mapa va bajo el hero); reseñas y CTA; ícono de organizador al lado del nombre. Mobile nativo: mapa al final del detalle (`VenueMap`) |
 | `/venues/:id/manage` | Organizador: descripción, seguidores, acceso a edición, noticias, promos y Mercado Pago “próximamente” |
