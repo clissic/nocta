@@ -48,4 +48,5 @@ export type RootStackParamList = {
   VenueRequest: undefined;
   VenueManage: { venueId: string };
   VenueEdit: { venueId: string };
+  ResetPassword: { token: string };
 };

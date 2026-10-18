@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(6,6,8,0.72)",
   },
   sheetPanel: {

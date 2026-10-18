@@ -7169,16 +7169,29 @@ a.profile-gallery-placeholder {
   width: min(100%, 28rem);
   max-width: 28rem;
   margin: 0;
-  padding: 0;
+  padding: 2rem 1.75rem;
+  border: 0;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  animation: none;
+  transform: none;
   text-align: center;
+}
+
+.auth-hero.auth-hero-check .auth-wordmark {
+  justify-content: center;
+  width: 100%;
 }
 
 .turnstile-field.is-screen {
   position: relative;
   width: 300px;
   max-width: 100%;
-  height: 65px;
+  min-height: 65px;
+  height: auto;
+  line-height: normal;
   margin: 1.25rem auto;
   overflow: visible;
   pointer-events: auto;

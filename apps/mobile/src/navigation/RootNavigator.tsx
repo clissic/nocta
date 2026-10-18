@@ -164,6 +164,7 @@ function AppNavigator() {
       <RootStack.Screen name="VenueRequest" component={VenueRequestScreen} />
       <RootStack.Screen name="VenueManage" component={VenueManageScreen} />
       <RootStack.Screen name="VenueEdit" component={VenueEditScreen} />
+      <RootStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </RootStack.Navigator>
   );
 }
@@ -203,15 +204,10 @@ export function RootNavigator() {
   useEffect(() => {
     if (!pendingOpenPremium) return;
     if (!user?.profileComplete || planazosOffer) return;
+    if (!navigationRef.isReady()) return;
     const planId = pendingOpenPremium;
     setPendingOpenPremium(null);
-    const open = () => {
-      if (navigationRef.isReady()) {
-        navigationRef.navigate("Premium", { planId });
-      }
-    };
-    const t = setTimeout(open, 50);
-    return () => clearTimeout(t);
+    navigationRef.navigate("Premium", { planId });
   }, [
     pendingOpenPremium,
     planazosOffer,

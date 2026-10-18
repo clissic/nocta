@@ -62,6 +62,7 @@ export function ProfilePage() {
   const [followRequestsOpen, setFollowRequestsOpen] = useState(false);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const profile = user?.profile;
   const closeConnections = useCallback(() => setConnectionsMode(null), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
@@ -194,7 +195,6 @@ export function ProfilePage() {
   const gallerySlots = photoSlots.slice(1);
   const galleryFilled = gallerySlots.filter(Boolean).length;
   const photosEditHref = "/onboarding?edit=1&step=5";
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const validPromoCount = promoPurchases.filter((p) => p.status === "valid").length;
 
   return (

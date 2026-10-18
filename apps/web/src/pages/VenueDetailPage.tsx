@@ -43,34 +43,43 @@ export function VenueDetailPage() {
     let alive = true;
     (async () => {
       try {
-        const [data, presenceResponse] = await Promise.all([
-          api<{
-            venue: Venue;
-            promotions: Promotion[];
-            news: VenueNews[];
-          }>(`/api/venues/${id}`),
-          api<{
-            presence: Presence | null;
-            presences?: Presence[];
-            maxPresences?: number;
-          }>("/api/presence/me"),
-        ]);
+        const data = await api<{
+          venue: Venue;
+          promotions: Promotion[];
+          news: VenueNews[];
+        }>(`/api/venues/${id}`);
         if (!alive) return;
         setVenue(data.venue);
         setPromotions(data.promotions);
         setNews(data.news);
-        const list =
-          presenceResponse.presences ??
-          (presenceResponse.presence ? [presenceResponse.presence] : []);
-        setPresences(list);
-        setMaxPresences(
-          presenceResponse.maxPresences ??
-            maxActivePresencesForPlan(user?.premiumPlanId)
-        );
-        setPresence(
-          list.find((row) => row.venueId === id) ??
-            presenceResponse.presence
-        );
+        try {
+          const presenceResponse = await api<{
+            presence: Presence | null;
+            presences?: Presence[];
+            maxPresences?: number;
+          }>("/api/presence/me");
+          if (!alive) return;
+          const list =
+            presenceResponse.presences ??
+            (presenceResponse.presence ? [presenceResponse.presence] : []);
+          setPresences(list);
+          setMaxPresences(
+            presenceResponse.maxPresences ??
+              maxActivePresencesForPlan(user?.premiumPlanId)
+          );
+          setPresence(
+            list.find((row) => row.venueId === id) ??
+              presenceResponse.presence
+          );
+        } catch (err) {
+          if (alive) {
+            toast.error(
+              err instanceof ApiError
+                ? err.message
+                : "No se pudo cargar tu presencia"
+            );
+          }
+        }
       } catch {
         if (alive) setError("Espacio no encontrado");
       } finally {

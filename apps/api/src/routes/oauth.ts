@@ -19,22 +19,13 @@ import {
   parseOAuthReturnUrl,
 } from "../utils/oauthReturnUrl.js";
 import { oauthStartIpLimiter } from "../middleware/rateLimits.js";
+import { OAuthState } from "../models/OAuthState.js";
 import {
   refreshExpiredSuspension,
   suspensionError,
 } from "../utils/moderation.js";
 
 const router = Router();
-
-type PendingOAuth = {
-  provider: OAuthProvider;
-  client: AppClient;
-  /** Deep link / Expo URL de vuelta (mobile). */
-  returnUrl?: string;
-  exp: number;
-};
-
-const pendingStates = new Map<string, PendingOAuth>();
 
 function isProvider(value: string): value is OAuthProvider {
   return (OAUTH_PROVIDERS as readonly string[]).includes(value);
@@ -44,33 +35,39 @@ function paramProvider(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
-function rememberState(
+async function rememberState(
   provider: OAuthProvider,
   client: AppClient,
   returnUrl?: string
-): string {
+): Promise<string> {
   const state = randomBytes(24).toString("hex");
-  pendingStates.set(state, {
+  await OAuthState.create({
+    state,
     provider,
     client,
     returnUrl,
-    exp: Date.now() + 10 * 60 * 1000,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
   });
   return state;
 }
 
-function consumeState(
+async function consumeState(
   state: string,
   provider: OAuthProvider
-):
+): Promise<
   | { ok: true; client: AppClient; returnUrl?: string }
-  | { ok: false } {
-  const entry = pendingStates.get(state);
-  pendingStates.delete(state);
+  | { ok: false }
+> {
+  const entry = await OAuthState.findOneAndDelete({ state }).lean();
   if (!entry) return { ok: false };
-  if (entry.exp < Date.now()) return { ok: false };
+  if (entry.expiresAt.getTime() < Date.now()) return { ok: false };
   if (entry.provider !== provider) return { ok: false };
-  return { ok: true, client: entry.client, returnUrl: entry.returnUrl };
+  const client: AppClient = entry.client === "mobile" ? "mobile" : "web";
+  return {
+    ok: true,
+    client,
+    returnUrl: entry.returnUrl ?? undefined,
+  };
 }
 
 function frontendErrorRedirect(
@@ -130,7 +127,7 @@ function frontendSuspensionRedirect(
  * Inicia OAuth. `?client=mobile` + opcional `?returnUrl=` (Expo `exp://…` o `nocta://…`)
  * para que el AuthSession del emulador cierre al volver.
  */
-router.get("/:provider", oauthStartIpLimiter, (req, res) => {
+router.get("/:provider", oauthStartIpLimiter, async (req, res) => {
   const providerParam = paramProvider(req.params.provider);
   if (!isProvider(providerParam)) {
     return res.status(404).json({ error: "Proveedor OAuth desconocido" });
@@ -147,7 +144,7 @@ router.get("/:provider", oauthStartIpLimiter, (req, res) => {
   const client = parseAppClient(req.query.client);
   const returnUrl =
     client === "mobile" ? parseOAuthReturnUrl(req.query.returnUrl) : undefined;
-  const state = rememberState(providerParam, client, returnUrl);
+  const state = await rememberState(providerParam, client, returnUrl);
   const url = buildAuthorizeUrl(providerParam, state);
   return res.redirect(url);
 });
@@ -160,7 +157,7 @@ async function handleCallback(
   res: import("express").Response
 ) {
   const consumed = state
-    ? consumeState(state, provider)
+    ? await consumeState(state, provider)
     : { ok: false as const };
   const client = consumed.ok ? consumed.client : "web";
   const returnUrl = consumed.ok ? consumed.returnUrl : undefined;

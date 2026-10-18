@@ -154,7 +154,7 @@ export function MatchFlashModal({
               label="Seguir descubriendo"
               variant="outline"
               onPress={onClose}
-              style={[styles.actionBtn, styles.actionOutline]}
+              style={{ ...styles.actionBtn, ...styles.actionOutline }}
             />
           </View>
         </Animated.View>
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   dismiss: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   panel: {
     width: "100%",
@@ -190,13 +190,13 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   rings: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 0,
   },
   ring: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 999,
     borderWidth: 1.5,
     borderColor: "rgba(214,255,75,0.45)",

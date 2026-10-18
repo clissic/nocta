@@ -39,6 +39,10 @@ export function LoginScreen({ navigation }: Props) {
             ? "Cuenta suspendida permanentemente"
             : "Cuenta suspendida temporalmente"
         );
+      } else if (err instanceof ApiError && err.code === "EMAIL_NOT_VERIFIED") {
+        const pending =
+          typeof err.data.email === "string" ? err.data.email : nextEmail.trim();
+        navigation.navigate("VerifyEmail", { email: pending });
       } else {
         toast.error(
           err instanceof ApiError ? err.message : "No se pudo iniciar sesión"

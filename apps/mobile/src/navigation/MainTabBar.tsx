@@ -70,7 +70,9 @@ export function MainTabBar({ state, navigation }: BottomTabBarProps) {
     }
     void refresh();
     const id = setInterval(() => void refresh(), 12000);
-    const parent = navigation.getParent();
+    const parent = navigation.getParent<{
+      addListener(type: "state", callback: () => void): () => void;
+    }>();
     const unsub = parent?.addListener("state", () => {
       void refresh();
     });

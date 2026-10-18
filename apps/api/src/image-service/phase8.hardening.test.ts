@@ -235,9 +235,8 @@ describe("phase8 hardening — auth private / delivery", () => {
   });
 
   it("upload público → variantes storage + delete limpia metadata", async () => {
-    const storage = createMemoryStorage({
-      publicBaseUrl: "https://cdn.example.com",
-    });
+    const { getStorage } = await import("../storage/index.js");
+    const storage = getStorage();
     const ownerId = "pubowner000000000000000000001";
     const result = await ingestPublicImage({
       type: "user_profile",
@@ -255,7 +254,8 @@ describe("phase8 hardening — auth private / delivery", () => {
     assert.equal(result.keys.length, 6);
 
     const delivered = await resolveDeliveryUrl(result.mediaRef);
-    assert.ok(delivered?.startsWith("https://cdn.example.com/"));
+    assert.match(delivered ?? "", /\/api\/media\//);
+    assert.ok(!delivered?.includes("cdn.example.com"));
 
     await deleteManagedImage(result.imageId);
     assert.equal(await ImageAsset.findOne({ imageId: result.imageId }), null);

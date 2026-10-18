@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -139,21 +140,6 @@ router.post(
     }
 
     const previousPreapprovalId = req.user!.mpPreapprovalId?.trim() || null;
-    if (previousPreapprovalId) {
-      try {
-        const api = new PreApproval(client);
-        await api.update({
-          id: previousPreapprovalId,
-          body: { status: "cancelled" },
-        });
-      } catch (err) {
-        console.error("[mp] cancel previous preapproval on upgrade failed", err);
-        return res.status(502).json({
-          error: "No se pudo reemplazar la suscripción anterior en Mercado Pago",
-          code: "MP_CANCEL_FAILED",
-        });
-      }
-    }
 
     const amount = premiumPeriodPriceUsd(
       parsed.data.periodMonths,
@@ -203,6 +189,20 @@ router.post(
         return res.status(502).json({
           error: "No se pudo crear la suscripción de Mercado Pago",
         });
+      }
+
+      if (previousPreapprovalId && previousPreapprovalId !== result.id) {
+        try {
+          await preapproval.update({
+            id: previousPreapprovalId,
+            body: { status: "cancelled" },
+          });
+        } catch (err) {
+          console.error(
+            "[mp] cancel previous preapproval after upgrade failed",
+            err
+          );
+        }
       }
 
       return res.json({
@@ -298,6 +298,21 @@ async function applyApprovedPayment(paymentId: string) {
 
   if (!purchase) return;
 
+  const paid = Number(payment.transaction_amount);
+  const expected = Number(purchase.amount);
+  if (
+    Number.isFinite(paid) &&
+    Number.isFinite(expected) &&
+    Math.abs(paid - expected) >= 0.001
+  ) {
+    console.error("[mp] amount mismatch", {
+      paid,
+      expected,
+      purchaseId: purchase._id.toString(),
+    });
+    return;
+  }
+
   const nextPaymentAt =
     payment.date_approved != null
       ? (() => {
@@ -390,7 +405,44 @@ async function syncPreapprovalStatus(preapprovalId: string) {
   }
 }
 
+function mercadoPagoSignatureOk(req: {
+  header(name: string): string | undefined;
+  query: Record<string, unknown>;
+  body?: { data?: { id?: unknown } };
+}): boolean {
+  const secret = config.mercadoPago.webhookSecret.trim();
+  if (!secret) return true;
+  const signature = req.header("x-signature") ?? "";
+  const requestId = req.header("x-request-id") ?? "";
+  let ts = "";
+  let v1 = "";
+  for (const part of signature.split(",")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim();
+    const value = part.slice(eq + 1).trim();
+    if (key === "ts") ts = value;
+    if (key === "v1") v1 = value;
+  }
+  const rawId =
+    (typeof req.query["data.id"] === "string" && req.query["data.id"]) ||
+    (typeof req.body?.data?.id === "string" && req.body.data.id) ||
+    (typeof req.body?.data?.id === "number" && String(req.body.data.id)) ||
+    "";
+  if (!ts || !v1 || !rawId) return false;
+  const id = /^[A-Za-z0-9]+$/.test(rawId) ? rawId.toLowerCase() : rawId;
+  const manifest = `id:${id};request-id:${requestId};ts:${ts};`;
+  const expected = createHmac("sha256", secret).update(manifest).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(v1);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 router.post("/webhook", async (req, res) => {
+  if (!mercadoPagoSignatureOk(req)) {
+    return res.status(401).json({ error: "Firma inválida" });
+  }
   try {
     const topic =
       (typeof req.query.type === "string" && req.query.type) ||

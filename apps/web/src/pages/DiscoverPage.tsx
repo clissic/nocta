@@ -1201,13 +1201,21 @@ export function DiscoverPage() {
             aria-label="Dejar de publicar"
             onClick={async () => {
               const venueId = presence.venueId;
-              await api(
-                `/api/presence/me${
-                  venueId ? `?venueId=${encodeURIComponent(venueId)}` : ""
-                }`,
-                { method: "DELETE" }
-              );
-              await load(null);
+              try {
+                await api(
+                  `/api/presence/me${
+                    venueId ? `?venueId=${encodeURIComponent(venueId)}` : ""
+                  }`,
+                  { method: "DELETE" }
+                );
+                await load(null);
+              } catch (err) {
+                toast.error(
+                  err instanceof ApiError
+                    ? err.message
+                    : "No se pudo dejar de publicar"
+                );
+              }
             }}
           >
             <i className="bi bi-eye-slash fs-5" aria-hidden="true" />

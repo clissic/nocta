@@ -27,11 +27,19 @@ interface AuthState {
   /** Plan elegido en Planazos; al entrar a Main se abre Premium con ese plan. */
   pendingOpenPremium: PremiumPlanId | null;
   setPendingOpenPremium: (value: PremiumPlanId | null) => void;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (
+    email: string,
+    password: string,
+    turnstileToken?: string
+  ) => Promise<AuthUser>;
   register: (
     email: string,
     password: string,
-    extra?: { name?: string; marketingEmailsOptIn?: boolean }
+    extra?: {
+      name?: string;
+      marketingEmailsOptIn?: boolean;
+      turnstileToken?: string;
+    }
   ) => Promise<AuthUser>;
   verifyEmail: (code: string, email?: string) => Promise<AuthUser>;
   resendVerification: (email: string) => Promise<{ expiresInMinutes?: number }>;

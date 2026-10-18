@@ -75,6 +75,12 @@ export function HumanCheckScreen({ navigation, route }: Props) {
           navigation.goBack();
           return;
         }
+        if (err instanceof ApiError && err.code === "EMAIL_NOT_VERIFIED") {
+          const pending =
+            typeof err.data.email === "string" ? err.data.email : request.email;
+          navigation.navigate("VerifyEmail", { email: pending });
+          return;
+        }
       }
       fail(err instanceof ApiError ? err.message : "No se pudo continuar");
     } finally {

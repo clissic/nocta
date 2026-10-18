@@ -173,6 +173,7 @@ export function AccountDrawer({ visible, onClose }: Props) {
   }
 
   function openTeleport() {
+    if (!user) return;
     const canTeleport = Boolean(
       user.premium && planHasFeature(user.premiumPlanId, "teleport")
     );

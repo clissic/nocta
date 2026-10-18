@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { ImageAsset } from "../models/ImageAsset.js";
-import { resetStorageSingleton } from "../storage/index.js";
+import { getStorage, resetStorageSingleton } from "../storage/index.js";
+import { ensureUploadsDir, UPLOADS_DIR } from "../uploads/paths.js";
 import {
   canonicalizeIncomingPhotoRefs,
   resolveDeliveryUrl,
@@ -29,10 +32,19 @@ describe("resolveDelivery", () => {
     resetStorageSingleton();
   });
 
-  it("legacy /uploads sigue vía API (absolutizado)", async () => {
-    const url = await resolveDeliveryUrl("/uploads/abc.webp");
-    assert.ok(url);
-    assert.match(url, /\/uploads\/abc\.webp$/);
+  it("legacy /uploads ausente no se entrega; si el archivo existe, va por la API", async () => {
+    assert.equal(await resolveDeliveryUrl("/uploads/missing-abc.webp"), undefined);
+    ensureUploadsDir();
+    const name = "abc-delivery-test.webp";
+    const file = join(UPLOADS_DIR, name);
+    writeFileSync(file, Buffer.from("x"));
+    try {
+      const url = await resolveDeliveryUrl(`/uploads/${name}`);
+      assert.ok(url);
+      assert.match(url, new RegExp(`/uploads/${name}$`));
+    } finally {
+      rmSync(file, { force: true });
+    }
   });
 
   it("https externo sin media id pasa intacto", async () => {
@@ -40,7 +52,7 @@ describe("resolveDelivery", () => {
     assert.equal(url, "https://images.example.com/x.jpg");
   });
 
-  it("pública managed → URL directa al Object Storage (CDN)", async () => {
+  it("pública managed en memory → proxy /api/media", async () => {
     const imageId = "pubimg000000000000000000000001";
     const key = `public/users/u1/${imageId}/medium.webp`;
     await ImageAsset.create({
@@ -68,10 +80,16 @@ describe("resolveDelivery", () => {
       },
       keys: [key],
     });
+    await getStorage().putObject({
+      key,
+      body: Buffer.from("webp"),
+      contentType: "image/webp",
+    });
 
     const url = await resolveDeliveryUrl(mediaRefForImageId(imageId));
-    assert.equal(url, `https://cdn.example.com/${key}`);
-    assert.ok(!url.includes("/api/media/"));
+    assert.ok(url);
+    assert.match(url, new RegExp(`/api/media/${imageId}`));
+    assert.ok(!url.includes("cdn.example.com"));
     assert.ok(!url.includes("/uploads/"));
   });
 
@@ -96,7 +114,7 @@ describe("resolveDelivery", () => {
     assert.equal(url, undefined);
   });
 
-  it("batch + canonicalize round-trip CDN → ref estable", async () => {
+  it("batch + canonicalize round-trip proxy → ref estable", async () => {
     const imageId = "pubimg000000000000000000000002";
     const key = `public/spaces/s1/${imageId}/medium.webp`;
     await ImageAsset.create({
@@ -124,10 +142,15 @@ describe("resolveDelivery", () => {
       },
       keys: [key],
     });
+    await getStorage().putObject({
+      key,
+      body: Buffer.from("webp"),
+      contentType: "image/webp",
+    });
 
     const stable = mediaRefForImageId(imageId);
     const [delivered] = await resolveDeliveryUrls([stable]);
-    assert.equal(delivered, `https://cdn.example.com/${key}`);
+    assert.match(delivered ?? "", new RegExp(`/api/media/${imageId}`));
 
     const back = await canonicalizeIncomingPhotoRefs([delivered], [stable]);
     assert.deepEqual(back, [stable]);

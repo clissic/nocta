@@ -147,12 +147,10 @@ async function serializeCard(
   u: DiscoverCardUser,
   presenceId: string,
   preResolvedPrimaryPhoto?: string | null
-): Promise<DiscoverCard> {
-  const profile = u.profile!;
-  const birthDate = profile.birthDate;
-  if (!birthDate) {
-    throw new Error("Perfil incompleto en discover");
-  }
+): Promise<DiscoverCard | null> {
+  const profile = u.profile;
+  const birthDate = profile?.birthDate;
+  if (!profile || !birthDate) return null;
   return {
     userId: u._id.toString(),
     profile: {
@@ -369,20 +367,23 @@ router.get("/feed", async (req: AuthedRequest, res) => {
     );
   }
 
-  const cardRows = await Promise.all(
-    filteredUsers.map(async (u) => {
-      const presence = candidates.find(
-        (c) => c.userId.toString() === u._id.toString()
-      )!;
-      return {
-        card: await serializeCard(
+  const cardRows = (
+    await Promise.all(
+      filteredUsers.map(async (u) => {
+        const presence = candidates.find(
+          (c) => c.userId.toString() === u._id.toString()
+        )!;
+        const card = await serializeCard(
           u,
           presence._id.toString(),
           primaryByUserId.get(u._id.toString())
-        ),
-        boosted: isBoostActive(u),
-      };
-    })
+        );
+        if (!card) return null;
+        return { card, boosted: isBoostActive(u) };
+      })
+    )
+  ).filter(
+    (row): row is { card: DiscoverCard; boosted: boolean } => row != null
   );
 
   const boosted = cardRows.filter((c) => c.boosted).map((c) => c.card);
@@ -510,14 +511,23 @@ router.post("/swipe", swipeLimiter, async (req: AuthedRequest, res) => {
       direction: parsed.data.direction,
       isHeartshot: wantHeartshot,
     });
-  } catch {
+  } catch (err) {
     if (likeResult?.consumed) {
       await refundLike(user._id.toString());
     }
     if (heartshotConsumed) {
       await refundHeartshot(user._id.toString());
     }
-    return res.status(409).json({ error: "Ya swipaste a esta persona aquí" });
+    const duplicate =
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: number }).code === 11000;
+    if (duplicate) {
+      return res.status(409).json({ error: "Ya swipaste a esta persona aquí" });
+    }
+    console.error("[discover] swipe create failed", err);
+    return res.status(500).json({ error: "No se pudo registrar el swipe" });
   }
 
   let match: { id: string } | null = null;

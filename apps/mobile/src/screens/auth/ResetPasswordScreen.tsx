@@ -24,7 +24,11 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
         body: JSON.stringify({ token: route.params.token, password }),
       });
       toast.success("Contraseña actualizada");
-      navigation.navigate("Login");
+      if (navigation.getState().routeNames.includes("Login")) {
+        navigation.navigate("Login");
+      } else if (navigation.canGoBack()) {
+        navigation.goBack();
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Link inválido");
     } finally {

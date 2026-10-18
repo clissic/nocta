@@ -10,11 +10,13 @@ type TurnstileApi = {
       theme: "dark";
       size: "normal";
       appearance: "always";
+      retry: "never";
       callback: (token: string) => void;
       "expired-callback": () => void;
-      "error-callback": () => void;
+      "error-callback": (errorCode?: number) => boolean;
     }
   ) => string;
+  reset: (widgetId: string) => void;
   remove: (widgetId: string) => void;
 };
 
@@ -73,9 +75,15 @@ export function TurnstileField({ resetKey, onToken, onError }: Props) {
           theme: "dark",
           size: "normal",
           appearance: "always",
+          retry: "never",
           callback: (token) => onTokenRef.current(token),
-          "expired-callback": () => onErrorRef.current?.(),
-          "error-callback": () => onErrorRef.current?.(),
+          "expired-callback": () => {
+            if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
+          },
+          "error-callback": () => {
+            onErrorRef.current?.();
+            return true;
+          },
         });
       })
       .catch(() => onErrorRef.current?.());

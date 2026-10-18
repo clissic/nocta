@@ -123,13 +123,33 @@ export function HumanCheckPage() {
             <TurnstileField
               resetKey={turnstileKey}
               onToken={(token) => void onToken(token)}
-              onError={() => fail("No pudimos verificar que seas una persona. Probá de nuevo.")}
+              onError={() => {
+                started.current = false;
+                setBusy(false);
+                setError(
+                  "No pudimos verificar que seas una persona. Probá de nuevo."
+                );
+              }}
             />
             {busy ? <p className="small text-secondary mb-0">Un momento…</p> : null}
             {error ? <p className="text-danger small mb-0">{error}</p> : null}
+            {error ? (
+              <button
+                type="button"
+                className="btn btn-link d-block mx-auto py-0"
+                onClick={() => {
+                  started.current = false;
+                  setBusy(false);
+                  setError("");
+                  setTurnstileKey((current) => current + 1);
+                }}
+              >
+                Reintentar
+              </button>
+            ) : null}
             <button
               type="button"
-              className="btn btn-link text-secondary"
+              className="btn btn-link d-block mx-auto text-secondary"
               onClick={() => navigate(-1)}
               disabled={busy}
             >

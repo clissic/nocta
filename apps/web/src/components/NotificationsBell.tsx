@@ -133,8 +133,12 @@ export function NotificationsBell() {
           )
         );
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError
+          ? err.message
+          : "No se pudieron marcar como leídas"
+      );
     }
   }
 
