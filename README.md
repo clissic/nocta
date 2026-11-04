@@ -109,18 +109,27 @@ En **producción** el boot es liviano por defecto: no corre demos/pilotos/normal
 
 ## Credenciales demo
 
-| Cuenta | Email | Password | Notas |
-|--------|-------|----------|--------|
-| Admin | `admin@nocta.app` | `Admin1234!` | Configurable con `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
-| Sofía | `sofia@nocta.app` | `Demo1234!` | Premium **2 AM** en seed |
-| Mateo | `mateo@nocta.app` | `Demo1234!` | Premium **4 AM** + compra demo de “Promo Nocta” en Jackson Bar |
-| Valentina | `valentina@nocta.app` | `Demo1234!` | Premium **6 AM** (Espía + Clone) |
+Las cuentas de demostración (admin y usuarios de prueba) se configuran mediante las siguientes variables de entorno:
 
-Los tres users demo quedan publicados en **Jackson Bar** (útiles para probar Discover / match). También hay follows demo hacia Malafama y Volvé Mi Negra.
+| Variable | Descripción |
+|----------|-------------|
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credenciales de la cuenta administradora (seed) |
+| Cuentas demo | `sofia@nocta.app`, `mateo@nocta.app`, `valentina@nocta.app` |
 
-Al arrancar la API se resincronizan estas cuentas contra la base: `emailVerified: true`, password de esta tabla (aunque el seed completo se omita), presencia 48h renovada en Jackson Bar, y limpieza de swipes/matches que las involucren para que vuelvan al Discover. En el feed, **solo** Sofía / Mateo / Valentina (`sofia|mateo|valentina@nocta.app`) saltan el filtro mutuo de género para poder probar.
+**Configuración:**
+- Las credenciales **no** están en el repositorio público
+- Se comparten de forma privada al equipo de desarrollo
+- Alternativamente, configurar vía variables de entorno o seed local
 
-En login hay atajos visuales para cargar estas cuentas (demo).
+**Comportamiento del seed:**
+
+
+- Los tres users demo quedan publicados en **Jackson Bar** (útiles para probar Discover / match)
+- También hay follows demo hacia Malafama y Volvé Mi Negra
+- Al arrancar la API se resincronizan estas cuentas: `emailVerified: true`, presencia 48h renovada en Jackson Bar, limpieza de swipes/matches
+- En el feed, **solo** Sofía / Mateo / Valentina saltan el filtro mutuo de género para poder probar
+
+**Nota de seguridad:** Si necesitás rotar las credenciales porque están en el historial de git, hacelo en el código de seed y comunicalo al equipo.
 
 ---
 
