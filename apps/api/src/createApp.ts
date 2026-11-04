@@ -32,6 +32,7 @@ import {
   authedUserLimiter,
   publicReadLimiter,
 } from "./middleware/rateLimits.js";
+import { rejectBrotli } from "./middleware/rejectBrotli.js";
 
 /** App Express sin listen (tests E2E / boot). */
 export function createApp() {
@@ -43,6 +44,7 @@ export function createApp() {
   ensureTempUploadDir();
 
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
+  app.use(rejectBrotli);
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
   if (process.env.NOCTA_E2E !== "1" && process.env.MORGAN !== "0") {

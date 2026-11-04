@@ -18,7 +18,8 @@ App de citas acotada a salidas nocturnas: el perfil permanece oculto hasta publi
 8. [Frontend](#frontend)
 9. [Mobile](#mobile-android--expo)
 10. [Shared](#shared-noctashared)
-11. [Convenciones](#convenciones)
+11. [Seguridad](#seguridad)
+12. [Convenciones](#convenciones)
 
 ---
 
@@ -66,7 +67,7 @@ Stack: **MERN** (Mongo, Express, React, Node) + TypeScript + workspaces npm + **
 
 ## Setup
 
-Requisitos: **Node 20+**.
+Requisitos: **Node 24.22.1+** (fix CVE-2026-111497 — Node2Shell RCE en decodificador Brotli).
 
 ```bash
 npm install
@@ -74,6 +75,11 @@ cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 cp apps/mobile/.env.example apps/mobile/.env
 ```
+
+**Versión de Node:**
+- `.nvmrc` y `.node-version` fijan `24.22.1` para el monorepo
+- `package.json` engines: `>=24.22.1`
+- Railway (Railpack/Nixpacks) lee `.nvmrc` automáticamente; no requiere variable de entorno adicional
 
 Dos o tres terminales:
 
@@ -1091,6 +1097,45 @@ Tipos y catálogos usados por API, Web y Mobile:
 - Tipos: `AuthUser`, `SuspensionDuration`, `ModerationStatus`, `FollowListUser`, `FollowRequestItem`, `Venue`, `VenueReview`, `DiscoverCard`, `AdminReport`, etc.
 
 Tras cambiar shared: `npm run build:shared` (o `postinstall`).
+
+---
+
+## Seguridad
+
+### CVE-2026-111497 (Node2Shell)
+
+RCE en el decodificador Brotli de Node.js < 22.23.4 / 24.22.1 / 26.12.1.
+
+**Mitigaciones implementadas:**
+
+1. **Node 24.22.1+** requerido (`engines`, `.nvmrc`, `.node-version`)
+2. **Fetch hardening** (`apps/api/src/utils/likePhotoTeaser.ts`):
+   - `Accept-Encoding: gzip, deflate, identity` (excluye `br`)
+   - `redirect: "manual"` + validación manual de redirects
+   - Whitelist de hosts externos permitidos (solo Unsplash para seed)
+3. **Middleware `rejectBrotli`** (`apps/api/src/middleware/rejectBrotli.ts`):
+   - Rechaza requests inbound con `Content-Encoding: br` → HTTP 415
+   - Montado antes de `express.json()` / `express.urlencoded()`
+4. **Dependencias actualizadas** vía `npm audit fix`:
+   - `nodemailer@10.2.1` (parches de seguridad múltiples)
+   - `express`, `multer`, `sharp`, `body-parser`, `follow-redirects`, etc.
+
+**Pendiente (major upgrades):**
+
+- `zod@3` → `4` (breaking change; requiere refactor de validaciones)
+- Expo mobile deps (`node-forge`, `@expo/cli`) — no explotan el vector br en el caso de uso actual
+
+**Railway:**
+
+Railway lee `.nvmrc` automáticamente (Railpack/Nixpacks). No requiere `NODE_VERSION` manual, pero verificar tras el próximo deploy que ambos servicios (`@nocta/api` y `@nocta/web`) corran Node 24.22.1+:
+
+```bash
+# Desde Railway CLI o panel:
+railway logs --service api | grep "node v"
+railway logs --service web | grep "node v"
+```
+
+Si el build no respeta `.nvmrc`, forzar con variable de entorno `NODE_VERSION=24.22.1` en la configuración del servicio.
 
 ---
 

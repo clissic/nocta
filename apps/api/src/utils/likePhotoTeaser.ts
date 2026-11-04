@@ -88,11 +88,56 @@ async function loadPhotoBytes(photoRef: string): Promise<Buffer | null> {
   // Seed / externos (p. ej. Unsplash): bajar bytes en el servidor para blurrear.
   if (/^https?:\/\//i.test(trimmed)) {
     try {
+      // CVE-2026-111497 (Node2Shell): rechazar br, limitar redirects, restricción de hosts
+      const url = new URL(trimmed);
+      const allowedHosts = [
+        "images.unsplash.com",
+        "source.unsplash.com",
+        "plus.unsplash.com",
+      ];
+      if (!allowedHosts.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))) {
+        console.warn(`[teaser] host no permitido: ${url.hostname}`);
+        return null;
+      }
+
       const res = await fetch(trimmed, {
-        redirect: "follow",
+        redirect: "manual", // No seguir redirects automáticamente (CVE-2026-111497)
         signal: AbortSignal.timeout(10_000),
-        headers: { Accept: "image/*" },
+        headers: {
+          Accept: "image/*",
+          // Rechazar Brotli explícitamente (Node2Shell RCE)
+          "Accept-Encoding": "gzip, deflate, identity",
+        },
       });
+
+      // Si hay redirect, validar que el destino también sea de host permitido
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (location) {
+          const redirectUrl = new URL(location, trimmed);
+          if (!allowedHosts.some((h) => redirectUrl.hostname === h || redirectUrl.hostname.endsWith(`.${h}`))) {
+            console.warn(`[teaser] redirect a host no permitido: ${redirectUrl.hostname}`);
+            return null;
+          }
+          // Seguir un solo redirect validado
+          const finalRes = await fetch(redirectUrl.href, {
+            redirect: "error", // No más redirects
+            signal: AbortSignal.timeout(10_000),
+            headers: {
+              Accept: "image/*",
+              "Accept-Encoding": "gzip, deflate, identity",
+            },
+          });
+          if (!finalRes.ok) return null;
+          const buf = Buffer.from(await finalRes.arrayBuffer());
+          if (!buf.length || buf.length > PROCESSING.socialMaxUploadBytes) {
+            return null;
+          }
+          return buf;
+        }
+        return null;
+      }
+
       if (!res.ok) return null;
       const buf = Buffer.from(await res.arrayBuffer());
       if (!buf.length || buf.length > PROCESSING.socialMaxUploadBytes) {
