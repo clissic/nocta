@@ -22,6 +22,6 @@
     "purge:deleted-accounts": "npm run purge:deleted-accounts -w @nocta/api --"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.22.1"
   }
 }

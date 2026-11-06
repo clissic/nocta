@@ -92,7 +92,7 @@ async function buildSmtpTransporter(): Promise<Transporter> {
       minVersion: "TLSv1.2",
     },
     ...(port === 587 ? { requireTLS: true } : {}),
-  } as nodemailer.TransportOptions);
+  });
 }
 
 async function getTransporter(): Promise<Transporter> {
