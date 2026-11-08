@@ -14,11 +14,12 @@ import type { AuthStackParamList } from "../../navigation/types";
 
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
+// Credenciales demo: configuradas en el servidor, no expuestas en el cliente
 const DEMOS = [
-  { label: "Sofía", email: "sofia@nocta.app", password: "Demo1234!" },
-  { label: "Mateo", email: "mateo@nocta.app", password: "Demo1234!" },
-  { label: "Valentina", email: "valentina@nocta.app", password: "Demo1234!" },
-  { label: "Admin", email: "admin@nocta.app", password: "Admin1234!" },
+  { label: "Sofía", email: "sofia@nocta.app" },
+  { label: "Mateo", email: "mateo@nocta.app" },
+  { label: "Valentina", email: "valentina@nocta.app" },
+  { label: "Admin", email: "admin@nocta.app" },
 ];
 
 export function LoginScreen({ navigation }: Props) {
@@ -171,8 +172,7 @@ export function LoginScreen({ navigation }: Props) {
               onPress={() => {
                 if (busy) return;
                 setEmail(demo.email);
-                setPassword(demo.password);
-                void doLogin(demo.email, demo.password);
+                setPassword("");
               }}
             />
           ))}

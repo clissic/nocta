@@ -15,11 +15,12 @@ import {
   type SuspensionNotice,
 } from "../lib/api";
 
+// Credenciales demo: configuradas en el servidor, no expuestas en el cliente
 const DEMO_ACCOUNTS = [
-  { email: "sofia@nocta.app", password: "Demo1234!", label: "Sofía" },
-  { email: "mateo@nocta.app", password: "Demo1234!", label: "Mateo" },
-  { email: "valentina@nocta.app", password: "Demo1234!", label: "Valentina" },
-  { email: "admin@nocta.app", password: "Admin1234!", label: "Admin" },
+  { email: "sofia@nocta.app", label: "Sofía" },
+  { email: "mateo@nocta.app", label: "Mateo" },
+  { email: "valentina@nocta.app", label: "Valentina" },
+  { email: "admin@nocta.app", label: "Admin" },
 ] as const;
 
 function startOAuth(provider: OAuthProvider) {
@@ -273,7 +274,10 @@ export function LoginPage() {
               type="button"
               className="btn btn-sm btn-outline-light"
               disabled={busy}
-              onClick={() => void doLogin(account.email, account.password)}
+              onClick={() => {
+                setEmail(account.email);
+                setPassword("");
+              }}
             >
               {account.label}
             </button>
