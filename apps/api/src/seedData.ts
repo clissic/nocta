@@ -737,7 +737,7 @@ export async function seedDemoData() {
   await ensureDemoAds();
 
   console.log(
-    "Usuarios demo (password Demo1234!): sofia@nocta.app (2 AM), mateo@nocta.app (4 AM), valentina@nocta.app (6 AM) — publicados en Jackson Bar"
+    "Usuarios demo creados/sincronizados: sofia@nocta.app (2 AM), mateo@nocta.app (4 AM), valentina@nocta.app (6 AM) — publicados en Jackson Bar"
   );
 }
 
