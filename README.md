@@ -503,7 +503,7 @@ Discover, presence, matches y varias mutaciones de venues/muro exigen `emailVeri
 
 ### Profile y fotos
 
-`MIN_PHOTOS=1`, `MAX_PHOTOS=10`, `MIN_AGE=16`, `MAX_AGE=99`; `photos[0]`=avatar. Upload multipart `photo`/`photos` vía multer → ingest Object Storage (públicos nuevos).
+`MIN_PHOTOS=1`, `MAX_PHOTOS=10`, `MIN_AGE=18`, `MAX_AGE=99`; `photos[0]`=avatar. Upload multipart `photo`/`photos` vía multer → ingest Object Storage (públicos nuevos).
 
 **Contrato fotos en JSON:** en Mongo las refs managed siguen siendo `/api/media/{id}` (o `/uploads/...` legacy). En respuestas API, `serialize*` las expande a URL directa Storage/CDN (o absolutiza legacy). El PUT de perfil canónica URLs firmadas/CDN de vuelta a la ref estable.
 
