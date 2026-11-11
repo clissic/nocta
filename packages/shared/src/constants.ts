@@ -278,7 +278,7 @@ export const PRESENCE_PRESETS = [
 
 export const MIN_PHOTOS = 1;
 export const MAX_PHOTOS = 10;
-export const MIN_AGE = 16;
+export const MIN_AGE = 18;
 export const MAX_AGE = 99;
 export const DAILY_LIKE_LIMIT = 50;
 export const LIKE_RECHARGE_HOURS = 8;
