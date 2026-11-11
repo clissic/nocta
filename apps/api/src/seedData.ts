@@ -8,7 +8,7 @@ import {
   PREMIUM_ALLOWANCE_CYCLE_DAYS,
   premiumPeriodPriceUsd,
 } from "@nocta/shared";
-import { config } from "./config.js";
+import { config, hasAdminCredentials } from "./config.js";
 import type { UserDocument } from "./models/User.js";
 import { User } from "./models/User.js";
 import { Venue } from "./models/Venue.js";
@@ -382,7 +382,18 @@ export async function syncPilotVenues() {
   return venues;
 }
 
-export async function seedDemoData() {
+/**
+ * Crea/actualiza la cuenta admin del seed solo si hay ADMIN_EMAIL y
+ * ADMIN_PASSWORD. Sin contraseña no hay default: se omite con una advertencia
+ * (nunca se loguean credenciales).
+ */
+async function seedAdminAccount() {
+  if (!hasAdminCredentials()) {
+    console.warn(
+      "ADMIN_EMAIL/ADMIN_PASSWORD no configurados: se omite la cuenta admin del seed."
+    );
+    return;
+  }
   const passwordHash = await bcrypt.hash(config.adminPassword, 10);
   await User.findOneAndUpdate(
     { email: config.adminEmail },
@@ -402,6 +413,10 @@ export async function seedDemoData() {
     },
     { upsert: true, new: true }
   );
+}
+
+export async function seedDemoData() {
+  await seedAdminAccount();
 
   const venues = await syncPilotVenues();
   const jackson = venues.find((v) => v.name === PILOT_DEMO_VENUE_NAME)!;
@@ -722,7 +737,7 @@ export async function seedDemoData() {
   await ensureDemoAds();
 
   console.log(
-    "Usuarios demo (password Demo1234!): sofia@nocta.app (2 AM), mateo@nocta.app (4 AM), valentina@nocta.app (6 AM) — publicados en Jackson Bar"
+    "Usuarios demo creados/sincronizados: sofia@nocta.app (2 AM), mateo@nocta.app (4 AM), valentina@nocta.app (6 AM) — publicados en Jackson Bar"
   );
 }
 
@@ -735,11 +750,16 @@ export async function ensureDemoAccounts() {
   await ensureDemoAds();
 
   const targets = [
-    {
-      email: config.adminEmail.toLowerCase(),
-      password: config.adminPassword,
-      premium: false,
-    },
+    // El admin solo se resincroniza si hay credenciales configuradas.
+    ...(hasAdminCredentials()
+      ? [
+          {
+            email: config.adminEmail.toLowerCase(),
+            password: config.adminPassword,
+            premium: false,
+          },
+        ]
+      : []),
     ...DEMO_USERS.map((d) => ({
       email: d.email.toLowerCase(),
       password: d.password,

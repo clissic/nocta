@@ -23,9 +23,7 @@ const app = createApp();
 async function maybeSeed() {
   if (isMemoryDb) {
     await seedDemoData();
-    console.log(
-      `Datos demo (memory). Admin: ${config.adminEmail} / ${config.adminPassword}`
-    );
+    console.log("Datos demo (memory) listos.");
     return;
   }
 
@@ -39,9 +37,7 @@ async function maybeSeed() {
 
   console.log("Atlas vacío — cargando seed inicial…");
   await seedDemoData();
-  console.log(
-    `Seed Atlas listo. Admin: ${config.adminEmail} / ${config.adminPassword}`
-  );
+  console.log("Seed Atlas listo.");
 }
 
 async function start() {

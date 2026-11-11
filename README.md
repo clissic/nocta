@@ -119,7 +119,7 @@ Las cuentas de demostración (admin y usuarios de prueba) se configuran mediante
 
 | Variable | Descripción |
 |----------|-------------|
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credenciales de la cuenta administradora (seed) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credenciales de la cuenta administradora (seed). Sin default en el código: si falta alguna, el seed no crea el admin y lo avisa en el log |
 | Cuentas demo | `sofia@nocta.app`, `mateo@nocta.app`, `valentina@nocta.app` |
 
 **Configuración:**
@@ -210,7 +210,7 @@ Ver `apps/api/.env.example`.
 | `CLIENT_ORIGIN` | CORS + redirects OAuth/web (URL del web, p. ej. Railway) |
 | `MOBILE_APP_SCHEME` | Scheme deep link nativo (default `nocta`) para reset/OAuth con `client=mobile` |
 | `API_PUBLIC_URL` | Base pública de la API; absolutiza `/uploads/` legacy en JSON |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed (defaults de la tabla demo) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta admin del seed. Obligatorias para crear el admin (no hay contraseña por defecto; nunca se loguea) |
 | `MAIL_TRANSPORT` | `auto` (default) \| `smtp` \| `resend` — `smtp` fuerza Gmail aunque exista `RESEND_API_KEY` |
 | `RESEND_API_KEY` | Mail vía Resend (HTTPS). En `auto` tiene prioridad; sin dominio solo envía al mail de la cuenta Resend |
 | `SMTP_*` / `MAIL_FROM` / `MAIL_NOTIFY_TO` / `MAIL_DEV_LOG` | Nodemailer (DNS IPv4); `MAIL_NOTIFY_TO` recibe solicitudes de Espacios (fallback `SMTP_USER`) |

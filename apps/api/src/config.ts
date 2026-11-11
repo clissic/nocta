@@ -11,6 +11,11 @@ function env(key: string, fallback = ""): string {
   return String(raw).replace(/^["']|["']$/g, "").trim();
 }
 
+/** true si hay ADMIN_EMAIL y ADMIN_PASSWORD para crear/resincronizar el admin. */
+export function hasAdminCredentials(): boolean {
+  return Boolean(env("ADMIN_EMAIL") && env("ADMIN_PASSWORD"));
+}
+
 function envBool(key: string, fallback: boolean): boolean {
   const raw = env(key, fallback ? "1" : "0").toLowerCase();
   if (["1", "true", "yes", "on"].includes(raw)) return true;
@@ -80,7 +85,11 @@ export const config = {
   mobileAppScheme: env("MOBILE_APP_SCHEME", "nocta").replace(/:\/\/$/, ""),
   apiPublicUrl: env("API_PUBLIC_URL", "http://localhost:4000"),
   adminEmail: env("ADMIN_EMAIL", "admin@nocta.app"),
-  adminPassword: env("ADMIN_PASSWORD", "Admin1234!"),
+  /**
+   * Contraseña de la cuenta admin del seed. Sin default: si `ADMIN_PASSWORD`
+   * falta, el seed no crea ni resincroniza el admin (ver `hasAdminCredentials`).
+   */
+  adminPassword: env("ADMIN_PASSWORD"),
   mail: {
     host: env("SMTP_HOST"),
     port: Number(env("SMTP_PORT", "587")),
