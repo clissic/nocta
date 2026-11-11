@@ -3,10 +3,10 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // En producción la web se sirve como estáticos (`npm run start` → serve -s dist).
+  // `vite preview` queda solo para pruebas locales, sin abrir allowedHosts.
   preview: {
     host: true,
-    // Railway / dominios públicos; Vite bloquea Host desconocidos por defecto
-    allowedHosts: true,
   },
   server: {
     port: 5173,
