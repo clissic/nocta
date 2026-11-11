@@ -223,6 +223,9 @@ Ver `apps/api/.env.example`.
 | `AWS_ENDPOINT_URL` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_S3_BUCKET_NAME` / `AWS_DEFAULT_REGION` / `AWS_S3_URL_STYLE` | Credenciales Railway Bucket (preset AWS SDK). También acepta `ENDPOINT`/`BUCKET`/`ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`/`REGION` o prefijo `STORAGE_*` |
 | `EXPO_ACCESS_TOKEN` | Opcional. Token de [expo.dev](https://expo.dev/accounts/clissic/settings/access-tokens) para el cupo de avisos push. Sin esto el envío usa el cupo anónimo |
 | `RATE_LIMIT_DISABLED` | `1` apaga los cupos de `express-rate-limit`. Default apagado (los cupos están activos). Los tests e2e los saltean con `NOCTA_E2E=1` |
+| `SENTRY_DSN` | DSN de Sentry para la API. Vacío o ausente: el SDK no se inicializa y no rompe |
+| `SENTRY_ENVIRONMENT` | Entorno que se envía a Sentry (si falta, usa `NODE_ENV`) |
+| `SENTRY_TRACES_SAMPLE_RATE` | Tasa de traces (default `0.1`). Opcional |
 
 ### Cupos de solicitudes
 
@@ -863,6 +866,7 @@ Reglas Cursor: `.cursor/rules/nocta.mdc`, `wordmark-nocta.mdc`, `toasts.mdc`, `e
 - Proxy Vite: `/api` y `/uploads` → `http://localhost:4000` (solo legacy/local)
 - Producción (p. ej. Railway, web y API en dominios distintos):
   - Web: `VITE_API_URL=https://…api…` y **redesplegar** (Vite incrusta el env en el build)
+  - Sentry web: `VITE_SENTRY_DSN` y, opcional, `VITE_SENTRY_ENVIRONMENT` / `VITE_SENTRY_TRACES_SAMPLE_RATE`. También van incrustadas en el build: después de setearlas hay que **redesplegar** la web. Vacío = el SDK no se inicializa
   - API: `CLIENT_ORIGIN=https://…web…`, `API_PUBLIC_URL=https://…api…` (absolutiza fotos en JSON)
 - Espacios: `page` / `limit` / `type` / `q` + IntersectionObserver
 - Matches: `DELETE /api/matches/:id`, `POST .../report`, `POST .../block`

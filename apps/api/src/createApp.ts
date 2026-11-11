@@ -1,4 +1,6 @@
 import express from "express";
+import * as Sentry from "@sentry/node";
+import { sentryEnabled } from "./instrument.js";
 import cors from "cors";
 import morgan from "morgan";
 import { config } from "./config.js";
@@ -123,6 +125,12 @@ export function createApp() {
   app.use("/api/cities", cityRoutes);
   app.use("/api/ads", adsRoutes);
   app.use("/api/media", mediaRoutes);
+
+  // expressIntegration captura errores de rutas por sí solo; este handler queda
+  // como fallback (API deprecada en el SDK v11, se retira en el próximo major).
+  if (sentryEnabled) {
+    Sentry.setupExpressErrorHandler(app);
+  }
 
   app.use(
     (
