@@ -1,3 +1,4 @@
+import "./instrument.js";
 import { createServer } from "node:http";
 import { config, isMemoryDb } from "./config.js";
 import { connectDb } from "./db.js";
