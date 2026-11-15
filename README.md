@@ -964,7 +964,7 @@ Dos terminales en `C:\dev\Nocta` (+ el emulador):
 | 3 | `npm run dev:mobile` (o `npm run dev:mobile -- -c` para limpiar caché Metro) |
 | 4 | En la terminal de Metro (con foco): tecla **`a`** → abre en Expo Go / emulador |
 
-Smoke demo: `sofia@nocta.app` / `Demo1234!` → Espacios → publicar presencia → Discover (Jackson Bar). Otras demos: ver [Credenciales demo](#credenciales-demo).
+Smoke demo: `sofia@nocta.app` con la contraseña de las cuentas demo (ver [Credenciales demo](#credenciales-demo)) → Espacios → publicar presencia → Discover (Jackson Bar). Otras demos: misma sección.
 
 ### OAuth Google (mobile)
 
